@@ -139,23 +139,47 @@
 
 ---
 
-## 六、从源码构建（仅开发者需要）
+## 六、从源码运行 / 构建（仅开发者需要）
+
+> ⚠️ 本仓库按 `.gitignore` 排除了**体积大或敏感**的东西，克隆后不能直接跑，需按下表补齐。
+> 这些内容都是可重建的，不需要手动拷贝。
+
+| 未入库的内容 | 为什么 | 怎么补 |
+|---|---|---|
+| `src/web/vendor/`（前端库 4MB） | 第三方库，避免 vendor 化 | `powershell -ExecutionPolicy Bypass -File scripts\fetch_vendor.ps1` |
+| `src/web/vendor/pdfjs/` | 同上 | `.venv\Scripts\python scripts\fetch_pdfjs.py` |
+| `models/asr/`（SenseVoice 229MB） | 模型权重过大 | `powershell -ExecutionPolicy Bypass -File scripts\download_models.ps1`（走 hf-mirror 国内镜像） |
+| `models/tts/`（MeloTTS 77MB） | 同上 | `.venv\Scripts\python scripts\download_tts_model.py`（走 ModelScope 镜像，支持断点续传） |
+| `data/` | **含 `secret.key` 与用户资料库** | 首次启动自动创建，无需处理 |
+| `.venv/`、`dist*/`、`build/*/` | 虚拟环境与构建产物 | 见下方步骤 1 与 4 |
 
 ```powershell
 # 1) 建虚拟环境并装依赖（国内建议清华源）
 python -m venv .venv
 .venv\Scripts\python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt -r requirements-dev.txt
 
-# 2) 一键构建免安装绿色包（含语音模型下载）
+# 2) 补齐前端第三方库（否则界面起不来）
+powershell -ExecutionPolicy Bypass -File scripts\fetch_vendor.ps1
+.venv\Scripts\python scripts\fetch_pdfjs.py
+
+# 3) 下载本地模型（ASR 必需；TTS 可选，不下载会自动回退系统语音）
+powershell -ExecutionPolicy Bypass -File scripts\download_models.ps1
+.venv\Scripts\python scripts\download_tts_model.py
+
+# 4) 开发态直接跑（8760 端口），或一键打包
+.venv\Scripts\python -m backend.main            # 需设 PYTHONPATH=src
 powershell -ExecutionPolicy Bypass -File build\build.ps1
-# 产物：dist\知伴\
+# 打包产物：dist\知伴\
 ```
 
-运行自动化测试（无需网络与真实 Key）：
+运行自动化测试（自带 mock 模型服务，**无需网络与真实 Key**）：
 
 ```powershell
-.venv\Scripts\python dev\t06_t11_check.py     # 后端主链路 55 项自测
-.venv\Scripts\python -m pytest tests -q       # 单元测试
+.venv\Scripts\python dev\t06_t11_check.py     # 后端主链路 81 项
+.venv\Scripts\python dev\course_check.py      # 课程链路 116 项
+.venv\Scripts\python dev\course_ui_check.py   # 前端页面冒烟 44 项（需本机 Chrome）
+# 打包后冻结态（46 项；务必用独立数据目录，别污染真实数据）
+#   ZHIBAN_DIST=dist10 ZHIBAN_DATA_DIR=<临时目录> .venv\Scripts\python dev\frozen_check.py
 ```
 
 ---
