@@ -163,6 +163,32 @@ def main() -> int:
         check("F2 材料外零引用", len(ans3["citations"]) == 0)
         check("F3 grounded=False", ans3["grounded"] is False)
 
+        # ── F2. 课堂提问 grounding=loose 边界（前端默认改 loose 的回归）──
+        # 同一道材料外问题，loose 应允许在材料外补充并标注「材料外回答」，strict 仍如实回未提及。
+        print("[F2] 课堂提问 loose 边界")
+        put_model("mock-normal")
+        cid_f2a = httpx.post(f"{BACKEND}/api/conversations", json={}, timeout=10).json()["data"]["id"]
+        ans_f2a = httpx.post(f"{BACKEND}/api/chat", json={
+            "conversation_id": cid_f2a, "message": "量子纠缠的三体拓扑结构是什么？",
+            "grounding": "loose",
+        }, timeout=60).json()["data"]
+        check("F2.1 材料外(loose)不再回「材料中未提及」",
+              "材料中未提及" not in ans_f2a["answer"], ans_f2a["answer"][:150])
+        check("F2.2 材料外(loose)带「材料外回答」标注",
+              "材料外回答" in ans_f2a["answer"], ans_f2a["answer"][:150])
+        check("F2.3 材料外(loose)引用为空", len(ans_f2a["citations"]) == 0,
+              str(ans_f2a.get("citations")))
+
+        cid_f2b = httpx.post(f"{BACKEND}/api/conversations", json={}, timeout=10).json()["data"]["id"]
+        ans_f2b = httpx.post(f"{BACKEND}/api/chat", json={
+            "conversation_id": cid_f2b, "message": "量子纠缠的三体拓扑结构是什么？",
+            "grounding": "strict",
+        }, timeout=60).json()["data"]
+        check("F2.4 材料外(strict)仍回「材料中未提及」",
+              "材料中未提及" in ans_f2b["answer"], ans_f2b["answer"][:150])
+        check("F2.5 材料外(strict)引用为空", len(ans_f2b["citations"]) == 0,
+              str(ans_f2b.get("citations")))
+
         # ── G. 引导式护栏 ───────────────────────────────
         print("[G] 引导式教学护栏（20 分权重核心）")
         put_model("mock-violate-first-turn")

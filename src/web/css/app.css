@@ -60,6 +60,13 @@ main { flex: 1; min-height: 0; display: flex; }
 .col-side { width: 250px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--panel); }
 .col-main { flex: 1; }
 .col-right { width: 290px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); }
+/* 左补白列与右栏（课堂提问，340px）同宽 → 主栏落在屏幕中央 */
+.col-spacer { width: 340px; flex-shrink: 0; }
+/* 窗口不够宽时隐藏补白列，避免主栏被挤扁 */
+@media (max-width: 1100px) {
+  .col-spacer { display: none; }
+  .teach-stage { left: calc(50% - 170px); }
+}
 .panel-head {
   padding: 10px 14px; font-size: 12px; color: var(--muted); font-weight: 600;
   letter-spacing: .04em; border-bottom: 1px solid var(--border);
@@ -233,8 +240,23 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 600; }
 .lesson-row input[type=text] { min-width: 0; }
 
 /* ── 白板课堂 ─────────────────────────── */
-.lesson-head { flex: 1; overflow: auto; padding: 16px 20px; min-width: 0; }
-.board { max-width: 1000px; }
+/* 原 .lesson-head { flex: 1; overflow: auto; padding: 16px 20px; min-width: 0; }
+   去掉上内边距交给 .lesson-bar，这样贴顶时不会露出缝隙 */
+.lesson-head { flex: 1; overflow: auto; padding: 0 20px 16px; min-width: 0; }
+
+/* 顶部操作条：粘在滚动容器顶部，讲义再长也不消失 */
+.lesson-bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--bg);
+  margin: 0 -20px 10px; padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.lesson-pos { font-size: 12px; color: var(--muted); }
+.lesson-title { font-size: 16px; }
+.lesson-bar-actions { margin-left: auto; flex-wrap: wrap; }
+/* 课件本体也要在列内居中，否则仍然贴着左边 */
+.board { max-width: 1000px; margin: 0 auto; }
 .board-summary {
   background: var(--primary-soft); border: 1px solid #dcdcff; border-radius: 10px;
   padding: 12px 14px; margin-bottom: 14px; font-size: 14px;
@@ -286,8 +308,8 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 600; }
    字幕常显且不提供关闭入口（默认开启）。 */
 .teach-stage {
   position: fixed; bottom: 16px;
-  /* 居中在**左侧主栏**而非整个视口，避免压住右栏的课堂提问输入框 */
-  left: calc(50% - 170px);
+  /* 主栏经左补白列后已落在屏幕中央，整块字幕/互动框也居中（窄屏回退见媒体查询） */
+  left: 50%;
   transform: translateX(-50%);
   width: min(760px, max(320px, calc(100vw - 380px)));
   display: flex; flex-direction: column; gap: 10px;

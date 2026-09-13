@@ -240,6 +240,19 @@ def main() -> int:
         check("2.32 上课弹窗说明字幕", "屏幕中下方会同步显示字幕" in dom_lesson)
         check("2.33 弹窗说明讲完自动测验", "讲完自动进入随堂测验" in dom_lesson)
 
+        # 顶部操作条固定 / 左上角位置标签 / 课件居中补白列（课堂页体验修改）
+        pos_m = re.search(r'id="lesson-pos"[^>]*>(.*?)</span>', dom_lesson, re.S)
+        pos_text = pos_m.group(1) if pos_m else ""
+        check("2.34 课堂页含 lesson-bar 顶部操作条", "lesson-bar" in dom_lesson)
+        check("2.35 课堂页含 lesson-pos 位置标签", "lesson-pos" in dom_lesson)
+        check("2.36 lesson-pos 显示「第X单元·第Y课」",
+              re.search(r'第 \d+ 单元 · 第 \d+ 课', pos_text) is not None, pos_text)
+        check("2.37 课堂页含左补白列 col-spacer", "col-spacer" in dom_lesson)
+        check("2.38 返回按钮在动作组之前",
+              dom_lesson.index('id="b-back"') < dom_lesson.index('id="lesson-actions"'))
+        check("2.39 仅存在一个返回按钮", dom_lesson.count('id="b-back"') == 1,
+              f"count={dom_lesson.count('id=\"b-back\"')}")
+
         # 页面级 JS 错误会写进 DOM（main.js 的 catch 分支）
         m = re.search(r'data-view-error="1"[^>]*>加载失败：([^<]{0,140})', dom)
         check("3.1 练习页无 JS 异常", m is None, m.group(1) if m else "")

@@ -676,7 +676,11 @@
       conversation_id: S.conversationId,
       message: (ctx ? `[课堂上下文：${ctx}] ` : "") + text,
       guided: false,
-      document_ids: (S.course && S.course.document_ids) || null, grounding: "strict",
+      document_ids: (S.course && S.course.document_ids) || null,
+      // 课堂提问默认允许在材料之外补充：strict 模式会在无命中时直接回「材料中未提及」，
+      // 导致「linux 系统也是一样吗」这类延伸问题被拒答；loose 模式由服务端在无引用时
+      // 自动加「（材料外回答，未基于当前材料）」前缀，行为更友好。
+      grounding: "loose",
     }, {
       delta: (d) => { acc += d.text; MD.mount(bubble, acc); sc.scrollTop = sc.scrollHeight; },
       citation: (d) => { if (d.content) { acc = d.content; MD.mount(bubble, acc); } },
@@ -1150,21 +1154,32 @@
 
   /* ── 头部与动作按钮 ───────────────────── */
   /** 画讲次头部：标题 / 状态 / 动作按钮 / 页签容器 / 页签内容容器。 */
+  /** 左上角位置标签：第 X 单元 · 第 Y 课 / 本单元共 N 课。 */
+  function positionLabel() {
+    const units = (S.course && S.course.units) || [];
+    const ui = units.findIndex((u) => u.id === S.lesson.unit_id);
+    if (ui < 0) return "";
+    const lessons = units[ui].lessons || [];
+    const li = lessons.findIndex((x) => x.id === S.lesson.id);
+    if (li < 0) return "";
+    return `第 ${ui + 1} 单元 · 第 ${li + 1} 课 / 本单元共 ${lessons.length} 课`;
+  }
+
   function renderHead() {
     const l = S.lesson;
     const box = document.getElementById("lesson-head");
     if (!box) return;
     box.innerHTML = `
-      <div class="row" style="justify-content:space-between">
-        <div>
-          <b style="font-size:16px">${esc(l.title)}</b>
-          <span class="pill">${esc(l.kind_name)}</span>
-          ${l.status === "done" ? '<span class="pill ok">已完成</span>' : ""}
-        </div>
-        <div class="row" id="lesson-actions"></div>
+      <div class="lesson-bar">
+        <button class="btn small" id="b-back" title="返回课程列表">← 返回课程</button>
+        <span class="lesson-pos" id="lesson-pos">${esc(positionLabel())}</span>
+        <b class="lesson-title">${esc(l.title)}</b>
+        <span class="pill">${esc(l.kind_name)}</span>
+        ${l.status === "done" ? '<span class="pill ok">已完成</span>' : ""}
+        <div class="row lesson-bar-actions" id="lesson-actions"></div>
       </div>
-      <div class="hint">${esc(l.objective || "")}</div>
       <div class="tabs" id="lesson-tabs"></div>
+      <div class="hint">${esc(l.objective || "")}</div>
       <div id="tab-body"></div>`;
     renderActions();
   }
@@ -1175,7 +1190,6 @@
     const box = document.getElementById("lesson-actions");
     if (!box) return;
     box.innerHTML = `
-      <button class="btn small" id="b-back">返回课程</button>
       <button class="btn small" id="b-speak">${S.teaching ? "⏹ 停止" : "▶ 开始上课"}</button>
       ${l.kind === "practice" ? "" : `<button class="btn small" id="b-lecture">${
         l.board ? "重新生成讲义" : "生成讲义"}</button>`}
@@ -1359,6 +1373,7 @@
 
     host.innerHTML = `
       <div class="cols">
+        <div class="col col-spacer"></div>
         <div class="col col-main" style="display:flex;flex-direction:column;min-width:0">
           <div class="lesson-head" id="lesson-head"></div>
         </div>
