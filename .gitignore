@@ -1,0 +1,58 @@
+# ══════════════════════════════════════════════════════════
+#  知伴（ZhiBan）· 版本库忽略规则
+#  原则：只提交「可重建的东西」。模型、依赖、构建产物、用户数据一律不进库。
+# ══════════════════════════════════════════════════════════
+
+# ── 用户数据与密钥（最敏感：含 secret.key 与真实资料库）────
+data/
+
+# ── 模型权重（体积大，由 scripts/download_models.ps1 /
+#    scripts/download_tts_model.py 获取，不进版本库）────────
+models/asr/*
+models/tts/*
+models/embed/*
+# 保留目录占位，克隆后仍有正确结构
+!models/asr/.gitkeep
+!models/tts/.gitkeep
+!models/embed/.gitkeep
+# 兜底：任何位置出现的大模型二进制 / 下载残片
+**/*.onnx
+**/*.gguf
+**/*.pt
+**/*.pth
+**/*.bin
+**/.download.tmp
+**/*.fst
+
+# ── 前端第三方库（由 scripts/fetch_vendor.ps1 下载）────────
+src/web/vendor/
+
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.probe/
+.pytest_cache/
+.mypy_cache/
+
+# ── 构建产物 ───────────────────────────────────────────
+# build/ 下只保留 zhiban.spec 与 build.ps1；
+# 其余目录一律忽略：PyInstaller 默认 workpath（build/<spec名>/）、
+# 显式 --workpath build/workN、以及历史 dist 目录
+build/*/
+dist/
+dist*/
+.tmp/
+*.spec.bak
+
+# ── 本地配置与调试 ─────────────────────────────────────
+.env
+dev/_out/
+dev/_probe.txt
+*.log
+
+# ── 操作系统垃圾 ───────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store

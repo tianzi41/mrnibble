@@ -1,0 +1,401 @@
+"""本地 Mock LLM 服务（OpenAI 兼容，仅测试用，不进产品包）。
+
+用途：本机没有可用的大模型端点，也没有真实 API Key，因此用一个可**确定性控制
+输出行为**的假端点来驱动自动化测试——尤其是「故意违规」场景，用来证明护栏
+是真的拦得住，而不是只在正常路径上碰巧通过。
+
+启动：
+    .venv/Scripts/python.exe dev/mock_llm.py            # 监听 127.0.0.1:8761
+
+按 ``model`` 字段切换行为：
+    mock-normal              普通问答：返回带 [[c:1]] [[c:2]] 的 Markdown（流式/非流式均支持）
+    mock-good-guided         合规引导式输出（首轮 final_answer 为空、2 拆解 + 1 追问）
+    mock-violate-first-turn  **故意违规**：首轮就把最终答案塞进 final_answer
+    mock-bad-json            返回非法 JSON（验证解析失败兜底）
+    mock-empty-hits          回答引用 [[c:1]]（用于验证越界/无引用表时被剔除）
+    mock-cheatsheet          合规速查表 JSON（5 条）
+    mock-flashcard           合规闪卡 JSON（3 张）
+    mock-mindmap             合规思维导图 JSON
+    mock-quiz                合规练习题 JSON
+    其它任意名                原样回显输入
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import time
+import zlib
+
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
+app = FastAPI(title="ZhiBan Mock LLM")
+
+# mock 嵌入的维度。
+#
+# 注意（2026-09-12 修正）：早期版本用 `(seed*(i+3))%97/97` 这种锯齿函数生成向量，
+# 结果是**任意两段文本的余弦都偏高**，导致向量通道把无关问题也召回，进而让
+# 「材料外 → 必须回『材料中未提及』+ 零引用」这条红线在测试里失真。
+#
+# 现在改为「字符二元组 / 三元组 的哈希词袋」：
+# - 只用 n-gram 不用单字，避免「的 / 是」这类高频字造成假相似；
+# - 维度取 4096，把哈希碰撞压到可忽略（256 维时碰撞本身就能凑出 0.2 的余弦）；
+# - 用 zlib.crc32（跨进程稳定），绝不用内置 hash()（每进程加盐，不稳定）。
+EMBED_DIM = 4096
+
+
+def _quote_block() -> str:
+    """普通回答正文（含两个合法引用角标）。"""
+    return (
+        "材料中给出的核心结论是：洛必达法则用于处理 0/0 或 ∞/∞ 型未定式 [[c:1]]，"
+        "其适用前提是分子分母同时趋于零或无穷 [[c:2]]。\n\n"
+        "另外材料还强调了使用前要先验证类型，避免误用 [[c:1]]。"
+    )
+
+
+def _guided_payload(violate: bool) -> dict:
+    """构造引导式结构化输出。"""
+    if violate:
+        return {
+            "mode": "explain",
+            "final_answer": "洛必达法则的适用条件是分子分母同时趋于零或无穷。",
+            "decomposition_steps": [{"step": 1, "title": "直接给结论", "hint": ""}],
+            "follow_up_questions": [],
+            "knowledge_gaps": [],
+            "next_action": "conclude",
+            "student_state": {"mastery": 1.0},
+            "conclusion_allowed": True,
+            "summary": "答案是：分子分母同时趋于零或无穷。",
+            "citations_used": [1],
+        }
+    return {
+        "mode": "explain",
+        "final_answer": "",
+        "decomposition_steps": [
+            {"step": 1, "title": "确认未定式类型", "hint": "先判断是 0/0 还是 ∞/∞ [[c:1]]"},
+            {"step": 2, "title": "分别对分子分母求导", "hint": "写出求导后的式子，先别代入数值"},
+            {"step": 3, "title": "再求极限并核对前提", "hint": "检查结果是否仍为未定式"},
+        ],
+        "follow_up_questions": [
+            "你先说说，这道题的分子和分母在 x→0 时各自趋于多少？",
+        ],
+        "knowledge_gaps": [],
+        "next_action": "ask_follow_up",
+        "student_state": {"mastery": 0.2, "confidence": 0.4},
+        "conclusion_allowed": False,
+        "summary": (
+            "我们先把问题拆开，一步步来，先不急着得到结论。\n\n"
+            "**推进顺序**\n1. 确认未定式类型\n2. 分别对分子分母求导\n3. 再求极限并核对前提\n\n"
+            "材料里相关定义在 [[c:1]]。"
+        ),
+        "citations_used": [1],
+    }
+
+
+def _bad_json() -> str:
+    """故意非法的 JSON（缺失右括号）。"""
+    return '{"mode": "explain", "final_answer": "", "decomposition_steps": ['
+
+
+def _pick(body: dict) -> str:
+    """按 model 名路由到对应行为，返回回复文本。"""
+    model = str(body.get("model") or "")
+    if model == "mock-normal":
+        return _quote_block()
+    if model == "mock-stall-guided":
+        # 恒定返回同一份引导输出：模拟「模型原地打转、一直问同一个问题」。
+        return json.dumps(_guided_payload(False), ensure_ascii=False)
+    if model == "mock-echo-guided":
+        # 引导式路径的回显：必须是**合法 JSON**（否则走兜底模板，看不到注入内容）。
+        # 只取**最后一条** system（= build_guided_messages 拼的「材料检索结果」那一块）：
+        # 首条 system 是护栏规则本身，里面列了「答案是」等反面示例词，
+        # 原样回显会被结论句式判定正确拦下（护栏在正常工作，但我们就看不到注入了）。
+        msgs = body.get("messages") or []
+        systems = [str(m.get("content") or "") for m in msgs if m.get("role") == "system"]
+        roles = ",".join(str(m.get("role") or "?") for m in msgs)
+        ctx = systems[-1] if systems else ""
+        # 脱敏：提示词里本来就会写「答案是」这类**反面示例词**，原样回显会被
+        # 护栏的结论句式判定拦下（护栏工作正常，但我们就看不到注入内容了）。
+        for bad in ("正确答案是", "正确答案为", "答案是", "答案为", "最终答案", "结果是"):
+            ctx = ctx.replace(bad, "结论〇")
+        payload = _guided_payload(False)
+        payload["summary"] = f"CTX[roles={roles}]>>>" + ctx[:800]
+        return json.dumps(payload, ensure_ascii=False)
+    if model == "mock-echo-context":
+        # 回显注入的 system 上下文：用来**直接看到**材料到底有没有进提示词。
+        # 只适用于普通（非结构化）路径；引导式路径需要合法 JSON，请用 mock-good-guided。
+        msgs = body.get("messages") or []
+        systems = [str(m.get("content") or "") for m in msgs if m.get("role") == "system"]
+        return "===MOCK-ECHO===\n" + "\n---\n".join(systems)
+    if model == "mock-good-guided":
+        return json.dumps(_guided_payload(False), ensure_ascii=False)
+    if model == "mock-violate-first-turn":
+        return json.dumps(_guided_payload(True), ensure_ascii=False)
+    if model == "mock-bad-json":
+        return _bad_json()
+    if model == "mock-empty-hits":
+        return "这里引用了一个不存在的编号 [[c:9]]，以及一个越界的 [[c:999]]。"
+    if model == "mock-cheatsheet":
+        items = [
+            {"point": f"要点{i}", "detail": f"第{i}条的说明内容 [[c:1]]", "cite": [1]}
+            for i in range(1, 6)
+        ]
+        return json.dumps({"items": items}, ensure_ascii=False)
+    if model == "mock-flashcard":
+        items = [
+            {"question": f"问题{i}", "answer": f"答案{i} [[c:1]]"} for i in range(1, 4)
+        ]
+        return json.dumps({"items": items}, ensure_ascii=False)
+    if model == "mock-mindmap":
+        return json.dumps({
+            "root": {"name": "极限", "children": [
+                {"name": "定义", "children": [{"name": "ε-δ 定义"}]},
+                {"name": "运算法则", "children": [{"name": "四则运算"}, {"name": "复合"}]},
+                {"name": "连续", "children": [{"name": "左右连续"}]},
+            ]},
+        }, ensure_ascii=False)
+    if model == "mock-outline":
+        # 课程大纲：2 个单元，每单元 2 讲解 + 1 练习
+        return json.dumps({
+            "title": "极限与洛必达法则",
+            "summary": "从极限定义出发，掌握洛必达法则的使用前提与典型题型。",
+            "units": [
+                {"title": "极限的基础", "summary": "建立极限的直觉与定义",
+                 "lessons": [
+                     {"title": "极限是什么", "objective": "能用自己的话解释极限 [[c:1]]",
+                      "kind": "lecture", "depth": "establish"},
+                     {"title": "极限的运算法则", "objective": "会用四则运算求极限 [[c:1]]",
+                      "kind": "lecture", "depth": "define"},
+                     {"title": "基础练习", "objective": "巩固本节内容", "kind": "practice",
+                      "depth": "apply"},
+                 ]},
+                {"title": "洛必达法则", "summary": "未定式的处理",
+                 "lessons": [
+                     {"title": "适用前提", "objective": "能判断何时可用 [[c:2]]",
+                      "kind": "lecture", "depth": "define"},
+                     {"title": "典型例题", "objective": "会做 0/0 与 ∞/∞ 型 [[c:2]]",
+                      "kind": "lecture", "depth": "derive"},
+                     {"title": "随堂练习", "objective": "检验掌握程度", "kind": "practice",
+                      "depth": "apply"},
+                 ]},
+            ],
+        }, ensure_ascii=False)
+    if model == "mock-lecture":
+        return json.dumps({
+            "summary": "本讲先建立直觉，再给出形式化定义 [[c:1]]。",
+            "slides": [
+                {"id": "slide-1", "kind": "concept", "title": "极限的直觉", "bullets": [
+                    "自变量靠近某点", "函数值靠近确定的数", "重点是趋势，不一定要取到该点"],
+                 "body": "", "citation_refs": [1]},
+                {"id": "slide-2", "kind": "quote", "title": "材料中的关键表述", "bullets": [
+                    "洛必达法则用于处理未定式极限", "先判断类型，再考虑法则"],
+                 "body": "", "citation_refs": [2]},
+                {"id": "slide-3", "kind": "example", "title": "使用前检查", "bullets": [
+                    "0/0 型", "∞/∞ 型", "不满足前提就不能直接用"],
+                 "body": "", "citation_refs": [2]},
+            ],
+            "scripts": [
+                {"slide_id": "slide-1", "text": "这一页我们先建立极限的直觉。你只需要抓住两个动作：自变量在靠近，函数值也在靠近。材料中说，极限描述的是函数在某点附近的变化趋势 [[c:1]]，所以重点不是这个点本身能不能取到，而是靠近时的趋势。"},
+                {"slide_id": "slide-2", "text": "接下来把这个直觉连接到洛必达法则。课件上只列了两点，但讲的时候要补一句：洛必达不是所有极限题的万能按钮，它主要服务于未定式极限。材料里提到它是求未定式极限的重要方法 [[c:2]]，这里的关键词就是未定式。"},
+                {"slide_id": "slide-3", "text": "最后看使用前检查。拿到题目不要急着求导，先确认是不是零比零或无穷比无穷。如果这个前提没满足，直接套洛必达就可能把题做错。也就是说，先验证类型，再使用法则 [[c:2]]。"},
+            ],
+            "cards": [
+                {"kind": "concept", "title": "极限的直觉 [[c:1]]",
+                 "body": "当自变量无限接近某点时，函数值无限接近某个确定的数 [[c:1]]。"},
+                {"kind": "quote", "title": "材料原文 [[c:2]]",
+                 "body": "洛必达法则是求未定式极限的重要方法 [[c:2]]。"},
+                {"kind": "example", "title": "一个例子", "body": "先验证类型，再使用法则 [[c:2]]。"},
+                {"kind": "note", "title": "易错提醒", "body": "未验证类型就用法则会出错。"},
+            ],
+            "outline": ["建立直觉", "形式化定义", "验证使用前提"],
+            "keypoints": [
+                {"term": "未定式", "desc": "0/0 或 ∞/∞ 型 [[c:2]]"},
+                {"term": "极限", "desc": "函数在某点附近的趋势 [[c:1]]"},
+            ],
+            "recap": "先判断类型，再决定方法 [[c:2]]。",
+            # 材料标注意图：n 对应引用表编号，服务端据此回填真实页码。
+            "marks": [
+                {"n": 1, "kind": "highlight", "text": "这里定义了极限，是后面所有推导的基础"},
+                {"n": 2, "kind": "circle", "text": "注意：使用前必须先验证类型"},
+            ],
+        }, ensure_ascii=False)
+    if model == "mock-summary":
+        return json.dumps({
+            "recap": "本单元先建立极限的直觉与定义，再进入洛必达法则的适用前提。",
+            "mastered": ["能用自己的话解释极限", "能判断 0/0 与 ∞/∞ 型"],
+            "weak_points": ["对「使用前必须验证类型」这一步还不够熟"],
+            "next_steps": ["把易错点那节课重看一遍", "重做一次随堂练习"],
+            "score_note": "练习整体正确率不错，主要是细节容易漏。",
+        }, ensure_ascii=False)
+    if model == "mock-practice":
+        return json.dumps({"items": [
+            {"type": "single", "stem": "洛必达法则适用于哪种未定式 [[c:2]]",
+             "options": ["0/0 型", "1/0 型", "0·∞ 型", "∞-∞ 型"],
+             "answer": 0, "explanation": "材料指出适用于 0/0 或 ∞/∞ 型 [[c:2]]"},
+            {"type": "boolean", "stem": "使用前必须先验证类型 [[c:2]]",
+             "options": ["正确", "错误"], "answer": 0,
+             "explanation": "材料强调先验证 [[c:2]]"},
+            {"type": "fill_in", "stem": "洛必达法则处理的两种未定式是 ____ 与 ____",
+             "answer": ["0/0 型 与 ∞/∞ 型", "0/0和∞/∞"], "explanation": "见材料 [[c:2]]"},
+            {"type": "open", "stem": "说说使用洛必达法则前要做什么",
+             "answer": "先验证是否为 0/0 或 ∞/∞ 型未定式", "explanation": "要点：验证类型"},
+            {"type": "single", "stem": "看图：图中划线部分讲的是什么 [[c:2]]",
+             "options": ["极限的定义", "洛必达法则的适用前提", "连续性", "导数运算法则"],
+             "answer": 1, "explanation": "见材料对应页 [[c:2]]", "image": {"n": 2}},
+        ]}, ensure_ascii=False)
+    if model == "mock-grade":
+        return json.dumps({"correct": True, "score": 0.8,
+                           "feedback": "答出了核心要点，建议补充「先验证类型」这一步。"},
+                          ensure_ascii=False)
+    if model == "mock-quiz":
+        items = [
+            {"stem": f"第{i}题：洛必达法则适用于哪种未定式？",
+             "options": ["0/0", "1/0", "∞-∞", "0·∞"],
+             "answer_index": 0, "explanation": f"解析{i} [[c:1]]"}
+            for i in range(1, 4)
+        ]
+        return json.dumps({"items": items}, ensure_ascii=False)
+    if model == "mock-goals":
+        return json.dumps({
+            "goals": [
+                "能用自己的话解释极限的定义",
+                "能判断一道题该不该用洛必达法则",
+                "能独立完成 0/0 与 ∞/∞ 型的极限计算",
+                "能说出使用洛必达法则前必须验证的两个前提",
+            ],
+        }, ensure_ascii=False)
+    if model == "mock-outline-5":
+        return json.dumps({
+            "title": "极限与洛必达法则（五单元）",
+            "summary": "极限定义、运算法则、洛必达法则、连续性、综合练习。",
+            "units": [
+                {"title": f"单元{i}", "summary": f"第{i}单元简介",
+                 "lessons": [
+                     {"title": f"单元{i}·讲解1", "objective": "能掌握核心概念", "kind": "lecture", "depth": "define"},
+                     {"title": f"单元{i}·讲解2", "objective": "能完成典型例题", "kind": "lecture", "depth": "derive"},
+                     {"title": f"单元{i}·练习", "objective": "巩固本节内容", "kind": "practice", "depth": "apply"},
+                 ]}
+                for i in range(1, 6)
+            ],
+        }, ensure_ascii=False)
+    if model == "mock-echo-flags":
+        # 用于验证 LLM 请求参数（如 enable_thinking）是否被正确下发。
+        return json.dumps({
+            "goals": [f"enable_thinking={body.get('enable_thinking')}"],
+        }, ensure_ascii=False)
+    return f"[mock] 收到：{body.get('messages', [{}])[-1].get('content', '')[:200]}"
+
+
+def _chunk_text(text: str, size: int = 12):
+    """把文本切成增量块。"""
+    for i in range(0, len(text), size):
+        yield text[i:i + size]
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"ok": True, "service": "mock-llm"}
+
+
+# 真实 OpenAI 兼容端点都会暴露模型清单；补上它，才能验证
+# 「模型名不在端点可用列表」这类提示（这正是用户实际踩到的坑）。
+MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-empty-hits",
+               "mock-echo-context", "mock-echo-guided", "mock-good-guided", "mock-stall-guided",
+               "mock-outline", "mock-lecture", "mock-practice", "mock-grade",
+               "mock-summary", "mock-goals", "mock-outline-5", "mock-echo-flags")
+
+
+@app.get("/v1/models")
+def list_models() -> JSONResponse:
+    """OpenAI 兼容模型列表。"""
+    return JSONResponse({
+        "object": "list",
+        "data": [{"id": m, "object": "model", "owned_by": "mock"} for m in MOCK_MODELS],
+    })
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: Request):
+    """OpenAI 兼容 chat/completions（支持 stream=true 的 SSE）。"""
+    body = await request.json()
+    text = _pick(body)
+    created = int(time.time())
+    model = str(body.get("model") or "mock")
+
+    if body.get("stream"):
+        def sse():
+            for piece in _chunk_text(text):
+                frame = {
+                    "id": "chatcmpl-mock", "object": "chat.completion.chunk",
+                    "created": created, "model": model,
+                    "choices": [{"index": 0, "delta": {"content": piece}, "finish_reason": None}],
+                }
+                yield f"data: {json.dumps(frame, ensure_ascii=False)}\n\n"
+            done = {
+                "id": "chatcmpl-mock", "object": "chat.completion.chunk",
+                "created": created, "model": model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            }
+            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(sse(), media_type="text/event-stream")
+
+    return JSONResponse({
+        "id": "chatcmpl-mock", "object": "chat.completion", "created": created,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": text},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": len(text), "total_tokens": 10 + len(text)},
+    })
+
+
+@app.post("/v1/embeddings")
+async def embeddings(request: Request):
+    """OpenAI 兼容 embeddings（返回确定性伪向量，仅用于走通检索融合）。"""
+    body = await request.json()
+    inputs = body.get("input")
+    inputs = inputs if isinstance(inputs, list) else [inputs]
+
+    def vec(t: str) -> list[float]:
+        """确定性「字符 n-gram」哈希词袋向量（已 L2 归一化）。
+
+        语义上等价于词法相似度：字符片段重叠越多余弦越高，无重叠则接近 0。
+        足以让「相关 → 召回」「材料外 → 召回为空」两类判定稳定复现。
+        长度不足 2 的文本退化为整串哈希。
+        """
+        s = str(t)
+        feats: list[str] = []
+        for n in (2, 3):
+            if len(s) >= n:
+                feats.extend(s[i:i + n] for i in range(len(s) - n + 1))
+        if not feats:
+            feats = [s or " "]
+        v = [0.0] * EMBED_DIM
+        for f in feats:
+            v[zlib.crc32(f.encode("utf-8")) % EMBED_DIM] += 1.0
+        norm = math.sqrt(sum(x * x for x in v)) or 1.0
+        return [x / norm for x in v]
+
+    data = [{"object": "embedding", "index": i, "embedding": vec(t)} for i, t in enumerate(inputs)]
+    return JSONResponse({
+        "object": "list", "data": data,
+        "model": body.get("model") or "mock-embed",
+        "usage": {"prompt_tokens": 1, "total_tokens": 1},
+    })
+
+
+if __name__ == "__main__":
+    # 端口可用 ZHIBAN_MOCK_PORT 覆盖（多套自测并行时避免抢 8761）。
+    import os
+
+    uvicorn.run(
+        app, host="127.0.0.1",
+        port=int(os.environ.get("ZHIBAN_MOCK_PORT", "8761")),
+        log_level="warning",
+    )

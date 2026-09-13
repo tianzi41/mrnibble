@@ -1,0 +1,123 @@
+"""系统路由：健康检查、系统信息、统计、优雅关闭（架构文档 §6.3）。"""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+from typing import Any
+
+from fastapi import APIRouter
+
+from .. import __version__
+from .. import heartbeat
+from ..config import get_config
+from ..deps import get_database
+from ..errors import ok
+from ..paths import data_path, resource_path
+
+__all__ = ["router"]
+
+router = APIRouter()
+
+# 进程启动时间（用于 uptime 计算）。
+_START_TS: float = time.time()
+
+
+def _read_port() -> int:
+    """读取实际监听端口：优先 ``runtime.json``，回退配置首选端口。"""
+    cfg = get_config()
+    runtime_file = cfg.runtime_path
+    try:
+        if runtime_file.exists():
+            data = json.loads(runtime_file.read_text(encoding="utf-8"))
+            port = data.get("port")
+            if isinstance(port, int):
+                return port
+    except (OSError, ValueError):
+        pass
+    return cfg.port_pref
+
+
+@router.get("/health", summary="健康检查")
+def health() -> dict[str, Any]:
+    """返回服务健康状态。"""
+    return ok(
+        {
+            "status": "ok",
+            "version": __version__,
+            "port": _read_port(),
+            "uptime_s": round(time.time() - _START_TS, 3),
+        }
+    )
+
+
+@router.post("/heartbeat", summary="页面心跳（桌面启动器据此判断窗口是否存活）")
+def page_heartbeat() -> dict[str, Any]:
+    """前端每 5 秒调用一次；启动器以「心跳是否持续」决定何时停服务。
+
+    背景：Edge 首开可能把 URL 转交给已有实例后立即退出，浏览器子进程的
+    存活状态**不可靠**（曾导致服务启动 1 秒就被关掉、页面显示拒绝连接）。
+    """
+    heartbeat.touch()
+    return ok({"ok": True})
+
+
+@router.get("/system/info", summary="系统信息")
+def system_info() -> dict[str, Any]:
+    """返回版本、数据目录、模型目录、离线提示等。"""
+    cfg = get_config()
+    asr_dir = resource_path("models", "asr", "sense-voice-small")
+    embed_dir = resource_path("models", "embed")
+    return ok(
+        {
+            "version": cfg.version,
+            "port": _read_port(),
+            "data_dir": str(cfg.data_dir),
+            "frozen": cfg.frozen,
+            "offline_hint": "断网时请切换到本地模型端点（Ollama），可离线问答与检索。",
+            "models": {
+                "asr": str(asr_dir) if asr_dir.exists() else None,
+                "embed": str(embed_dir) if embed_dir.exists() else None,
+            },
+        }
+    )
+
+
+@router.get("/system/stats", summary="资料/切片/会话/记忆计数")
+def system_stats() -> dict[str, Any]:
+    """返回各主要表的行数统计。"""
+    db = get_database()
+
+    def _count(table: str) -> int:
+        try:
+            row = db.query_one(f"SELECT COUNT(*) AS c FROM {table}")
+            return int(row["c"]) if row else 0
+        except Exception:
+            return 0
+
+    return ok(
+        {
+            "documents": _count("documents"),
+            "chunks": _count("chunks"),
+            "conversations": _count("conversations"),
+            "messages": _count("messages"),
+            "memories": _count("memories"),
+            "generations": _count("generations"),
+            "flashcards": _count("flashcards"),
+        }
+    )
+
+
+def _delayed_exit(delay_s: float = 0.3) -> None:
+    """延迟短暂时间后强制结束进程（给响应留出回写时间）。"""
+    time.sleep(delay_s)
+    os._exit(0)
+
+
+@router.post("/system/shutdown", summary="优雅关闭知伴")
+def system_shutdown() -> dict[str, Any]:
+    """响应后退出进程（供界面「退出知伴」按钮调用）。"""
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+    return ok({"shutting_down": True})

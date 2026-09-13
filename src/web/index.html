@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知伴 · 本地 AI 学习伴侣</title>
+<link rel="stylesheet" href="/static/vendor/highlight/github.min.css">
+<link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div id="app">
+  <!-- ── 顶栏 ─────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand"><span class="logo">知</span><span>知伴</span><small>本地 AI 学习伴侣</small></div>
+    <nav class="nav" id="nav"></nav>
+    <div class="topbar-right">
+      <span id="conn-dot" class="dot" title="服务状态"></span>
+      <span id="model-badge" class="badge">未配置模型</span>
+    </div>
+  </header>
+
+  <main id="view"></main>
+
+  <!-- ── 全局提示 ─────────────────────────── -->
+  <div id="toast" class="toast"></div>
+</div>
+
+<!-- 依赖顺序不可变：d3 → katex → markmap-view → markmap-lib -->
+<!-- pdf.js：ESM 版本，用动态 import 把入口挂到 window，供后续原生脚本使用。
+     用动态 import（而不是 type="module"）是为了能捕获加载失败并提示，
+     否则模块加载失败会静默无感，只能看到「材料页渲染不出来」。 -->
+<script>
+(function () {
+  import("/static/vendor/pdfjs/pdf.min.mjs").then(function (pdfjs) {
+    pdfjs.GlobalWorkerOptions.workerSrc = "/static/vendor/pdfjs/pdf.worker.min.mjs";
+    window.PdfJS = pdfjs;
+  }).catch(function (e) {
+    window.PdfJSError = String((e && e.message) || e);
+    console.warn("pdf.js 加载失败：", window.PdfJSError);
+  });
+})();
+</script>
+<script src="/static/vendor/d3/d3.min.js"></script>
+<script src="/static/vendor/katex/katex.min.js"></script>
+<script src="/static/vendor/marked/marked.min.js"></script>
+<script src="/static/vendor/dompurify/purify.min.js"></script>
+<script src="/static/vendor/highlight/highlight.min.js"></script>
+<script src="/static/vendor/markmap/markmap-view.js"></script>
+<script src="/static/vendor/markmap/markmap-lib.js"></script>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/markdown.js"></script>
+<script src="/static/js/voice.js"></script>
+<script src="/static/js/asr.js"></script>
+<script src="/static/js/pdfview.js"></script>
+<script src="/static/js/boardexport.js"></script>
+<script src="/static/js/views/courses.js"></script>
+<script src="/static/js/views/lesson.js"></script>
+<script src="/static/js/views/practice.js"></script>
+<script src="/static/js/views/workbench.js"></script>
+<script src="/static/js/views/generate.js"></script>
+<script src="/static/js/views/review.js"></script>
+<script src="/static/js/views/memory.js"></script>
+<script src="/static/js/views/settings.js"></script>
+<script src="/static/js/main.js"></script>
+</body>
+</html>

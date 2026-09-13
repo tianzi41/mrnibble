@@ -1,0 +1,11 @@
+# 知伴（ZhiBan）开发/打包依赖
+# 安装：pip install -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+-r requirements.txt
+
+# 测试
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# 打包
+pyinstaller>=6.6.0
