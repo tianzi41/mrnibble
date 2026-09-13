@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import re
@@ -54,6 +55,16 @@ _MAX_RETRY = 1
 # 大纲默认单元数 / 每单元讲次数（模型输出不足时用于兜底）。
 _DEFAULT_UNITS = 3
 _DEFAULT_LESSONS = 3
+
+# ── 「讲稿不许照念课件」的结构判定阈值 ──────────────────
+# 归一化后 difflib 相似度达到该值 → 判定为逐字复述课件。
+# 为什么要做结构判定而不是只写进提示词：模型（尤其小模型）会反复
+# 退化成「把课件念一遍」，只在提示词里叮嘱无法保证；这里用确定性的
+# 文本比较拦下，再重写一次，仍不合格走确定性扩写兜底。
+_SCRIPT_DUP_RATIO = 0.82
+# 相似度偏高时，讲稿还需显著长于课件文本才算「展开了」。
+_SCRIPT_DUP_SOFT_RATIO = 0.70
+_SCRIPT_MIN_EXPAND = 1.25
 
 # ── 通用规则（所有课程生成提示词共用）───────────────────
 _BASE_RULES = """通用规则：
@@ -124,7 +135,13 @@ _LECTURE_PROMPT = """你是课堂讲师。请为下面这一讲准备一版**课
 
 要求：
 - slides 至少 3 页；每页只放学生需要看的标题、短要点或例子，避免完整讲稿；
-- scripts 必须与 slides 逐页一一对应，slide_id 必须来自 slides；每段 script 应比对应 slide 更口语、更完整；
+- scripts 必须与 slides 逐页一一对应，slide_id 必须来自 slides；
+- **scripts 最重要的规则：讲师讲稿 ≠ 课件文字。禁止把课件标题与要点原样念一遍。**
+  每段 script 必须比对应 slide 明显更口语、更完整（建议长度是课件文字的 1.5 倍以上），
+  并且至少包含「解释为什么」「举一个例子」「和上一页衔接」这三类成分中的两类。
+  反例（禁止）：slide 写「要点：洛必达法则适用于 0/0 型」，script 也写「洛必达法则适用于 0/0 型」。
+  正例：script 写「我们刚才看到这个式子上下都趋于零，直接代入算不出来。这时候洛必达法则才有用——
+  它要求分子分母同时趋于零（或同时趋于无穷），也就是所谓的 0/0 型。举个最常见的例子……」。
 - cards 至少 3 张，其中至少 1 张 kind 为 quote（直接引用材料原句）；keypoints 至少 2 条；不要输出空数组；
 - slides/scripts/cards 中如引用材料，统一使用 [[c:N]]。citation_refs 只写本页用到的材料编号，不写页码。
 
@@ -132,6 +149,23 @@ marks 是**材料标注意图**：n 必须是本讲引用到的材料编号（�
 [[c:N]] 的 N），kind 取 highlight（黄底高亮）或 circle（红圈），text 是要在旁边写的一句话旁注。
 没有把握就返回空数组，不要编造 n。
 """ + _BASE_RULES
+
+# 「讲稿照念课件」被结构判定拦下后的定向重写提示词（只重写有问题的页）。
+_SCRIPT_REWRITE_PROMPT = """你是课堂讲师。下面列出的课件页，对应的**讲师讲稿**
+只是把课件文字念了一遍——这是不合格的。
+
+请为每一页重写讲稿，要求：
+1. 绝对不要照抄课件的标题或要点原句，必须换成口语化的讲解；
+2. 每段讲稿至少包含「解释为什么这样」「举一个具体例子」「和上下文衔接」中的两类；
+3. 长度明显长于课件文字（建议 1.5 倍以上），读起来像老师在讲台上说话，不是念 PPT；
+4. 如引用材料仍用 [[c:N]]，不要写页码。
+
+待重写的页：
+__PAYLOAD__
+
+只输出 JSON：{"scripts":[{"slide_id":"原始 slide id","text":"重写后的讲稿"}]}
+不要输出 JSON 以外的任何文字。
+"""
 
 _PRACTICE_PROMPT = """你是出题老师。请围绕这一讲出 __COUNT__ 道题，__DEPTH__。
 
@@ -1116,6 +1150,10 @@ class CourseService:
             if obj is None:
                 obj = self._lecture_fallback(lesson, hits)
                 self._set_stage(job_id, "模型输出不稳定，已按材料片段生成讲义")
+            else:
+                # 结构校验通过 ≠ 讲稿合格：再拦一次「照着课件念」。
+                # 这条用文本相似度做结构判定，不依赖模型自觉。
+                obj = self._repair_mirrored_scripts(obj, job_id)
 
             board, citations = self._resolve_board(obj, table)
             db = get_db()
@@ -1266,6 +1304,145 @@ class CourseService:
         if slide.get("body"):
             parts.append(slide["body"])
         return "。".join([str(x).strip() for x in parts if str(x).strip()])
+
+    @staticmethod
+    def _script_mirrors_slide(slide: dict[str, Any], text: str) -> bool:
+        """讲稿是否只是把课件页逐字念了一遍（确定性判定，不问模型）。
+
+        三条判据命中任一即算复述：
+
+        1. 归一化后的课件文本几乎完整出现在讲稿里（课件 ≥12 字且被包含）；
+        2. ``difflib`` 相似度 ≥ :data:`_SCRIPT_DUP_RATIO`；
+        3. 相似度 ≥ :data:`_SCRIPT_DUP_SOFT_RATIO` 且讲稿长度不足课件的
+           :data:`_SCRIPT_MIN_EXPAND` 倍 —— 既没换说法也没展开。
+
+        Args:
+            slide: 课件页（``title`` / ``bullets`` / ``body``）。
+            text: 对应的讲师讲稿原文。
+
+        Returns:
+            判定为「照念课件」时返回 ``True``。
+        """
+        slide_text = _norm_text(CourseService._script_from_slide(slide))
+        script_text = _norm_text(text)
+        if not slide_text or not script_text:
+            return False
+        if len(slide_text) >= 12 and slide_text in script_text:
+            return True
+        ratio = difflib.SequenceMatcher(None, slide_text, script_text).ratio()
+        if ratio >= _SCRIPT_DUP_RATIO:
+            return True
+        return ratio >= _SCRIPT_DUP_SOFT_RATIO and len(script_text) < len(slide_text) * _SCRIPT_MIN_EXPAND
+
+    @staticmethod
+    def _expand_script(slide: dict[str, Any]) -> str:
+        """把课件页确定性扩写成一段「不像念 PPT」的讲稿（最后一道兜底）。
+
+        只在模型两次都写成复述时启用。用固定话术框架把课件要点转成口语化
+        讲解，保证产出与课件原文不重合，也保证课堂永远不会没词可说。
+
+        Args:
+            slide: 课件页。
+
+        Returns:
+            讲稿文本（≤4000 字）。
+        """
+        title = str(slide.get("title") or "这一页").strip()
+        bullets = [str(x).strip() for x in (slide.get("bullets") or []) if str(x).strip()]
+        body = str(slide.get("body") or "").strip()
+        lines = [f"我们来看这一页，主题是「{title}」。"]
+        if bullets:
+            lines.append("先把这里的要点串一遍：" + "；".join(bullets) + "。")
+            lines.append(
+                f"为什么要放在一起看？你可以先想一想：这一步在解决什么问题、"
+                f"如果不这么做会卡在哪里。想清楚这一点，再往下看会顺很多。"
+            )
+        if body:
+            lines.append("再补充一点：" + body)
+        lines.append("这一页就先讲到这里，我们接着往下看。")
+        return "".join(lines)[:4000]
+
+    def _repair_mirrored_scripts(
+        self, obj: dict[str, Any], job_id: str
+    ) -> dict[str, Any]:
+        """拦下「讲稿逐字照念课件」：先定向重写一次，仍不合格则确定性扩写。
+
+        与引导式护栏同一思路 —— **不信任模型的自述**，用文本相似度做结构判定；
+        违规就重试，再不行走确定性兜底，保证交付出去的讲稿一定不是复述。
+
+        Args:
+            obj: 已通过结构校验的课堂内容包（含 ``slides`` / ``scripts``）。
+            job_id: 当前生成任务 id（用于向前端播报阶段）。
+
+        Returns:
+            修正后的内容包（原地更新 ``scripts``）。
+        """
+        slides = list(obj.get("slides") or [])
+        scripts = list(obj.get("scripts") or [])
+        if not slides or not scripts:
+            return obj
+        by_id: dict[str, dict[str, Any]] = {
+            str(s.get("slide_id")): dict(s) for s in scripts if s.get("slide_id")
+        }
+        bad = [
+            sl for sl in slides
+            if self._script_mirrors_slide(sl, str((by_id.get(sl["id"]) or {}).get("text") or ""))
+        ]
+        if not bad:
+            return obj
+
+        logger.info("讲稿与课件雷同，触发重写", extra={"extra_fields": {"slides": len(bad)}})
+        self._set_stage(job_id, "讲稿与课件过于雷同，正在重写讲解")
+        bad_ids = {sl["id"] for sl in bad}
+        payload = {
+            "slides": [
+                {"id": sl["id"], "title": sl.get("title"), "bullets": sl.get("bullets")}
+                for sl in bad
+            ],
+            "scripts": [
+                {"slide_id": sl["id"], "text": (by_id.get(sl["id"]) or {}).get("text") or ""}
+                for sl in bad
+            ],
+        }
+        prompt = _SCRIPT_REWRITE_PROMPT.replace(
+            "__PAYLOAD__", json.dumps(payload, ensure_ascii=False)[:4000]
+        )
+        try:
+            raw = self._chat(
+                [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "请重写这些页的讲师讲稿。"},
+                ],
+                max_tokens=2048,
+            )
+            parsed = self._safe_json(raw) or {}
+            fixed = self._clean_scripts(parsed.get("scripts"), bad_ids, bad)
+            for item in fixed:
+                sid = str(item.get("slide_id") or "")
+                cand = str(item.get("text") or "").strip()
+                slide = next((s for s in bad if s["id"] == sid), None)
+                # 只接受「确实不再雷同」的重写；否则留给下面的确定性扩写兜底。
+                if slide and cand and not self._script_mirrors_slide(slide, cand):
+                    by_id[sid] = {"slide_id": sid, "text": cand, "cue": "rewritten"}
+        except Exception as exc:  # noqa: BLE001 - 重写失败不影响主流程
+            logger.warning(
+                "讲稿重写失败，将走确定性扩写",
+                extra={"extra_fields": {"type": type(exc).__name__}},
+            )
+
+        expanded = 0
+        for sl in bad:
+            cur = str((by_id.get(sl["id"]) or {}).get("text") or "")
+            if self._script_mirrors_slide(sl, cur):
+                by_id[sl["id"]] = {
+                    "slide_id": sl["id"], "text": self._expand_script(sl), "cue": "expanded",
+                }
+                expanded += 1
+        if expanded:
+            logger.info("讲稿仍有 %d 页雷同，已确定性扩写", expanded)
+
+        obj["scripts"] = [by_id[s["id"]] for s in slides if s["id"] in by_id]
+        return obj
 
     @staticmethod
     def _validate_lecture(obj: dict[str, Any]) -> dict[str, Any] | None:
@@ -1761,6 +1938,56 @@ class CourseService:
                 )
             out.append(item)
         return out
+
+    # ── 单题即时判定（答题即时反馈用）────────────────────
+    def check_answer(
+        self, lesson_id: str, question_id: str, answer: Any
+    ) -> dict[str, Any]:
+        """判定单题作答并返回解析，**不写入任何记录**。
+
+        用于「每答完一题立刻显示对错 + 解析」：先把判定结果给前端展示，
+        而作答记录、错题本与讲次状态仍由最终的 :meth:`grade` 统一落库，
+        避免两条写入路径产生不一致（也避免重做时重复计次）。
+
+        题目本身不携带正确答案（见 :meth:`list_questions`），
+        正确答案与解析只在本方法返回时下发，**答完才可见**。
+
+        Args:
+            lesson_id: 讲次 id（校验题目归属，防止跨讲次提交）。
+            question_id: 题目 id。
+            answer: 学生作答（选项下标 / 文本）。
+
+        Returns:
+            ``{question_id, type, correct, score, feedback, expected, explanation}``。
+
+        Raises:
+            AppError: ``1001`` 题目不存在或不属于该讲次。
+        """
+        row = get_db().query_one(
+            "SELECT * FROM practice_questions WHERE id = ? AND lesson_id = ?",
+            (question_id, lesson_id),
+        )
+        if row is None:
+            raise AppError(1001, "题目不存在", f"question_id={question_id}")
+        res = self._grade_one(row, answer)
+        # 选择题额外回传正确选项下标，前端据此高亮正确项（不回传则无法标出）。
+        expected_index: int | None = None
+        if row["type"] in ("single", "boolean"):
+            raw_index = _json_loads(row["answer"], 0)
+            try:
+                expected_index = int(raw_index)
+            except (TypeError, ValueError):
+                expected_index = None
+        return {
+            "question_id": question_id,
+            "type": row["type"],
+            "correct": bool(res["correct"]),
+            "score": float(res["score"]),
+            "feedback": res["feedback"],
+            "expected": res["expected"],
+            "expected_index": expected_index,
+            "explanation": row["explanation"] or "",
+        }
 
     # ── 判分 ────────────────────────────────────────────
     def grade(

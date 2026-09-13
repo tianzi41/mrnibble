@@ -56,6 +56,43 @@
     return chunks;
   }
 
+  /**
+   * 按**句子边界**切块，相邻短句合并到不超过 ``maxLen``。
+   *
+   * 用于字幕同步：``chunkChars`` 模式下每次 ``onChunk`` 触发恰好对应
+   * 一句（或两句）话，屏幕上的字幕就能跟着语音一句句更新，
+   * 而不是一次把整页讲稿全铺出来。
+   */
+  function splitBySentence(text, maxLen) {
+    const s = String(text || "");
+    const parts = [];
+    let start = 0;
+    for (let i = 0; i < s.length; i++) {
+      if ("。！？!?；;".indexOf(s[i]) >= 0) {
+        const piece = s.slice(start, i + 1).trim();
+        if (piece) parts.push(piece);
+        start = i + 1;
+      }
+    }
+    const tail = s.slice(start).trim();
+    if (tail) parts.push(tail);
+    if (!parts.length) return [s];
+
+    const out = [];
+    let buf = "";
+    parts.forEach((p) => {
+      if (p.length > maxLen) {
+        if (buf) { out.push(buf); buf = ""; }
+        for (let i = 0; i < p.length; i += maxLen) out.push(p.slice(i, i + maxLen));
+        return;
+      }
+      if (buf && (buf + p).length > maxLen) { out.push(buf); buf = p; }
+      else buf += p;
+    });
+    if (buf) out.push(buf);
+    return out;
+  }
+
   // 代数计数：++gen 可让上一批的回调全部失效（stop() 时用）。
   let _gen = 0;
 
@@ -128,11 +165,14 @@
    * @param {string} text Markdown 或纯文本
    * @param {{onError?: (msg: string) => void, onWarn?: (msg: string) => void,
    *          onChunk?: (text: string, index: number, total: number) => void,
-   *          onEnd?: () => void}} opts
+   *          onEnd?: () => void, chunkChars?: number}} opts
    *
    * ``onChunk`` 在每一段开始朗读前触发（可用于「实时显示正在讲什么」）；
    * ``onEnd`` 在整段读完时触发（可被上层用来推进到下一页课件）。
    * 被 ``stop()`` 中断时两者都不会再触发。
+   *
+   * ``chunkChars`` 指定时改用**按句子切块**，让 ``onChunk`` 的粒度落在
+   * 一句话上（课堂字幕需要「说一句、显示一句」），不指定则沿用大块切分。
    */
   async function speak(text, opts) {
     opts = opts || {};
@@ -145,9 +185,15 @@
 
     const myGen = ++_gen;
 
+    // 单块上限：melo 后端单段上限 300 字，这里切得更保守；system 引擎单次 1200 字。
+    const hardMax = _engine === "melo" ? 120 : 1200;
+    const detailed = Number(opts.chunkChars) > 0;
+    const chunkMax = detailed ? Math.min(Number(opts.chunkChars), hardMax) : hardMax;
+    const cut = (t) => (detailed ? splitBySentence(t, chunkMax) : splitChunks(t, chunkMax));
+
     if (_engine === "melo") {
-      // 后端单段上限 300 字，这里切得更保守，边合成边播、延迟更低。
-      const chunks = splitChunks(capped, 120);
+      // 边合成边播、延迟更低。
+      const chunks = cut(capped);
       for (let i = 0; i < chunks.length; i++) {
         if (myGen !== _gen) return;   // 已被 stop()
         let buf;
@@ -170,7 +216,7 @@
       fail("当前浏览器不支持本地朗读，可在「设置 → 语音」改用云端朗读");
       return;
     }
-    const chunks = splitChunks(capped, 1200);
+    const chunks = cut(capped);
     speechSynthesis.cancel();
 
     function speakNext(idx) {

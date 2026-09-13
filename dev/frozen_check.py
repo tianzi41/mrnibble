@@ -247,6 +247,20 @@ def main():
               and {s["id"] for s in les.get("slides") or []}
                   == {sc["slide_id"] for sc in les.get("scripts") or []})
 
+        # 讲稿去雷同护栏：mock 故意把讲稿写成照念课件，冻结版也必须拦住
+        httpx.put(f"{BACKEND}/api/settings", json={"llm": {"model": "mock-lecture-mirror"}}, **C)
+        r = httpx.post(f"{BACKEND}/api/courses/lessons/{lid}/lecture", **C).json()
+        for _ in range(160):
+            j = httpx.get(f"{BACKEND}/api/courses/jobs/{r['data']['job_id']}", **C).json()["data"]
+            if j["status"] in ("ready", "failed"):
+                break
+            time.sleep(0.5)
+        _les2 = httpx.get(f"{BACKEND}/api/courses/lessons/{lid}", **C).json()["data"]
+        _scripts2 = _les2.get("scripts") or []
+        check("7.7c 冻结版拦住「讲稿照念课件」",
+              bool(_scripts2) and all(sc.get("cue") in ("rewritten", "expanded") for sc in _scripts2),
+              str([sc.get("cue") for sc in _scripts2]))
+
         httpx.put(f"{BACKEND}/api/settings", json={"llm": {"model": "mock-practice"}}, **C)
         r = httpx.post(f"{BACKEND}/api/courses/lessons/{lid}/practice",
                        json={"count": 5}, **C).json()
@@ -260,6 +274,16 @@ def main():
         check("7.9 题目已生成且不含答案",
               len(qs) == 5 and all("answer" not in q for q in qs), str(len(qs)))
         by_type = {q["type"]: q for q in qs}
+        # 单题即时判定（逐题反馈用）：答完立刻知道对错与解析，且不写库
+        _q1 = next(q for q in qs if q["type"] == "single")
+        _rc = httpx.post(f"{BACKEND}/api/courses/lessons/{lid}/check",
+                         json={"question_id": _q1["id"], "answer": 0}, **C).json()
+        _rd = _rc.get("data") or {}
+        check("7.9b 冻结版单题即时判定可用",
+              _rc["code"] == 0 and "expected_index" in _rd
+              and _rd.get("correct") == (0 == _rd.get("expected_index"))
+              and bool((_rd.get("explanation") or "").strip()),
+              str(_rd)[:140])
         httpx.put(f"{BACKEND}/api/settings", json={"llm": {"model": "mock-grade"}}, **C)
         r = httpx.post(f"{BACKEND}/api/courses/lessons/{lid}/grade", json={"answers": [
             {"question_id": by_type["single"]["id"], "answer": 0},

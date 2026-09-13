@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
@@ -80,6 +82,13 @@ class GradeRequest(BaseModel):
     """``POST /api/courses/lessons/{id}/grade`` 请求体。"""
 
     answers: list[dict] = Field(default_factory=list, description="[{question_id, answer}]")
+
+
+class CheckRequest(BaseModel):
+    """``POST /api/courses/lessons/{id}/check`` 请求体（单题即时判定）。"""
+
+    question_id: str = Field(min_length=1, description="题目 id")
+    answer: Any = Field(default=None, description="选项下标（single/boolean）或文本（fill_in/open）")
 
 
 def _svc() -> CourseService:
@@ -242,6 +251,12 @@ def list_practice(lid: str) -> dict:
     """列出题目（不含正确答案）。"""
     items = _svc().list_questions(lid)
     return ok({"items": items, "total": len(items)})
+
+
+@router.post("/courses/lessons/{lid}/check")
+def check_answer(lid: str, payload: CheckRequest) -> dict:
+    """判定单题作答并返回对错与解析（不落库，供逐题即时反馈）。"""
+    return ok(_svc().check_answer(lid, payload.question_id, payload.answer))
 
 
 @router.post("/courses/lessons/{lid}/grade")

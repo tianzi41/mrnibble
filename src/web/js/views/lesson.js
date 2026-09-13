@@ -29,6 +29,7 @@
     // 右侧面板
     citesOpen: false,       // 引用来源：默认收起
     speaking: "",           // 讲师当前正在讲述的内容（实时）
+    subtitle: "",           // 屏幕中下方字幕（与语音同步，逐句更新）
     // 课件 / 讲授进度
     slides: [],             // 学生看的课件页（优先来自 lesson.slides）
     scripts: [],            // 讲师讲稿（按 slide_id 关联课件）
@@ -53,6 +54,10 @@
   };
   const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // 字幕粒度：按句子切块朗读，每块最多这么多字。
+  // 越小字幕越跟得紧，但语音停顿会变碎；90 字约等于 1~2 句，是实测较平衡的值。
+  const SUB_CHARS = 90;
 
   /* ── 数据 ─────────────────────────────── */
   async function loadLesson(id) {
@@ -854,7 +859,59 @@
     }
   }
 
-  /* ── 右侧「讲师讲述」：历史可上翻 + 互动检查点 + 完成后下一步 ── */
+  /* ── 屏幕中下方「授课舞台」：字幕 + 互动选择 ── */
+  /**
+   * 互动检查点的选择卡片。
+   *
+   * 原先放在右上角「讲师讲述」面板底部，用户反馈**很难发现**（视线在前方
+   * 课件与讲述上，不会去看右栏角落）。现在改为在屏幕中下方、紧贴字幕弹出，
+   * 与「听到这里，还好吗？」的场景位置一致。
+   */
+  function buildAskCard() {
+    const card = el("div", "teach-card");
+    card.appendChild(el("div", "t", "听到这里，还好吗？"));
+    const row = el("div", "row");
+    const go = el("button", "btn small primary", "继续上课");
+    go.onclick = resumeTeaching;
+    const again = el("button", "btn small", "重讲本页");
+    again.onclick = replaySlide;
+    const ask = el("button", "btn small", "我有疑问");
+    ask.onclick = () => {
+      const ta = document.getElementById("lesson-input");
+      if (ta) { ta.focus(); ta.placeholder = "输入你的疑问，讲完这段我接着讲"; }
+    };
+    const skip = el("button", "btn small", "不用停，直接讲完");
+    skip.onclick = () => { S.noPause = true; resumeTeaching(); };
+    row.appendChild(go); row.appendChild(again); row.appendChild(ask); row.appendChild(skip);
+    card.appendChild(row);
+    return card;
+  }
+
+  /**
+   * 重画授课舞台：字幕常显（默认开启，不提供关闭入口），
+   * 互动选择在暂停时出现在字幕正上方。
+   */
+  function renderStage() {
+    const stage = document.getElementById("teach-stage");
+    if (!stage) return;
+    const visible = !!(S.teaching || S.finished);
+    stage.hidden = !visible;
+    // 上课时给课件区留出字幕高度（见 app.css 的 body.teaching-on #tab-body）
+    document.body.classList.toggle("teaching-on", visible);
+    if (!visible) return;
+    const ask = document.getElementById("teach-ask");
+    const sub = document.getElementById("teach-sub");
+    if (!ask || !sub) return;
+    ask.innerHTML = "";
+    const showAsk = S.paused && S.teaching;
+    ask.hidden = !showAsk;
+    if (showAsk) ask.appendChild(buildAskCard());
+    // 字幕文本优先级：正在朗读的句子 > 已讲完提示 > 待开始提示
+    const text = S.subtitle || (S.finished ? "本讲讲完了。" : "");
+    sub.textContent = text || "准备开始…";
+  }
+
+  /* ── 右侧「讲师讲述」：历史可上翻 + 完成后下一步 ── */
   function renderSpeaking() {
     const box = document.getElementById("lesson-speaking");
     if (!box) return;
@@ -885,26 +942,8 @@
       }
     }
 
-    // 互动检查点：每讲完两页暂停一次，给选择，而不是一口气讲到结束
-    if (S.paused && S.teaching) {
-      const card = el("div", "teach-card");
-      card.appendChild(el("div", "t", "听到这里，还好吗？"));
-      const row = el("div", "row");
-      const go = el("button", "btn small primary", "继续上课");
-      go.onclick = resumeTeaching;
-      const again = el("button", "btn small", "重讲本页");
-      again.onclick = replaySlide;
-      const ask = el("button", "btn small", "我有疑问");
-      ask.onclick = () => {
-        const ta = document.getElementById("lesson-input");
-        if (ta) { ta.focus(); ta.placeholder = "输入你的疑问，讲完这段我接着讲"; }
-      };
-      const skip = el("button", "btn small", "不用停，直接讲完");
-      skip.onclick = () => { S.noPause = true; resumeTeaching(); };
-      row.appendChild(go); row.appendChild(again); row.appendChild(ask); row.appendChild(skip);
-      card.appendChild(row);
-      body.appendChild(card);
-    }
+    // 互动检查点已移到屏幕中下方的授课舞台（见 renderStage）：
+    // 放在右栏角落用户看不见 —— 选择必须出现在视线正前方。
 
     // 讲完后：给出明确的下一步，而不是只留一个输入框
     if (S.finished) {
@@ -950,14 +989,44 @@
   function pauseForInteraction() {
     S.paused = true;
     S.speaking = "";
+    S.subtitle = "";
     renderSpeaking();
+    renderStage();
   }
 
   function resumeTeaching() {
     if (!S.teaching) return;
     S.paused = false;
     renderSpeaking();
+    renderStage();
     nextSlide();
+  }
+
+  /**
+   * 朗读一页讲稿：**逐句**驱动字幕，读完交给 :func:`afterSlideSpoken` 分流。
+   *
+   * ``chunkChars`` 让 Voice 按句子切块，``onChunk`` 因此落到「一句」粒度，
+   * 屏幕中下方的字幕就能跟着语音一句句刷新。
+   */
+  function speakSlide(sl) {
+    const script = scriptTextForSlide(sl, S.slideIndex);
+    S.speaking = Voice.plainText(script);
+    S.subtitle = "";
+    renderSpeaking();
+    renderStage();
+    Voice.speak(script, {
+      chunkChars: SUB_CHARS,
+      onChunk: (t) => {
+        if (!S.teaching) return;
+        S.speaking = t;
+        S.subtitle = t;
+        renderSpeaking();
+        renderStage();
+      },
+      onEnd: () => afterSlideSpoken(),
+      onWarn: (m) => Toast(m, true),
+      onError: (m) => { Toast(m, true); stopTeaching(); },
+    });
   }
 
   /** 重讲当前页（不前进），读完同样走 afterSlideSpoken 分流。 */
@@ -966,14 +1035,9 @@
     S.paused = false;
     const sl = S.slides[S.slideIndex];
     if (!sl) return;
-    const script = scriptTextForSlide(sl, S.slideIndex);
     renderSpeaking();
-    Voice.speak(script, {
-      onChunk: (t) => { if (!S.teaching) return; S.speaking = t; renderSpeaking(); },
-      onEnd: () => afterSlideSpoken(),
-      onWarn: (m) => Toast(m, true),
-      onError: (m) => { Toast(m, true); finishTeaching(); },
-    });
+    renderStage();
+    speakSlide(sl);
   }
 
   /** 逐页讲授：每页出现 → 朗读 → 读完走 afterSlideSpoken 分流。 */
@@ -982,34 +1046,74 @@
     S.slideIndex += 1;
     if (S.slideIndex >= S.slides.length) { finishTeaching(); return; }
     renderTabBody();
-    const sl = S.slides[S.slideIndex];
-    const script = scriptTextForSlide(sl, S.slideIndex);
-    S.speaking = Voice.plainText(script);
-    renderSpeaking();
-    Voice.speak(script, {
-      onChunk: (t) => { if (!S.teaching) return; S.speaking = t; renderSpeaking(); },
-      onEnd: () => afterSlideSpoken(),
-      onWarn: (m) => Toast(m, true),
-      onError: (m) => { Toast(m, true); finishTeaching(); },
-    });
+    speakSlide(S.slides[S.slideIndex]);
   }
 
   function finishTeaching() {
     S.teaching = false;
     S.paused = false;
     S.speaking = "";
+    S.subtitle = "";
     S.finished = true;
     S.slideIndex = Math.max(0, S.slides.length - 1);
     renderHead();
     renderTabBody();
     renderSpeaking();
-    Toast("这一讲讲完了：可去测验、进入下一课，或返回课程大纲");
+    renderStage();
+    // 随堂测验不再等用户点：讲完就自动出题并进入答题。
+    autoPractice();
+  }
+
+  /**
+   * 讲完自动生成随堂测验并进入答题页。
+   *
+   * 用户反馈「当前需手动点击才出现」——这里改成讲完即自动生成（后台任务
+   * + 字幕区播报进度），生成完直接跳到答题页；失败则给出可重试的提示，
+   * 不会把用户卡在课堂上。
+   */
+  async function autoPractice() {
+    const l = S.lesson;
+    if (!l) return;
+    const sub = document.getElementById("teach-sub");
+    const say = (t) => { if (sub) sub.textContent = t; };
+    try {
+      if (!S.questionCount) {
+        say("这一讲讲完了，正在为你生成随堂测验…");
+        const r = await Api.post("/api/courses/lessons/" + l.id + "/practice", { count: 5 });
+        await pollJob(r.job_id, (stage) => say("正在出题…" + (stage || "")));
+        await loadLesson(l.id);
+        renderTabBody();
+        renderSpeaking();
+      }
+      say("测验已生成，正在进入答题…");
+      location.hash = "#/practice/" + l.id;
+    } catch (e) {
+      say("随堂测验生成失败：" + e.message + "（可在右侧「去测验」重试）");
+      Toast("随堂测验生成失败：" + e.message, true);
+    }
+  }
+
+  /**
+   * 手动停止讲授：保留已讲进度，但**不**认作「讲完」。
+   *
+   * 与 :func:`finishTeaching` 的关键区别：不触发自动出题 —— 只有真正
+   * 逐页讲到最后才算上完课。
+   */
+  function stopTeaching() {
+    Voice.stop();
+    S.teaching = false;
+    S.paused = false;
+    S.speaking = "";
+    S.subtitle = "";
+    renderHead();
+    renderSpeaking();
+    renderStage();
+    Toast("已停止，可点「▶ 开始上课」从头再讲一遍");
   }
 
   function toggleSpeak(btn) {
     if (S.teaching || (window.speechSynthesis && speechSynthesis.speaking)) {
-      Voice.stop();
-      finishTeaching();
+      stopTeaching();
       return;
     }
     if (!S.lesson.board) return Toast("还没有讲义，先生成讲义", true);
@@ -1170,7 +1274,8 @@
     const box = el("div", "modal-box");
     box.innerHTML = `
       <div class="modal-title">准备好了吗？</div>
-      <div class="hint">《${esc(S.lesson.title)}》的课件已经就绪。点击「开始上课」，我会按课件逐页讲解，右上角同步显示我正在讲的内容。</div>`;
+      <div class="hint">《${esc(S.lesson.title)}》的课件已经就绪。点击「开始上课」，我会按课件逐页讲解；
+      屏幕中下方会同步显示字幕（不想听声音时可以直接读），讲完自动进入随堂测验。</div>`;
     const row = el("div", "row");
     row.style.marginTop = "16px";
     const go = el("button", "btn primary", "开始上课");
@@ -1195,11 +1300,13 @@
     S.finished = false;
     S.noPause = false;
     S.speakLog = [];
+    S.subtitle = "";
     S.tab = "slides";
     renderTabs();
     renderHead();      // 让「开始上课」按钮变成「停止」
     renderTabBody();
     renderSpeaking();
+    renderStage();
     nextSlide();
   }
 
@@ -1242,6 +1349,7 @@
     S.noPause = false;
     S.speakLog = [];
     S.speaking = "";
+    S.subtitle = "";
     S.slides = [];
     S.scripts = [];
     S.slideIndex = 0;
@@ -1269,9 +1377,15 @@
             </div>
           </div>
         </div>
+      </div>
+      <!-- 授课舞台：屏幕中下方常驻字幕 + 暂停时的互动选择（固定定位，不随页面滚动） -->
+      <div class="teach-stage" id="teach-stage" hidden>
+        <div class="teach-ask" id="teach-ask" hidden></div>
+        <div class="teach-sub" id="teach-sub"></div>
       </div>`;
 
     renderHead();
+    renderStage();
     document.getElementById("b-send").onclick = send;
     document.getElementById("lesson-input").onkeydown = (e) => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }

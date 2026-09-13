@@ -280,6 +280,38 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 600; }
 .teach-card .t { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
 .teach-card .row { flex-wrap: wrap; gap: 6px; }
 
+/* ── 授课舞台：屏幕中下方常驻字幕 + 互动选择 ──────────────
+   为什么固定在屏幕中下方而不是右栏角落：学生上课时视线在课件与语音上，
+   互动选择（「听到这里，还好吗？」＋四个选项）放右栏底部几乎不会被发现。
+   字幕常显且不提供关闭入口（默认开启）。 */
+.teach-stage {
+  position: fixed; bottom: 16px;
+  /* 居中在**左侧主栏**而非整个视口，避免压住右栏的课堂提问输入框 */
+  left: calc(50% - 170px);
+  transform: translateX(-50%);
+  width: min(760px, max(320px, calc(100vw - 380px)));
+  display: flex; flex-direction: column; gap: 10px;
+  z-index: 60; pointer-events: none;
+}
+.teach-stage[hidden] { display: none; }
+.teach-ask { pointer-events: auto; }
+.teach-ask[hidden] { display: none; }
+.teach-ask .teach-card {
+  margin-top: 0; padding: 14px 16px; background: var(--panel);
+  box-shadow: 0 10px 30px rgba(16, 24, 40, .2);
+}
+.teach-ask .teach-card .t { font-size: 14px; }
+.teach-sub {
+  pointer-events: auto; text-align: center;
+  background: rgba(17, 24, 39, .86); color: #fff;
+  border-radius: 10px; padding: 10px 16px;
+  font-size: 15px; line-height: 1.6; letter-spacing: .2px;
+  box-shadow: 0 6px 20px rgba(16, 24, 40, .24);
+  max-height: 5.4em; overflow: hidden;
+}
+/* 上课时给课件区留出字幕高度，避免最后一行被舞台压住 */
+body.teaching-on #tab-body { padding-bottom: 132px; }
+
 .board-sec { margin-top: 18px; }
 .board-sec .sec-title { font-weight: 700; margin-bottom: 6px; }
 .board-sec ol { margin: 0; padding-left: 22px; }
@@ -294,6 +326,26 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 600; }
 .opt-row:hover { border-color: var(--primary); }
 .opt-row.picked { border-color: var(--primary); background: var(--primary-soft); }
 .opt-row .opt-key { font-weight: 700; color: var(--primary); }
+/* 已判定：锁定改选，正确项标绿、选错的项标红 */
+.opt-row.locked { cursor: default; }
+.opt-row.locked:hover { border-color: var(--border); }
+.opt-row.correct { border-color: var(--ok); background: rgba(5, 150, 105, .1); }
+.opt-row.correct .opt-key { color: var(--ok); }
+.opt-row.wrong { border-color: var(--bad); background: rgba(220, 38, 38, .09); }
+.opt-row.wrong .opt-key { color: var(--bad); }
+/* 答完一题立刻出现的对错 + 解析 */
+.q-feedback {
+  margin-top: 12px; padding: 11px 14px; border-radius: 9px;
+  border-left: 3px solid var(--primary); background: #f8fafc;
+}
+.q-feedback.ok { border-left-color: var(--ok); background: rgba(5, 150, 105, .07); }
+.q-feedback.bad { border-left-color: var(--bad); background: rgba(220, 38, 38, .06); }
+.q-feedback .fb-head { font-weight: 700; margin-bottom: 4px; }
+.q-feedback.ok .fb-head { color: var(--ok); }
+.q-feedback.bad .fb-head { color: var(--bad); }
+.q-feedback .fb-body { font-size: 13px; }
+.q-feedback .fb-body > :first-child { margin-top: 0; }
+.q-feedback .fb-body > :last-child { margin-bottom: 0; }
 .fill-input {
   width: 100%; padding: 9px 11px; border: 1px solid var(--border);
   border-radius: 9px; outline: none; background: #fff; resize: vertical;

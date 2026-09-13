@@ -6,8 +6,10 @@
     lesson: null,
     questions: [],
     answers: {},      // questionId -> 值
+    checked: {},      // questionId -> 单题判定结果（对错/参考答案/解析），答完即填
     index: 0,
     result: null,
+    checking: false,
   };
 
   const el = (tag, cls, html) => {
@@ -24,17 +26,51 @@
     const d = await Api.get("/api/courses/lessons/" + lessonId + "/practice");
     S.questions = d.items || [];
     S.answers = {};
+    S.checked = {};
     S.index = 0;
     S.result = null;
+    S.checking = false;
+  }
+
+  /** 是否已作答：未选 / 空字符串 / 纯空白都算没答。 */
+  function isAnswered(q) {
+    const a = S.answers[q.id];
+    if (a === undefined || a === null) return false;
+    if (typeof a === "string") return a.trim().length > 0;
+    return true;
+  }
+
+  /**
+   * 单题即时判定：把作答发给后端换回对错、参考答案与解析，**立刻**展示。
+   *
+   * 判定接口不写库（作答记录仍由最终提交统一落库），所以这里可以放心
+   * 反复调用而不会污染成绩与错题本。
+   */
+  async function checkOne(host, q) {
+    if (!isAnswered(q) || S.checking) return;
+    S.checking = true;
+    try {
+      S.checked[q.id] = await Api.post("/api/courses/lessons/" + S.lesson.id + "/check", {
+        question_id: q.id,
+        answer: S.answers[q.id],
+      });
+    } catch (e) {
+      Toast("判定失败：" + e.message, true);
+    } finally {
+      S.checking = false;
+      renderBody(host);
+    }
   }
 
   /* ── 题目区 ─────────────────────────────── */
   function renderQuestion(host) {
     const q = S.questions[S.index];
     if (!q) return;
+    const res = S.checked[q.id] || null;
     const box = el("div", "card");
     box.appendChild(el("div", "hint",
-      `第 ${S.index + 1} / ${S.questions.length} 题 · ${typeName(q.type)}`));
+      `第 ${S.index + 1} / ${S.questions.length} 题 · ${typeName(q.type)}`
+      + (res ? (res.correct ? " · 已答对" : " · 已作答") : "")));
     const stem = el("div", "stem md");
     MD.mount(stem, q.stem);
     box.appendChild(stem);
@@ -65,45 +101,102 @@
     }
 
     const zone = el("div");
+    const objective = q.type === "single" || q.type === "boolean";
 
-    if (q.type === "single" || q.type === "boolean") {
+    if (objective) {
       (q.options || []).forEach((opt, i) => {
-        const row = el("div", "opt-row" + (S.answers[q.id] === i ? " picked" : ""));
+        const picked = S.answers[q.id] === i;
+        let cls = "opt-row";
+        if (picked) cls += " picked";
+        if (res) {
+          // 判定后锁定：正确项标绿、选错的项标红，不再允许改选（避免看到答案后改）。
+          cls += " locked";
+          if (res.expected_index === i) cls += " correct";
+          else if (picked) cls += " wrong";
+        }
+        const row = el("div", cls);
         row.innerHTML = `<span class="opt-key">${String.fromCharCode(65 + i)}</span><span>${esc(opt)}</span>`;
-        row.onclick = () => { S.answers[q.id] = i; renderBody(host); };
+        if (!res) {
+          // 选择题点选即作答 → 立刻判定并展示解析，不用再点一次按钮。
+          row.onclick = () => {
+            S.answers[q.id] = i;
+            renderBody(host);
+            checkOne(host, q);
+          };
+        }
         zone.appendChild(row);
       });
+      if (!res) zone.appendChild(el("div", "hint", "点选答案后会立刻显示对错与解析。"));
     } else if (q.type === "fill_in") {
       const inp = el("input", "fill-input");
       inp.type = "text";
       inp.placeholder = "填入答案（不区分大小写与标点）";
       inp.value = S.answers[q.id] || "";
+      inp.disabled = !!res;
       inp.oninput = () => { S.answers[q.id] = inp.value; };
+      inp.onkeydown = (e) => {
+        if (e.key === "Enter") { e.preventDefault(); checkOne(host, q); }
+      };
       zone.appendChild(inp);
-      zone.appendChild(el("div", "hint", "用简短词语作答即可，例如一个术语或数值。"));
+      if (!res) zone.appendChild(el("div", "hint", "填好后点「确认作答」，会立刻显示对错与解析。"));
     } else {
       const ta = el("textarea", "fill-input");
       ta.rows = 5;
       ta.placeholder = "用自己的话作答（开放题由模型按参考答案评分）";
       ta.value = S.answers[q.id] || "";
+      ta.disabled = !!res;
       ta.oninput = () => { S.answers[q.id] = ta.value; };
       zone.appendChild(ta);
+      if (!res) zone.appendChild(el("div", "hint", "写完后点「确认作答」，会立刻给出评分与解析。"));
     }
     box.appendChild(zone);
 
+    // 非选择题不给「选择即判定」的时机，需要一个明确的确认动作。
+    if (!objective && !res) {
+      const cbtn = el("button", "btn small primary", "✅ 确认作答");
+      cbtn.style.marginTop = "10px";
+      cbtn.onclick = () => checkOne(host, q);
+      box.appendChild(cbtn);
+    }
+
+    // 即时反馈：对错 → 参考答案 → 解析（紧跟在作答之后）
+    if (res) {
+      const fb = el("div", "q-feedback " + (res.correct ? "ok" : "bad"));
+      fb.appendChild(el("div", "fb-head", res.correct ? "✅ 回答正确" : "❌ 回答不正确"));
+      if (res.expected && !res.correct) {
+        fb.appendChild(el("div", "hint", `参考答案：${esc(res.expected)}`));
+      }
+      const text = String(res.explanation || res.feedback || "").trim();
+      if (text) {
+        const md = el("div", "md fb-body");
+        MD.mount(md, text);
+        fb.appendChild(md);
+      }
+      box.appendChild(fb);
+    }
+
+    // 未作答不允许进入下一题（用户反馈：以前没选也能点「下一步」）
+    const answered = isAnswered(q);
+    const last = S.index === S.questions.length - 1;
     const nav = el("div", "row");
     nav.style.marginTop = "14px";
     const prev = el("button", "btn small", "上一题");
+    prev.id = "q-prev";
     prev.disabled = S.index === 0;
     prev.onclick = () => { S.index--; renderBody(host); };
-    const next = el("button", "btn small", S.index === S.questions.length - 1 ? "提交并判分" : "下一题");
-    next.className = "btn small primary";
+    const next = el("button", "btn small primary", last ? "提交并查看成绩" : "下一题");
+    next.id = "q-next";
+    next.disabled = !answered;
+    next.title = answered ? "" : "请先作答本题";
     next.onclick = async () => {
-      if (S.index < S.questions.length - 1) { S.index++; renderBody(host); return; }
+      if (!isAnswered(q)) return Toast("请先作答本题，再进入下一题", true);
+      if (!last) { S.index++; renderBody(host); return; }
       await submit(host);
     };
     nav.appendChild(prev);
-    nav.appendChild(el("span", null, `<span class="hint">已答 ${Object.keys(S.answers).length}/${S.questions.length}</span>`));
+    nav.appendChild(el("span", null,
+      `<span class="hint">已答 ${S.questions.filter(isAnswered).length}/${S.questions.length}</span>`));
+    if (!answered) nav.appendChild(el("span", "hint", "未作答时无法进入下一题"));
     nav.appendChild(next);
     box.appendChild(nav);
     host.appendChild(box);
@@ -114,10 +207,11 @@
   }
 
   async function submit(host) {
-    const answers = S.questions
-      .filter((q) => S.answers[q.id] !== undefined && S.answers[q.id] !== "")
-      .map((q) => ({ question_id: q.id, answer: S.answers[q.id] }));
-    if (!answers.length) return Toast("至少回答一题再提交", true);
+    const missing = S.questions.filter((q) => !isAnswered(q));
+    if (missing.length) {
+      return Toast(`还有 ${missing.length} 题没作答，请全部答完再提交`, true);
+    }
+    const answers = S.questions.map((q) => ({ question_id: q.id, answer: S.answers[q.id] }));
     try {
       S.result = await Api.post("/api/courses/lessons/" + S.lesson.id + "/grade", { answers });
       renderBody(host);
@@ -164,6 +258,7 @@
     // 再做一次：清空作答与结果，用同一套题重做（服务端记录为下一次作答）。
     document.getElementById("p-retry").onclick = () => {
       S.answers = {};
+      S.checked = {};
       S.index = 0;
       S.result = null;
       renderBody(host);
@@ -197,7 +292,7 @@
     await load(lessonId);
     if (!S.questions.length) {
       host.innerHTML = `<div class="page"><div class="card"><b>这一节还没有题目</b>
-        <div class="hint">回到课堂点「做随堂练习」即可生成。</div>
+        <div class="hint">讲完这一讲会自动生成随堂测验；也可以回到课堂，在右侧点「📝 去测验」生成。</div>
         <div class="row" style="margin-top:12px"><button class="btn small" id="p-back2">返回课堂</button></div></div></div>`;
       document.getElementById("p-back2").onclick = () => { location.hash = "#/lessons/" + lessonId; };
       return;

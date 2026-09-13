@@ -220,6 +220,25 @@ def main() -> int:
         check("2.22 练习页无渲染异常", 'data-view-error' not in dom, dom[:300])
         check("2.23 渲染题干", "随堂练习" in dom)
         check("2.24 渲染选项或输入框", "opt-row" in dom or "fill-input" in dom)
+        # 未作答不允许进入下一题（用户反馈：以前没选也能点「下一步」）
+        check("2.25 有下一题按钮", 'id="q-next"' in dom)
+        check("2.26 未作答时下一题被禁用",
+              re.search(r'id="q-next"[^>]*\bdisabled\b', dom) is not None,
+              (re.search(r'<button[^>]*id="q-next"[^>]*>', dom) or [""])[0]
+              if re.search(r'<button[^>]*id="q-next"[^>]*>', dom) else "未找到按钮")
+        check("2.27 给出未作答提示", "未作答时无法进入下一题" in dom)
+
+        # 授课舞台：屏幕中下方字幕 + 互动选择（原来在右栏角落，用户看不见）
+        dom_lesson = dump(f"{BASE}/#/lessons/{lesson_id}")
+        check("2.28 授课舞台容器存在", 'id="teach-stage"' in dom_lesson)
+        check("2.29 字幕行存在", 'id="teach-sub"' in dom_lesson)
+        check("2.30 互动选择容器存在", 'id="teach-ask"' in dom_lesson)
+        check("2.31 未上课时舞台隐藏",
+              re.search(r'id="teach-stage"[^>]*\bhidden\b', dom_lesson) is not None,
+              (re.search(r'<div[^>]*id="teach-stage"[^>]*>', dom_lesson) or [""])[0]
+              if re.search(r'<div[^>]*id="teach-stage"[^>]*>', dom_lesson) else "未找到")
+        check("2.32 上课弹窗说明字幕", "屏幕中下方会同步显示字幕" in dom_lesson)
+        check("2.33 弹窗说明讲完自动测验", "讲完自动进入随堂测验" in dom_lesson)
 
         # 页面级 JS 错误会写进 DOM（main.js 的 catch 分支）
         m = re.search(r'data-view-error="1"[^>]*>加载失败：([^<]{0,140})', dom)

@@ -543,6 +543,84 @@ def main() -> int:
         r = post("/api/courses/not-exist/outline:regenerate", {"note": "x"})
         check("H8 不存在的课程 404", r["code"] == 1001, str(r.get("code")))
 
+        # ── J. 讲稿不许照念课件 + 单题即时判定 ──────────
+        print("\n[J] 讲稿去雷同护栏与单题即时判定")
+
+        def slide_text(sl):
+            return "。".join([sl.get("title") or ""] + list(sl.get("bullets") or []))
+
+        # J1-J3：模型把讲稿写成照念课件 → 护栏应触发重写
+        set_model("mock-lecture-mirror")
+        r = post(f"/api/courses/lessons/{lesson_id}/lecture")
+        check("J1 雷同模型下讲义仍生成成功", r["code"] == 0, r.get("message", ""))
+        job = wait_job(r["data"]["job_id"])
+        check("J2 雷同模型下任务完成", job.get("status") == "ready", str(job))
+        les = get(f"/api/courses/lessons/{lesson_id}")["data"]
+        slides = les.get("slides") or []
+        scripts = les.get("scripts") or []
+        check("J3 讲稿与课件逐页对应", len(slides) == len(scripts) and len(slides) >= 3,
+              f"slides={len(slides)} scripts={len(scripts)}")
+        mirrors = [
+            sc for sc in scripts
+            if (lambda s: s and s in (sc.get("text") or ""))(
+                "".join(ch for ch in slide_text(next(
+                    x for x in slides if x["id"] == sc["slide_id"])) if ch.strip()))
+        ]
+        check("J4 交付出去的讲稿不是照念课件", not mirrors, str([m["slide_id"] for m in mirrors]))
+        check("J5 走的是「重写」路径（cue=rewritten）",
+              any(sc.get("cue") == "rewritten" for sc in scripts),
+              str([sc.get("cue") for sc in scripts]))
+
+        # J6：模型死不改口 → 确定性扩写兜底
+        set_model("mock-lecture-stubborn")
+        r = post(f"/api/courses/lessons/{lesson_id}/lecture")
+        job = wait_job(r["data"]["job_id"])
+        check("J6 顽固模型下任务仍完成", job.get("status") == "ready", str(job))
+        les = get(f"/api/courses/lessons/{lesson_id}")["data"]
+        scripts = les.get("scripts") or []
+        check("J7 顽固模型下走确定性扩写（cue=expanded）",
+              all(sc.get("cue") == "expanded" for sc in scripts),
+              str([sc.get("cue") for sc in scripts]))
+        check("J8 扩写文本明显长于课件文字",
+              all(len(sc.get("text") or "") > 60 for sc in scripts),
+              str([len(sc.get("text") or "") for sc in scripts]))
+
+        # J9-J13：单题即时判定（check）—— 答完即知对错与解析，且不写库
+        set_model("mock-practice")
+        qs2 = get(f"/api/courses/lessons/{lesson_id}/practice")["data"]["items"]
+        bt = {q["type"]: q for q in qs2}
+        # 取第一道单选（`bt` 按类型去重会取到最后一道，这里显式取首题）
+        q_single = next(q for q in qs2 if q["type"] == "single")
+        r = post(f"/api/courses/lessons/{lesson_id}/check",
+                 {"question_id": q_single["id"], "answer": 0})
+        d = r["data"]
+        idx = d.get("expected_index")
+        check("J9 check 判定与正确项下标自洽",
+              r["code"] == 0 and d["correct"] == (0 == idx), str(d))
+        check("J10 check 回传合法选项下标",
+              isinstance(idx, int) and 0 <= idx < len(q_single.get("options") or []), str(idx))
+        check("J11 check 回传解析文本", bool((d.get("explanation") or "").strip()),
+              str(d.get("explanation"))[:60])
+        wrong = next((i for i in range(len(q_single.get("options") or [])) if i != idx), None)
+        r = post(f"/api/courses/lessons/{lesson_id}/check",
+                 {"question_id": q_single["id"], "answer": wrong})
+        check("J12 check 判定错误项为错", r["data"]["correct"] is False, str(r["data"]))
+        r = post(f"/api/courses/lessons/{lesson_id}/check",
+                 {"question_id": "not-exist", "answer": 0})
+        check("J13 不存在的题目返回 1001", r["code"] == 1001, str(r.get("code")))
+
+        # check 不写库：连判多次后，正式提交的作答次数只 +1
+        set_model("mock-practice")
+        set_model("mock-grade")
+        r = post(f"/api/courses/lessons/{lesson_id}/grade", {"answers": [
+            {"question_id": bt["single"]["id"], "answer": 0},
+            {"question_id": bt["boolean"]["id"], "answer": 0},
+            {"question_id": bt["fill_in"]["id"], "answer": "0/0 型 与 ∞/∞ 型"},
+            {"question_id": bt["open"]["id"], "answer": "先验证类型"},
+        ]})
+        check("J14 check 不产生额外作答次数（attempt_no 只 +1）",
+              r["data"].get("attempt_no") == 3, str(r["data"].get("attempt_no")))
+
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")
         with httpx.Client(trust_env=False) as cli:

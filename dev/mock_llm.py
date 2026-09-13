@@ -99,6 +99,60 @@ def _bad_json() -> str:
     return '{"mode": "explain", "final_answer": "", "decomposition_steps": ['
 
 
+def _lecture_payload() -> str:
+    """合格的课堂内容包（课件 / 讲稿 / 讲义三套分离，讲稿是展开讲解而非照念）。"""
+    return json.dumps({
+        "summary": "本讲先建立直觉，再给出形式化定义 [[c:1]]。",
+        "slides": [
+            {"id": "slide-1", "kind": "concept", "title": "极限的直觉", "bullets": [
+                "自变量靠近某点", "函数值靠近确定的数", "重点是趋势，不一定要取到该点"],
+             "body": "", "citation_refs": [1]},
+            {"id": "slide-2", "kind": "quote", "title": "材料中的关键表述", "bullets": [
+                "洛必达法则用于处理未定式极限", "先判断类型，再考虑法则"],
+             "body": "", "citation_refs": [2]},
+            {"id": "slide-3", "kind": "example", "title": "使用前检查", "bullets": [
+                "0/0 型", "∞/∞ 型", "不满足前提就不能直接用"],
+             "body": "", "citation_refs": [2]},
+        ],
+        "scripts": [
+            {"slide_id": "slide-1", "text": "这一页我们先建立极限的直觉。你只需要抓住两个动作：自变量在靠近，函数值也在靠近。材料中说，极限描述的是函数在某点附近的变化趋势 [[c:1]]，所以重点不是这个点本身能不能取到，而是靠近时的趋势。"},
+            {"slide_id": "slide-2", "text": "接下来把这个直觉连接到洛必达法则。课件上只列了两点，但讲的时候要补一句：洛必达不是所有极限题的万能按钮，它主要服务于未定式极限。材料里提到它是求未定式极限的重要方法 [[c:2]]，这里的关键词就是未定式。"},
+            {"slide_id": "slide-3", "text": "最后看使用前检查。拿到题目不要急着求导，先确认是不是零比零或无穷比无穷。如果这个前提没满足，直接套洛必达就可能把题做错。也就是说，先验证类型，再使用法则 [[c:2]]。"},
+        ],
+        "cards": [
+            {"kind": "concept", "title": "极限的直觉 [[c:1]]",
+             "body": "当自变量无限接近某点时，函数值无限接近某个确定的数 [[c:1]]。"},
+            {"kind": "quote", "title": "材料原文 [[c:2]]",
+             "body": "洛必达法则是求未定式极限的重要方法 [[c:2]]。"},
+            {"kind": "example", "title": "一个例子", "body": "先验证类型，再使用法则 [[c:2]]。"},
+            {"kind": "note", "title": "易错提醒", "body": "未验证类型就用法则会出错。"},
+        ],
+        "outline": ["建立直觉", "形式化定义", "验证使用前提"],
+        "keypoints": [
+            {"term": "未定式", "desc": "0/0 或 ∞/∞ 型 [[c:2]]"},
+            {"term": "极限", "desc": "函数在某点附近的趋势 [[c:1]]"},
+        ],
+        "recap": "先判断类型，再决定方法 [[c:2]]。",
+        # 材料标注意图：n 对应引用表编号，服务端据此回填真实页码。
+        "marks": [
+            {"n": 1, "kind": "highlight", "text": "这里定义了极限，是后面所有推导的基础"},
+            {"n": 2, "kind": "circle", "text": "注意：使用前必须先验证类型"},
+        ],
+    }, ensure_ascii=False)
+
+
+def _mirror_lecture() -> str:
+    """**故意违规**的课堂内容包：讲稿就是课件文字原样念一遍。
+
+    用来验证「讲稿不许照念课件」的结构护栏：服务端应判定雷同并触发重写。
+    """
+    base = json.loads(_lecture_payload())
+    for sc in base["scripts"]:
+        slide = next(s for s in base["slides"] if s["id"] == sc["slide_id"])
+        sc["text"] = "。".join([slide["title"]] + list(slide["bullets"])) + "。"
+    return json.dumps(base, ensure_ascii=False)
+
+
 def _pick(body: dict) -> str:
     """按 model 名路由到对应行为，返回回复文本。"""
     model = str(body.get("model") or "")
@@ -183,44 +237,17 @@ def _pick(body: dict) -> str:
             ],
         }, ensure_ascii=False)
     if model == "mock-lecture":
-        return json.dumps({
-            "summary": "本讲先建立直觉，再给出形式化定义 [[c:1]]。",
-            "slides": [
-                {"id": "slide-1", "kind": "concept", "title": "极限的直觉", "bullets": [
-                    "自变量靠近某点", "函数值靠近确定的数", "重点是趋势，不一定要取到该点"],
-                 "body": "", "citation_refs": [1]},
-                {"id": "slide-2", "kind": "quote", "title": "材料中的关键表述", "bullets": [
-                    "洛必达法则用于处理未定式极限", "先判断类型，再考虑法则"],
-                 "body": "", "citation_refs": [2]},
-                {"id": "slide-3", "kind": "example", "title": "使用前检查", "bullets": [
-                    "0/0 型", "∞/∞ 型", "不满足前提就不能直接用"],
-                 "body": "", "citation_refs": [2]},
-            ],
-            "scripts": [
-                {"slide_id": "slide-1", "text": "这一页我们先建立极限的直觉。你只需要抓住两个动作：自变量在靠近，函数值也在靠近。材料中说，极限描述的是函数在某点附近的变化趋势 [[c:1]]，所以重点不是这个点本身能不能取到，而是靠近时的趋势。"},
-                {"slide_id": "slide-2", "text": "接下来把这个直觉连接到洛必达法则。课件上只列了两点，但讲的时候要补一句：洛必达不是所有极限题的万能按钮，它主要服务于未定式极限。材料里提到它是求未定式极限的重要方法 [[c:2]]，这里的关键词就是未定式。"},
-                {"slide_id": "slide-3", "text": "最后看使用前检查。拿到题目不要急着求导，先确认是不是零比零或无穷比无穷。如果这个前提没满足，直接套洛必达就可能把题做错。也就是说，先验证类型，再使用法则 [[c:2]]。"},
-            ],
-            "cards": [
-                {"kind": "concept", "title": "极限的直觉 [[c:1]]",
-                 "body": "当自变量无限接近某点时，函数值无限接近某个确定的数 [[c:1]]。"},
-                {"kind": "quote", "title": "材料原文 [[c:2]]",
-                 "body": "洛必达法则是求未定式极限的重要方法 [[c:2]]。"},
-                {"kind": "example", "title": "一个例子", "body": "先验证类型，再使用法则 [[c:2]]。"},
-                {"kind": "note", "title": "易错提醒", "body": "未验证类型就用法则会出错。"},
-            ],
-            "outline": ["建立直觉", "形式化定义", "验证使用前提"],
-            "keypoints": [
-                {"term": "未定式", "desc": "0/0 或 ∞/∞ 型 [[c:2]]"},
-                {"term": "极限", "desc": "函数在某点附近的趋势 [[c:1]]"},
-            ],
-            "recap": "先判断类型，再决定方法 [[c:2]]。",
-            # 材料标注意图：n 对应引用表编号，服务端据此回填真实页码。
-            "marks": [
-                {"n": 1, "kind": "highlight", "text": "这里定义了极限，是后面所有推导的基础"},
-                {"n": 2, "kind": "circle", "text": "注意：使用前必须先验证类型"},
-            ],
-        }, ensure_ascii=False)
+        return _lecture_payload()
+    if model in ("mock-lecture-mirror", "mock-lecture-stubborn"):
+        # 「讲稿照念课件」护栏的两种测试路径：
+        #   mock-lecture-mirror   → 收到定向重写指令后给出合格讲稿（验证「重写一次」）
+        #   mock-lecture-stubborn → 无论重写几次都照念（验证「确定性扩写」兜底）
+        asked_rewrite = "只是把课件文字念了一遍" in "\n".join(
+            str(m.get("content") or "") for m in (body.get("messages") or [])
+        )
+        if asked_rewrite and model == "mock-lecture-mirror":
+            return _lecture_payload()
+        return _mirror_lecture()
     if model == "mock-summary":
         return json.dumps({
             "recap": "本单元先建立极限的直觉与定义，再进入洛必达法则的适用前提。",
@@ -304,7 +331,8 @@ def health() -> dict:
 MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-empty-hits",
                "mock-echo-context", "mock-echo-guided", "mock-good-guided", "mock-stall-guided",
                "mock-outline", "mock-lecture", "mock-practice", "mock-grade",
-               "mock-summary", "mock-goals", "mock-outline-5", "mock-echo-flags")
+               "mock-summary", "mock-goals", "mock-outline-5", "mock-echo-flags",
+               "mock-lecture-mirror", "mock-lecture-stubborn")
 
 
 @app.get("/v1/models")
