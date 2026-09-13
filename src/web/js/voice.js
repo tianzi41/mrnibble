@@ -100,6 +100,9 @@
   let _engine = "system";
   // melo 模式下正在播放的 Audio（stop() 时要掐掉）。
   let _audio = null;
+  // 用户主动暂停：melo 在两段合成之间有间隙，此时 _audio 为 null，
+  // 只 pause 当前 Audio 会漏掉间隙，所以要用 _hold 让「下一段」先等一等。
+  let _hold = false;
 
   function configure(opts) {
     opts = opts || {};
@@ -205,6 +208,10 @@
           return;
         }
         if (myGen !== _gen) return;
+        // 用户暂停：在两段之间的合成间隙里 _audio 为 null，pause() 摁不住，
+        // 所以这里要等 _hold 解除再继续播（否则会趁暂停偷偷往下讲）。
+        while (_hold && myGen === _gen) await new Promise((r) => setTimeout(r, 120));
+        if (myGen !== _gen) return;
         if (opts.onChunk) opts.onChunk(chunks[i], i, chunks.length);
         await playWav(buf);
       }
@@ -247,6 +254,7 @@
 
   function stop() {
     _gen++;
+    _hold = false;   // 停止时清掉暂停标志，否则下次朗读会被卡住
     // melo 引擎：掐掉正在播放的音频；system 引擎：取消语音队列。
     if (_audio) {
       try { _audio.pause(); _audio.currentTime = 0; } catch (e) { /* 忽略 */ }
@@ -255,8 +263,37 @@
     if (window.speechSynthesis) speechSynthesis.cancel();
   }
 
+  /**
+   * 用户主动暂停朗读（区别于互动检查点）。
+   * - system 引擎：speechSynthesis.pause / resume；
+   * - melo 引擎：暂停当前 Audio，并用 :data:`_hold` 让「下一段」在恢复前不开始。
+   */
+  function pause() {
+    _hold = true;
+    if (_engine === "melo") {
+      if (_audio) { try { _audio.pause(); } catch (e) { /* 忽略 */ } }
+      return;
+    }
+    if (window.speechSynthesis) speechSynthesis.pause();
+  }
+
+  function resume() {
+    _hold = false;
+    if (_engine === "melo") {
+      if (_audio) { try { _audio.play(); } catch (e) { /* 忽略 */ } }
+      return;
+    }
+    if (window.speechSynthesis) speechSynthesis.resume();
+  }
+
+  /** 是否正在朗读（用于「离开课堂再回来」时判断该不该续讲）。 */
+  function isSpeaking() {
+    if (_engine === "melo") return !!_audio;
+    return !!(window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending));
+  }
+
   window.Voice = {
     ensureVoices, pickZhVoice, plainText, speak, stop,
-    configure, engine, syncFromServer,
+    configure, engine, syncFromServer, pause, resume, isSpeaking,
   };
 })();

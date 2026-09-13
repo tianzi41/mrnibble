@@ -39,6 +39,8 @@
     paused: false,          // 讲授中停在互动检查点
     finished: false,        // 本讲已讲完（显示下一步选项）
     noPause: false,         // 学生选择「不用停，直接讲完」后跳过后续检查点
+    voicePaused: false,     // 用户主动暂停朗读（区别于互动检查点的 S.paused）
+    lessonId: null,         // 当前课堂对应的讲次 id（用于切页续讲）
   };
 
   const KIND = {
@@ -910,8 +912,9 @@
     const showAsk = S.paused && S.teaching;
     ask.hidden = !showAsk;
     if (showAsk) ask.appendChild(buildAskCard());
-    // 字幕文本优先级：正在朗读的句子 > 已讲完提示 > 待开始提示
-    const text = S.subtitle || (S.finished ? "本讲讲完了。" : "");
+    // 字幕文本优先级：暂停提示 > 正在朗读的句子 > 已讲完提示 > 待开始提示
+    const text = S.voicePaused ? "⏸ 已暂停，点「▶ 继续」接着讲"
+      : (S.subtitle || (S.finished ? "本讲讲完了。" : ""));
     sub.textContent = text || "准备开始…";
   }
 
@@ -1029,7 +1032,10 @@
       },
       onEnd: () => afterSlideSpoken(),
       onWarn: (m) => Toast(m, true),
-      onError: (m) => { Toast(m, true); stopTeaching(); },
+      // 朗读失败（如无音频设备 / 语音包缺失）不应中断整堂课：保留授课进度与
+      // 字幕，仅提示。逐页推进由 onEnd 控制；否则无声音环境下「开始上课」
+      // 会立刻被 onError 误判为失败而停课。
+      onError: (m) => { Toast(m, true); },
     });
   }
 
@@ -1054,6 +1060,8 @@
   }
 
   function finishTeaching() {
+    S.voicePaused = false;
+    Voice.resume();   // 清掉暂停标志，避免带着 _hold 卡死
     S.teaching = false;
     S.paused = false;
     S.speaking = "";
@@ -1089,8 +1097,17 @@
         renderTabBody();
         renderSpeaking();
       }
-      say("测验已生成，正在进入答题…");
-      location.hash = "#/practice/" + l.id;
+      // 仅在用户还在这一讲页面时才自动跳页：否则把人从别的页（闪卡/记忆/设置）
+      // 拽走很糟糕，改为播报 + Toast 提示回到课堂即可开始。
+      const onLesson = location.hash.startsWith("#/lessons/" + l.id)
+        && !!document.getElementById("lesson-head");
+      if (onLesson) {
+        say("测验已生成，正在进入答题…");
+        location.hash = "#/practice/" + l.id;
+      } else {
+        say("随堂测验已生成，回到课堂即可开始。");
+        Toast("这一讲的随堂测验已生成", false);
+      }
     } catch (e) {
       say("随堂测验生成失败：" + e.message + "（可在右侧「去测验」重试）");
       Toast("随堂测验生成失败：" + e.message, true);
@@ -1104,6 +1121,8 @@
    * 逐页讲到最后才算上完课。
    */
   function stopTeaching() {
+    S.voicePaused = false;
+    Voice.resume();   // 清掉暂停标志，避免带着 _hold 进入下一状态卡死
     Voice.stop();
     S.teaching = false;
     S.paused = false;
@@ -1112,6 +1131,7 @@
     renderHead();
     renderSpeaking();
     renderStage();
+    updateReturnPill();
     Toast("已停止，可点「▶ 开始上课」从头再讲一遍");
   }
 
@@ -1191,6 +1211,7 @@
     if (!box) return;
     box.innerHTML = `
       <button class="btn small" id="b-speak">${S.teaching ? "⏹ 停止" : "▶ 开始上课"}</button>
+      ${S.teaching ? `<button class="btn small" id="b-pause">${S.voicePaused ? "▶ 继续" : "⏸ 暂停"}</button>` : ""}
       ${l.kind === "practice" ? "" : `<button class="btn small" id="b-lecture">${
         l.board ? "重新生成讲义" : "生成讲义"}</button>`}
       <button class="btn small" id="b-png">导出图片</button>
@@ -1206,6 +1227,14 @@
     if (back) back.onclick = () => { location.hash = "#/courses"; };
     const speak = document.getElementById("b-speak");
     if (speak) speak.onclick = (e) => toggleSpeak(e.target);
+    const pauseBtn = document.getElementById("b-pause");
+    if (pauseBtn) pauseBtn.onclick = () => {
+      S.voicePaused = !S.voicePaused;
+      if (S.voicePaused) Voice.pause(); else Voice.resume();
+      const b = document.getElementById("b-pause");
+      if (b) b.textContent = S.voicePaused ? "▶ 继续" : "⏸ 暂停";
+      renderStage();
+    };
     const png = document.getElementById("b-png");
     if (png) png.onclick = exportBoardPng;
     const md = document.getElementById("b-md");
@@ -1313,6 +1342,7 @@
     S.paused = false;
     S.finished = false;
     S.noPause = false;
+    S.voicePaused = false;
     S.speakLog = [];
     S.subtitle = "";
     S.tab = "slides";
@@ -1345,10 +1375,14 @@
   }
 
   async function render(host, lessonId) {
-    // 进入/切换讲次时停掉上一讲的朗读，避免声音串台。
-    Voice.stop();
+    // 回到同一讲：保留授课进度（切去别的页再回来不该重头讲）
+    const resume = (S.lessonId === lessonId) && (S.teaching || S.paused || S.finished);
+    // 切到别的讲次或首次进入：停掉上一讲朗读，避免声音串台。
+    if (!resume) Voice.stop();
     // 同步朗读引擎（系统语音 / 本地 MeloTTS），用户在设置页改过也能立刻生效。
     await Voice.syncFromServer();
+
+    // 非授课状态：每次进入都重置（材料标注页、总结页依赖它们）
     S.tab = initialTab();
     S.marks = [];
     S.unitSummary = null;
@@ -1357,18 +1391,25 @@
     S.scale = 1.2;
     S.mode = "view";
     S.readyShown = false;
-    S.teaching = false;
-    S.paused = false;
-    S.finished = false;
-    S.noPause = false;
-    S.speakLog = [];
-    S.speaking = "";
-    S.subtitle = "";
-    S.slides = [];
-    S.scripts = [];
-    S.slideIndex = 0;
     S.enteredWithTab = /\btab=/.test((location.hash.split("?")[1] || ""));
+
+    // 授课相关状态：仅在非 resume 时重置（resume 时保留，支持切页续讲）
+    if (!resume) {
+      S.teaching = false;
+      S.paused = false;
+      S.finished = false;
+      S.noPause = false;
+      S.voicePaused = false;
+      S.speakLog = [];
+      S.speaking = "";
+      S.subtitle = "";
+      S.slides = [];
+      S.scripts = [];
+      S.slideIndex = 0;
+    }
+
     await loadLesson(lessonId);
+    S.lessonId = lessonId;
     await ensureConversation();
 
     host.innerHTML = `
@@ -1420,15 +1461,67 @@
     renderSpeaking();
     renderChat();
 
-    // 自动上课流：讲次没有讲义 → 自动生成；已有讲义 → 弹「准备好了吗」
-    if (S.lesson.kind !== "practice") {
-      if (!S.lesson.board) {
-        startLecture(null, { auto: true });
-      } else if (!S.enteredWithTab) {
-        showReadyModal();
+    // 浮动「回到课堂」入口：根据当前授课状态显隐
+    ensurePillListener();
+    updateReturnPill();
+
+    if (resume) {
+      // 恢复界面（renderTabBody 会按 S.teaching 只渲染到当前页）。
+      // 若离开期间朗读断了（且未主动暂停），从当前页继续讲；若仍在朗读则
+      // 字幕会随 onChunk 继续刷新，什么都不做。
+      if (S.teaching && !S.voicePaused && !Voice.isSpeaking()) {
+        const idx = Math.min(Math.max(S.slideIndex, 0), (S.slides || []).length - 1);
+        if (S.slides[idx]) speakSlide(S.slides[idx]);
+      }
+    } else {
+      // 自动上课流：讲次没有讲义 → 自动生成；已有讲义 → 弹「准备好了吗」
+      if (S.lesson.kind !== "practice") {
+        if (!S.lesson.board) {
+          startLecture(null, { auto: true });
+        } else if (!S.enteredWithTab) {
+          showReadyModal();
+        }
       }
     }
   }
+
+  /* ── 回到课堂浮动入口 ─────────────────── */
+  // 上课期间切到别的页面时，在 document.body 上挂一个固定按钮，点它回到课堂。
+  // 不放进 #view，避免被别的视图重绘清掉；用模块级布尔防止重复注册监听。
+  let _returnPill = null;
+  let _pillRegistered = false;
+
+  /** 根据当前授课状态显隐浮动入口（不在课堂页且正在上课时出现）。 */
+  function updateReturnPill() {
+    if (!_returnPill) {
+      _returnPill = el("button", "lesson-return-pill");
+      _returnPill.id = "lesson-return";
+      _returnPill.hidden = true;
+      _returnPill.onclick = () => { if (S.lessonId) location.hash = "#/lessons/" + S.lessonId; };
+      document.body.appendChild(_returnPill);
+    }
+    const show = !!(S.lessonId && (S.teaching || S.paused || S.finished)
+      && !location.hash.startsWith("#/lessons/" + S.lessonId));
+    if (show) {
+      _returnPill.textContent = "● 正在上《" + (S.lesson ? S.lesson.title : "") + "》 · 回到课堂";
+      _returnPill.hidden = false;
+    } else {
+      _returnPill.hidden = true;
+    }
+  }
+
+  /** 一次性注册 hashchange 监听（模块级布尔防重复）。 */
+  function ensurePillListener() {
+    if (_pillRegistered) return;
+    _pillRegistered = true;
+    window.addEventListener("hashchange", updateReturnPill);
+  }
+
+  // 仅供测试：只读探针，便于交互级验证读取课堂内部状态
+  window.LessonProbe = () => ({
+    teaching: S.teaching, paused: S.paused, finished: S.finished,
+    slideIndex: S.slideIndex, voicePaused: S.voicePaused, lessonId: S.lessonId,
+  });
 
   window.Views = window.Views || {};
   window.Views.lesson = { render };

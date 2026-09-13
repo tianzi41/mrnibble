@@ -397,6 +397,18 @@ body.teaching-on #tab-body { padding-bottom: 132px; }
 .tree-map #map .markmap { height: 100%; }
 .tree-map #map > svg { width: 100%; height: 100%; }
 
+/* 选课列表：接下来要上的那一讲重点标注 */
+.lesson-row.next-lesson { border-color: var(--primary); background: var(--primary-soft); }
+.pill.next-pill { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+/* 正在上课时其它页面上的「回到课堂」浮动入口 */
+.lesson-return-pill {
+  position: fixed; left: 18px; bottom: 18px; z-index: 70;
+  background: var(--primary); color: #fff; border: 0; border-radius: 999px;
+  padding: 9px 16px; font-size: 13px; box-shadow: 0 6px 20px rgba(16,24,40,.28);
+}
+.lesson-return-pill[hidden] { display: none; }
+
 /* ── 材料标注 ─────────────────────────── */
 .mk-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

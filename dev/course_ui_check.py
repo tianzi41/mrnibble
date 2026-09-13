@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import io
+import asyncio
 import os
 import re
 import shutil
@@ -55,6 +56,202 @@ def dump(url: str) -> str:
         "--no-proxy-server", "--virtual-time-budget=6000", "--dump-dom", url,
     ], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
     return out.stdout or ""
+
+
+async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
+    """用 CDP 真实操作无头 Chrome，验证：课程详情「接下来」高亮 + 上课/暂停继续/回到课堂浮动入口。
+
+    单脚本一次跑完：本函数内启动 Chrome、驱动交互、最后回收进程，
+    避免被沙箱回收进程导致端到端验证中断。
+    """
+    import asyncio as _asyncio, json, os, subprocess
+    import httpx as _hx
+    import websockets
+
+    chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    # 纯 ASCII 路径；每次用独立 profile，避免跨运行复用 HTTP 缓存导致拿到旧 JS
+    ud = "C:/tmp/zhiban_cdp_%d" % int(time.time())
+    try: os.makedirs(ud, exist_ok=True)
+    except Exception: pass
+    port = 9223
+
+    def _check(name, cond, detail=""):
+        (PASS if cond else FAIL).append(name)
+        print(f"  {'✅' if cond else '❌'} {name}{('  | ' + detail) if (detail and not cond) else ''}")
+
+    proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+            "--no-proxy-server", f"--remote-debugging-port={port}",
+            f"--user-data-dir={ud}", "--window-size=1280,900", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        ver = None
+        for _ in range(60):
+            try:
+                ver = _hx.get(f"http://127.0.0.1:{port}/json/version", timeout=2).json()
+                break
+            except Exception:
+                await _asyncio.sleep(0.5)
+        if not ver:
+            _check("CDP 端口可达", False, "chrome 未启动"); return
+        _check("CDP 端口可达", True)
+
+        # 浏览器级 WS：建标签并取页面级 WS 端点
+        async with websockets.connect(ver["webSocketDebuggerUrl"], max_size=None, ping_interval=None) as bws:
+            _id = [0]
+            def nid(): _id[0] += 1; return _id[0]
+            async def bsend(method, params=None):
+                i = nid(); await bws.send(json.dumps({"id": i, "method": method, "params": params or {}})); return i
+            async def bwait(i, t=20):
+                while True:
+                    r = json.loads(await _asyncio.wait_for(bws.recv(), t))
+                    if r.get("id") == i: return r
+            r = await bsend("Target.createTarget", {"url": base + "/#/courses"})
+            tid = (await bwait(r))["result"]["targetId"]
+            pws = None
+            for _ in range(40):
+                lst = _hx.get(f"http://127.0.0.1:{port}/json/list", timeout=3).json()
+                t = next((x for x in lst if x.get("id") == tid), None)
+                if t and t.get("webSocketDebuggerUrl"):
+                    pws = t["webSocketDebuggerUrl"]; break
+                await _asyncio.sleep(0.3)
+            if not pws:
+                _check("页面调试端点", False); return
+            _check("页面调试端点", True)
+
+        # 页面级 WS：真实交互（带事件分发器，便于捕获 console / 异常）
+        async with websockets.connect(pws, max_size=None, ping_interval=None) as ws:
+            _id = [0]
+            def nid(): _id[0] += 1; return _id[0]
+            pending = {}
+            async def reader():
+                while True:
+                    try:
+                        raw = await ws.recv()
+                    except Exception:
+                        break
+                    try: msg = json.loads(raw)
+                    except Exception: continue
+                    if "id" in msg and msg["id"] in pending:
+                        pending[msg["id"]].set_result(msg)
+                    else:
+                        mm = msg.get("method", "")
+                        if mm in ("Runtime.consoleAPICalled", "Runtime.exceptionThrown"):
+                            pass
+            _task = _asyncio.create_task(reader())
+            async def ev(expr, t=25):
+                i = nid()
+                loop = _asyncio.get_event_loop()
+                fut = loop.create_future()
+                pending[i] = fut
+                await ws.send(json.dumps({"id": i, "method": "Runtime.evaluate",
+                                          "params": {"expression": expr, "returnByValue": True, "awaitPromise": True}}))
+                try:
+                    res = await _asyncio.wait_for(fut, t)
+                finally:
+                    pending.pop(i, None)
+                if "error" in res: raise RuntimeError(str(res["error"]))
+                return res.get("result", {}).get("result", {}).get("value")
+
+            await ws.send(json.dumps({"id": nid(), "method": "Runtime.enable"}))
+            await _asyncio.sleep(2.0)
+
+            # ---- 2.40 高亮「接下来要上的下一讲」：进入课程详情 ----
+            # 选课程列表里第一个课程项，进入详情（详情才渲染讲次列表）
+            await ev("""(function(){var it=document.querySelector('#course-list .item');"""
+                    """if(it){it.click();return true;}return false;})()""")
+            await _asyncio.sleep(2.0)
+            hl = await ev("""(function(){
+                var rows=Array.from(document.querySelectorAll('.lesson-row'));
+                var hl=rows.filter(function(r){return r.classList.contains('next-lesson');});
+                var ft=rows.length?(rows[0].querySelector('.t')||{}).textContent:'';
+                var ht=hl.length?(hl[0].querySelector('.t')||{}).textContent:'';
+                var pill=document.querySelector('.next-pill');
+                return {rowCount:rows.length, hlCount:hl.length,
+                        hasPill:!!pill, pillText:pill?pill.textContent:'',
+                        firstTitle:ft, hlTitle:ht,
+                        firstIsHl:rows.length?rows[0].classList.contains('next-lesson'):false};
+            })()""")
+            _check("2.40 课程详情存在 next-lesson 高亮", bool(hl and hl.get("hlCount", 0) >= 1), f"hl={hl}")
+            _check("2.41 高亮行含「接下来」徽标", bool(hl and hl.get("hasPill") and "接下来" in (hl.get("pillText") or "")), f"hl={hl}")
+            _check("2.42 恰好一个讲次被高亮", bool(hl and hl.get("hlCount") == 1), f"hl={hl}")
+            _check("2.43 高亮的是第一个未完成讲次",
+                   bool(hl and hl.get("hlTitle") and hl.get("hlTitle") != hl.get("firstTitle")),
+                   f"first={hl.get('firstTitle') if hl else ''} hl={hl.get('hlTitle') if hl else ''}")
+            _check("2.44 已完成的讲次不被高亮", bool(hl and hl.get("firstIsHl") is False), f"hl={hl}")
+
+            # ---- 上课 / 暂停继续 / 回到课堂浮动入口 ----
+            await ev("location.hash='#/lessons/%s'" % lesson_id)
+            await _asyncio.sleep(3.0)
+            snap = """(function(){
+                var p = window.LessonProbe ? window.LessonProbe() : null;
+                var bs = document.getElementById('b-speak');
+                return {probe:p, hash:location.hash,
+                        bSpeak: bs?bs.textContent:null,
+                        bPause: !!document.getElementById('b-pause'),
+                        stageHidden: (document.getElementById('teach-stage')||{}).hidden,
+                        sub: (document.getElementById('teach-sub')||{}).textContent||''};
+            })()"""
+            # 开始上课（优先点弹窗主按钮，否则点操作条 b-speak）
+            started = await ev("""(function(){var b=document.querySelector('.modal-box button.primary');"""
+                                """if(!b){b=document.getElementById('b-speak');}if(b){b.click();return true;}return false;})()""")
+            _check("4.1 点击开始上课成功", bool(started))
+            # 轮询 teaching 状态，确认确实进入授课
+            teaching = False
+            for _ in range(20):
+                p = await ev(snap, t=10)
+                if p and p.get("probe") and p["probe"].get("teaching"):
+                    teaching = True; break
+                await _asyncio.sleep(0.2)
+            _check("4.2 上课后 teaching=true", teaching is True, f"last={p if p else None}")
+            has_pause = await ev("!!document.getElementById('b-pause')")
+            _check("4.3 操作条含 b-pause", bool(has_pause))
+            vok = await ev("""(function(){return !!(window.Voice && typeof Voice.pause==='function'"""
+                            """ && typeof Voice.resume==='function' && typeof Voice.isSpeaking==='function');})()""")
+            _check("4.4 Voice 暴露 pause/resume/isSpeaking", bool(vok))
+
+            # 暂停
+            await ev("var _p=document.getElementById('b-pause');if(_p)_p.click();")
+            await _asyncio.sleep(0.6)
+            vp = await ev("window.LessonProbe().voicePaused")
+            _check("4.5 暂停后 voicePaused=true", vp is True, f"vp={vp}")
+            txt = await ev("(document.getElementById('b-pause')||{}).textContent || ''")
+            _check("4.6 按钮文案变「继续」", "继续" in (txt or ""), f"txt={txt}")
+            sub = await ev("(document.getElementById('teach-sub')||{}).textContent || ''")
+            _check("4.7 字幕显示已暂停", "已暂停" in (sub or ""), f"sub={sub}")
+
+            # 继续
+            await ev("var _p=document.getElementById('b-pause');if(_p)_p.click();")
+            await _asyncio.sleep(0.6)
+            vp2 = await ev("window.LessonProbe().voicePaused")
+            _check("4.8 继续后 voicePaused=false", vp2 is False, f"vp2={vp2}")
+
+            # 再次暂停，避免后台朗读推进到讲完触发自动跳页，干扰后续断言
+            await ev("var _p=document.getElementById('b-pause');if(_p)_p.click();")
+            await _asyncio.sleep(0.3)
+
+            # 切到别的页（记忆），浮动「回到课堂」入口应出现
+            await ev("location.hash='#/memory'")
+            await _asyncio.sleep(1.0)
+            pill = await ev("""(function(){var p=document.getElementById('lesson-return');"""
+                            """return p?{exists:true,hidden:p.hidden}:{exists:false};})()""")
+            _check("4.9 离开课堂后浮动入口出现",
+                   bool(pill and pill.get("exists") and not pill.get("hidden")), f"pill={pill}")
+
+            # 点击回到课堂
+            await ev("var _p=document.getElementById('lesson-return');if(_p)_p.click();")
+            await _asyncio.sleep(1.3)
+            back = await ev("window.LessonProbe()")
+            _check("4.10 回到课堂 teaching 仍为 true", bool(back and back.get("teaching")), f"probe={back}")
+            _check("4.11 回到的是同一讲", bool(back and back.get("lessonId") == lesson_id), f"probe={back}")
+
+            _task.cancel()
+    finally:
+        try: proc.terminate()
+        except Exception: pass
+        try: proc.wait(timeout=8)
+        except Exception:
+            try: proc.kill()
+            except Exception: pass
 
 
 def main() -> int:
@@ -156,7 +353,20 @@ def main() -> int:
                     break
                 time.sleep(0.5)
 
-            # 完成本单元全部讲次 → 单元总结可生成（供单元总结页签验证）
+            # 先把第一讲标记完成：用于「接下来」高亮验证（CDP 真实进入课程详情），
+            # 随后仍会把剩余讲次标记完成以生成单元总结。
+            first_lid = course["units"][0]["lessons"][0]["id"]
+            first_title = course["units"][0]["lessons"][0]["title"]
+            cli.put(f"{BASE}/api/courses/lessons/{first_lid}", json={"complete": True}, timeout=10)
+
+            # 交互级验证（CDP 真实浏览器：课程详情高亮 + 上课/暂停继续/回到课堂浮动入口）
+            print("\n[4] 交互级验证（CDP 真实浏览器）")
+            try:
+                asyncio.run(cdp_interactive(BASE, lesson_id, first_title))
+            except Exception as e:
+                check("4.0 CDP 验证脚本未异常", False, str(e)[:200])
+
+            # 完成剩余讲次 → 单元总结可生成（供单元总结页签验证）
             for u in course["units"]:
                 for l in u["lessons"]:
                     cli.put(f"{BASE}/api/courses/lessons/{l['id']}",

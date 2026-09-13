@@ -408,6 +408,15 @@
       }
     };
 
+    // 按单元顺序 × 单元内讲次顺序，找出第一个 status !== "done" 的讲次（接下来要上的那一讲）
+    let nextId = null;
+    for (const u0 of (c.units || [])) {
+      for (const l0 of (u0.lessons || [])) {
+        if (l0.status !== "done") { nextId = l0.id; break; }
+      }
+      if (nextId) break;
+    }
+
     (c.units || []).forEach((u) => {
       const box = el("div", "card");
       const tag = u.status === "done" ? '<span class="pill ok">已完成</span>'
@@ -422,12 +431,14 @@
           : ""}`;
       const list = el("div");
       (u.lessons || []).forEach((l) => {
-        const row = el("div", "item");
+        const isNext = (l.id === nextId);
+        const row = el("div", "item lesson-row" + (isNext ? " next-lesson" : ""));
         const done = l.status === "done";
         row.innerHTML = `<span class="pill">${esc(l.kind_name)}</span>
+          ${isNext ? '<span class="pill next-pill">接下来</span>' : ""}
           <span class="t">${l.ordinal}. ${esc(l.title)}</span>
           ${done ? '<span class="pill ok">已完成</span>' : ""}`;
-        const go = el("button", "btn small", done ? "再看一遍" : "开始");
+        const go = el("button", "btn small" + (isNext ? " primary" : ""), done ? "再看一遍" : "开始");
         go.onclick = () => { location.hash = "#/lessons/" + l.id; };
         row.appendChild(go);
         list.appendChild(row);
