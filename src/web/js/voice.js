@@ -238,54 +238,48 @@
     const chunkMax = detailed ? Math.min(Number(opts.chunkChars), hardMax) : hardMax;
     const cut = (t) => (detailed ? splitBySentence(t, chunkMax) : splitChunks(t, chunkMax));
 
-    if (_engine === "cloud") {
-      // 云端模式：未配置或失败都明确报错，**绝不**静默换成系统语音。
-      if (_cloudReason) {
+    // ── 需要「先请求合成、再播放」的引擎（melo / cloud）走同一条**预取流水线** ──
+    // 串行「合成完再播、播完再合成」会把整段合成耗时原样暴露成段间停顿
+    // （实测云端单句合成 ~2.2–2.5s，用户听到的「停顿 2.5 秒」就是它）。
+    // 改成：边播第 i 段，边提前把 i+1 / i+2 段合成好，
+    // 段间停顿 ≈ max(0, 合成耗时 − 本段播放耗时)，正常情况为 0。
+    if (_engine === "melo" || _engine === "cloud") {
+      const isCloud = _engine === "cloud";
+      if (isCloud && _cloudReason) {
         fail(_cloudReason + "。请到「设置 → 语音」填写语音端点与模型名，"
              + "点「测试连接」确认可用后再试。");
-        return;   // 明确失败，不换引擎
+        return;
       }
       const chunks = cut(capped);
+      const PREFETCH = 2;                       // 预取深度（段）
+      const fetchOne = isCloud
+        ? requestCloud
+        : (t) => requestLocal(t).then((b) => ({ blob: b, mime: "audio/wav" }));
+      // 包成「永不 reject」的形状：预取中的请求若失败，在有人 await 它之前
+      // 不会产生未处理的 Promise 拒绝。
+      const inflight = new Map();
+      const kick = (i) => {
+        if (i < 0 || i >= chunks.length || inflight.has(i)) return;
+        inflight.set(i, fetchOne(chunks[i]).then(
+          (v) => ({ ok: true, v }),
+          (e) => ({ ok: false, e })));
+      };
+      for (let k = 0; k < PREFETCH; k++) kick(k);
       for (let i = 0; i < chunks.length; i++) {
         if (myGen !== _gen) return;
-        let got;
-        try {
-          got = await requestCloud(chunks[i]);
-        } catch (e) {
+        const got = await inflight.get(i);
+        inflight.delete(i);
+        // 先补上后面的预取，再等暂停/播放 —— 让网络请求与播放真正并行
+        kick(i + PREFETCH);
+        if (!got.ok) {
           if (myGen !== _gen) return;
-          fail("云端朗读失败：" + e.message);   // 不降级
-          return;
+          fail((isCloud ? "云端朗读失败：" : "本地语音合成失败：") + got.e.message);
+          return;                              // 明确失败，不降级
         }
-        if (myGen !== _gen) return;
         while (_hold && myGen === _gen) await new Promise((r) => setTimeout(r, 120));
         if (myGen !== _gen) return;
         if (opts.onChunk) opts.onChunk(chunks[i], i, chunks.length);
-        await playAudio(got.blob, got.mime);
-      }
-      if (myGen === _gen && opts.onEnd) opts.onEnd();
-      return;
-    }
-
-    if (_engine === "melo") {
-      // 边合成边播、延迟更低。
-      const chunks = cut(capped);
-      for (let i = 0; i < chunks.length; i++) {
-        if (myGen !== _gen) return;   // 已被 stop()
-        let buf;
-        try {
-          buf = await requestLocal(chunks[i]);
-        } catch (e) {
-          if (myGen !== _gen) return;
-          fail("本地语音合成失败：" + e.message);
-          return;
-        }
-        if (myGen !== _gen) return;
-        // 用户暂停：在两段之间的合成间隙里 _audio 为 null，pause() 摁不住，
-        // 所以这里要等 _hold 解除再继续播（否则会趁暂停偷偷往下讲）。
-        while (_hold && myGen === _gen) await new Promise((r) => setTimeout(r, 120));
-        if (myGen !== _gen) return;
-        if (opts.onChunk) opts.onChunk(chunks[i], i, chunks.length);
-        await playAudio(buf, "audio/wav");
+        await playAudio(got.v.blob, got.v.mime);
       }
       if (myGen === _gen && opts.onEnd) opts.onEnd();
       return;

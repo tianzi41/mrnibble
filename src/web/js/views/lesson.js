@@ -702,12 +702,22 @@
   }
 
   /* ── 页签装配 ─────────────────────────── */
+  /** 当前讲次**可见**的页签。
+   *
+   * 练习讲次没有课件/讲义，只留「练习 / 单元总结」——四个页签里空三个会让用户
+   * 以为页面坏了（用户反馈：点进练习讲次「页面什么也没有」）。
+   */
+  function visibleTabs() {
+    return (S.lesson && S.lesson.kind === "practice")
+      ? [["practice", "练习"], ["summary", "单元总结"]]
+      : [["slides", "课件"], ["board", "讲义"], ["marks", "材料标注"], ["summary", "单元总结"]];
+  }
+
   function renderTabs() {
     const bar = document.getElementById("lesson-tabs");
     if (!bar) return;
     bar.innerHTML = "";
-    [["slides", "课件"], ["board", "讲义"], ["marks", "材料标注"], ["summary", "单元总结"]]
-      .forEach(([key, label]) => {
+    visibleTabs().forEach(([key, label]) => {
       const b = el("button", S.tab === key ? "active" : "", label);
       b.onclick = () => { S.tab = key; renderTabs(); renderTabBody(); };
       bar.appendChild(b);
@@ -724,6 +734,7 @@
     if (S.tab === "slides") renderSlides(host);
     else if (S.tab === "board") renderBoard(host);
     else if (S.tab === "marks") renderMarks(host);
+    else if (S.tab === "practice") renderPractice(host);
     else renderSummary(host);
   }
 
@@ -820,7 +831,30 @@
     if (!S.slides.length) { S.slides = buildSlides(); S.scripts = buildScripts(); }
     const wrap = el("div", "board slides");
     if (!S.slides.length) {
-      wrap.appendChild(el("div", "empty", "这一节还没有课件内容。"));
+      // 没有课件：分两种情况给出可操作的引导，而不是一句冷冰冰的空提示。
+      if (S.lesson && S.lesson.kind === "practice") {
+        const empty = el("div", "empty card");
+        empty.innerHTML = "这一节是<b>随堂练习</b>，没有课件内容。<br>"
+          + "点下面的按钮，即可开始答题。";
+        const go = el("button", "btn primary", "开始练习");
+        go.style.marginTop = "14px";
+        go.onclick = () => startPractice(go);
+        const holder = el("div");
+        holder.appendChild(go);
+        empty.appendChild(holder);
+        wrap.appendChild(empty);
+      } else {
+        const empty = el("div", "empty card");
+        empty.innerHTML = "这一节还没有课件内容。<br>"
+          + "点下面的按钮，系统会依据你的材料生成本讲的课件与讲义。";
+        const go = el("button", "btn primary", "生成讲义，开始学习");
+        go.style.marginTop = "14px";
+        go.onclick = () => startLecture(go);
+        const holder = el("div");
+        holder.appendChild(go);
+        empty.appendChild(holder);
+        wrap.appendChild(empty);
+      }
       host.appendChild(wrap);
       return;
     }
@@ -863,6 +897,33 @@
       const cur = document.getElementById("slide-" + shown);
       if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center", behavior: "smooth" });
     }
+  }
+
+  /* ── 页签：练习（practice 讲次专用）────────────── */
+  /** 练习讲次的「练习」页签正文：一张引导卡片，主按钮复用 startPractice()。 */
+  function renderPractice(host) {
+    const l = S.lesson;
+    const wrap = el("div", "board practice-intro");
+    const card = el("div", "card");
+    let html = `<div class="card-title" style="font-size:18px;margin-bottom:6px">这是一节随堂练习</div>`
+      + `<div class="hint">练习题由 AI 依据本单元前面的讲次与你的材料生成。</div>`;
+    if (l.objective) {
+      html += `<div class="hint" style="margin-top:6px">学习目标：${esc(l.objective)}</div>`;
+    }
+    card.innerHTML = html;
+    const row = el("div", "row");
+    row.style.marginTop = "14px";
+    const start = el("button", "btn primary", S.questionCount ? "继续练习" : "开始练习");
+    start.onclick = () => startPractice(start);
+    row.appendChild(start);
+    if (S.questionCount) {
+      const cont = el("button", "btn small", "查看 / 继续答题");
+      cont.onclick = () => { location.hash = "#/practice/" + l.id; };
+      row.appendChild(cont);
+    }
+    card.appendChild(row);
+    wrap.appendChild(card);
+    host.appendChild(wrap);
   }
 
   /* ── 屏幕中下方「授课舞台」：字幕 + 互动选择 ── */
@@ -1168,6 +1229,12 @@
     const q = (location.hash.split("?")[1] || "");
     const m = /(?:^|&)tab=([a-z]+)/.exec(q);
     const tab = m ? m[1] : "";
+    // 练习讲次只有「练习 / 单元总结」两个页签，默认落在「练习」。
+    // 注意：本函数在 S.lesson 可用前也可能被调用（进入课堂时先置 tab 再拉数据），
+    // 因此必须先用 S.lesson && ... 判空，否则会报错。
+    if (S.lesson && S.lesson.kind === "practice") {
+      return ["practice", "summary"].includes(tab) ? tab : "practice";
+    }
     // 默认落在「课件」页签：这一页是上课时看的，讲义/标注/总结按需切换。
     return ["slides", "board", "marks", "summary"].includes(tab) ? tab : "slides";
   }
@@ -1209,13 +1276,17 @@
     const l = S.lesson;
     const box = document.getElementById("lesson-actions");
     if (!box) return;
+    // 没有课件可讲时（练习讲次 / 讲义尚未生成的讲次）就别摆出「开始上课 / 导出图片 /
+    // 导出讲义」这三个点了没反应的按钮——练习讲次进去「看着像坏了」的观感就是这么来的。
+    // buildSlides() 是纯函数（只读 S.lesson、无副作用），在这里调用是安全的。
+    const hasSlides = buildSlides().length > 0;
     box.innerHTML = `
-      <button class="btn small" id="b-speak">${S.teaching ? "⏹ 停止" : "▶ 开始上课"}</button>
+      ${hasSlides ? `<button class="btn small" id="b-speak">${S.teaching ? "⏹ 停止" : "▶ 开始上课"}</button>` : ""}
       ${S.teaching ? `<button class="btn small" id="b-pause">${S.voicePaused ? "▶ 继续" : "⏸ 暂停"}</button>` : ""}
       ${l.kind === "practice" ? "" : `<button class="btn small" id="b-lecture">${
         l.board ? "重新生成讲义" : "生成讲义"}</button>`}
-      <button class="btn small" id="b-png">导出图片</button>
-      <button class="btn small" id="b-md">导出讲义</button>
+      ${hasSlides ? '<button class="btn small" id="b-png">导出图片</button>' : ""}
+      ${hasSlides ? '<button class="btn small" id="b-md">导出讲义</button>' : ""}
       <button class="btn small" id="b-conv">导出对话</button>
       ${primaryAction(l)}`;
     wireActions();
@@ -1410,6 +1481,10 @@
 
     await loadLesson(lessonId);
     S.lessonId = lessonId;
+    // 上面算 S.tab 时 S.lesson 还没加载（或还是上一讲），所以这里要按**真实讲次类型**
+    // 再校正一次：否则练习讲次的 S.tab 会停在 "slides" 这种本讲次并不存在的值上——
+    // 表现为页签一个都不高亮，正文还错落到「单元总结」。
+    if (!visibleTabs().some(([k]) => k === S.tab)) S.tab = visibleTabs()[0][0];
     await ensureConversation();
 
     host.innerHTML = `

@@ -566,6 +566,9 @@ def main() -> int:
                 time.sleep(0.5)
             course = cli.get(f"{BASE}/api/courses/{cid}", timeout=10).json()["data"]
             lesson_id = course["units"][0]["lessons"][0]["id"]
+            # 练习类讲次（mock 大纲里第 1、2 单元各有一节 kind=practice）
+            practice_id = next((l["id"] for u in course["units"] for l in u["lessons"]
+                                if l.get("kind") == "practice"), None)
 
         # 进入课堂页后自动触发讲义生成（P2 自动流）。
         # 无头测试中 6 秒虚拟时间可能足够完成生成，因此不再断言具体的
@@ -665,6 +668,43 @@ def main() -> int:
         check("2.19 单元总结页无渲染异常", 'data-view-error' not in dom, dom[:300])
         check("2.20 显示总结状态", "单元" in dom and ("已生成" in dom or "生成单元总结" in dom))
         check("2.21 显示待巩固/已掌握", "待巩固" in dom or "已掌握" in dom)
+
+        # 练习类讲次：进去不能是「一片空白」（用户反馈：第 3 课点进去什么都没有）
+        if practice_id:
+            pdom = dump(f"{BASE}/#/lessons/{practice_id}")
+            _m = re.search(r'id="lesson-tabs"[^>]*>(.*?)</div>', pdom, re.S)
+            _tabs_html = _m.group(1) if _m else ""
+            _labels = re.findall(r'>([^<>]+)</button>', _tabs_html)
+            _active = re.findall(r'<button[^>]*class="active"[^>]*>([^<>]+)</button>', _tabs_html)
+            check("2.21a 练习讲次页签只有「练习 / 单元总结」",
+                  _labels == ["练习", "单元总结"], f"labels={_labels}")
+            check("2.21b 练习讲次默认落在「练习」页签",
+                  _active == ["练习"], f"active={_active}")
+            # 用卡片自身的标题文案判定，别用「随堂练习」这种满页都有的词
+            # （顶栏按钮「生成随堂练习」也含它，会假通过）
+            check("2.21c 练习讲次给出引导卡片而非空白",
+                  "这是一节随堂练习" in pdom,
+                  "未找到引导卡片标题")
+            check("2.21d 练习讲次不再出现孤立空提示",
+                  "这一节还没有课件内容。" not in pdom)
+            with httpx.Client(trust_env=False) as _cl:
+                _pfull = _cl.get(f"{BASE}/api/courses/lessons/{practice_id}",
+                                 timeout=10).json()["data"]
+            _p_slides = len(_pfull.get("slides") or [])
+            # 不变式：有课件才该出现「开始上课 / 导出图片 / 导出讲义」
+            # 只认按钮 id：「开始上课 / 导出图片」这些字在提示文案里也出现，用文本判定会假通过
+            _shown = ('id="b-speak"' in pdom, 'id="b-png"' in pdom, 'id="b-md"' in pdom)
+            check("2.21e 依赖课件的按钮与「有无课件」一致",
+                  all(_shown) if _p_slides > 0 else not any(_shown),
+                  f"slides={_p_slides} shown={_shown}")
+            # 回归：普通讲次仍是四个页签
+            _ldom = dump(f"{BASE}/#/lessons/{lesson_id}")
+            _lm = re.search(r'id="lesson-tabs"[^>]*>(.*?)</div>', _ldom, re.S)
+            _llabels = re.findall(r'>([^<>]+)</button>', _lm.group(1) if _lm else "")
+            check("2.21f 普通讲次仍是四个页签",
+                  _llabels == ["课件", "讲义", "材料标注", "单元总结"], f"labels={_llabels}")
+        else:
+            check("2.21a 找到练习类讲次", False, "mock 课程里没有 kind=practice 的讲次")
 
         # P1：图片题（pdf.js 渲染材料页）
         dom = dump(f"{BASE}/#/practice/{lesson_id}")
