@@ -10,7 +10,8 @@
   与本地 ASR 共用 sherpa-onnx，**不引入 PyTorch、不联网**，
   中文+英文混读（MIT + Apache-2.0，符合「只用宽松许可」约定）。
 
-云端合成走用户自己填的端点；Key 与 LLM Key 分离，只存本机（加密）。
+云端合成走用户自己填的端点；端点/Key 留空时沿用对话模型，**Key 的沿用仅限同一主机**
+（把 A 站点的密钥发往 B 站点属密钥外泄，故异主机绝不沿用）；显式配置的 Key 仍只存本机（加密）。
 """
 
 from __future__ import annotations
@@ -211,11 +212,10 @@ class TTSService:
         s = get_settings_service()
         if (s.get("tts.mode") or "off") != "cloud":
             raise AppError(4002, None, "当前未启用云端朗读（tts.mode != cloud）")
-        base_url = s.get("tts.base_url").strip().rstrip("/")
-        model = s.get("tts.model").strip()
-        api_key = s.get_secret("tts.api_key")
+        base_url, model, api_key = s.tts_effective()
         if not base_url or not model:
-            raise AppError(4002, "云端朗读未配置", "请在语音设置里填写 base_url 与模型名")
+            raise AppError(4002, "云端朗读未配置",
+                           "请在语音设置里填写语音端点与模型名（端点与对话模型同站点时可留空）")
 
         text = (text or "").strip()
         if not text:

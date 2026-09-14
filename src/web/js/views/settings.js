@@ -97,7 +97,7 @@
         <div class="field">
           <label>朗读（TTS）— 默认关闭</label>
           <div class="row">
-            <select id="tts-mode" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <select id="tts-mode" class="tts-mode-sel" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px">
               ${[["off", "关闭"], ["local", "本地朗读（离线，零外发）"], ["cloud", "云端 API"]]
                 .map(([v, n]) => `<option value="${v}" ${tts.mode === v ? "selected" : ""}>${n}</option>`).join("")}
             </select>
@@ -109,16 +109,20 @@
               </select>
               <span class="hint" id="tts-engine-hint"></span>
             </div>
-            <div class="field" id="tts-cloud-wrap"><label>base_url</label><input type="text" id="tts-base" value="${cfg.tts.base_url}" placeholder="https://api.siliconflow.cn/v1"></div>
-            <div class="field" id="tts-cloud-model"><label>模型名</label><input type="text" id="tts-model" value="${cfg.tts.model}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
+          </div>
+          <div class="row" id="tts-cloud-row">
+            <div class="field" id="tts-cloud-wrap"><label>语音端点 base_url</label><input type="text" id="tts-base" value="${cfg.tts.base_url}" placeholder="留空 = 沿用对话模型端点"></div>
+            <div class="field" id="tts-cloud-model"><label>语音模型名</label><input type="text" id="tts-model" value="${cfg.tts.model}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
+          </div>
+          <div class="row" id="tts-key-row">
+            <div class="field"><label>语音 Key（留空则沿用对话模型 Key）</label><input type="password" id="tts-key" placeholder="${cfg.tts.api_key_set ? "已配置，留空则不修改" : "与对话模型同一站点时可留空"}"></div>
           </div>
           <div class="row">
-            <div class="field"><label>语音 Key（与对话模型分开）</label><input type="password" id="tts-key" placeholder="${cfg.tts.api_key_set ? "已配置，留空则不修改" : ""}"></div>
             <button class="btn primary" id="tts-save">保存语音设置</button>
             <button class="btn" id="tts-preview">🔊 试听</button>
             <span class="hint" id="tts-preview-result"></span>
           </div>
-          <p class="hint">本地朗读由浏览器调用 Windows 系统语音（如 Microsoft Huihui），完全离线、零 Key。开关在工作台底部；开启后**每条新回答都会朗读**。</p>
+          <p class="hint">语音端点可与对话模型<strong>不同</strong>：<strong>同一个站点</strong>时端点与 Key <strong>都可以留空</strong>，程序自动沿用对话模型的地址与 Key（<strong>不需要另外申请第二个 Key</strong>）；<strong>换成别的语音站点</strong>时，才需要填该站点的地址与那家站点自己的 Key（此时不会误用对话模型的 Key）。本地朗读由浏览器调用 Windows 系统语音（如 Microsoft Huihui），完全离线、零 Key。开关在工作台底部；开启后每条新回答都会朗读。</p>
         </div>
       </div>`;
     host.appendChild(page);
@@ -285,9 +289,10 @@
 
   function val(id) { const n = document.getElementById(id); return n ? n.value.trim() : ""; }
   function updateTTSVis(mode) {
-    const show = mode === "cloud";
-    document.getElementById("tts-cloud-wrap").style.display = show ? "" : "none";
-    document.getElementById("tts-cloud-model").style.display = show ? "" : "none";
+    // 云端三项（端点 / 模型名 / Key）只在「云端 API」时出现；其余模式不占位。
+    const cloud = mode === "cloud";
+    document.getElementById("tts-cloud-row").style.display = cloud ? "" : "none";
+    document.getElementById("tts-key-row").style.display = cloud ? "" : "none";
     const local = document.getElementById("tts-local-wrap");
     if (local) local.style.display = mode === "local" ? "" : "none";
     updateEngineHint();

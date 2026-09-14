@@ -427,15 +427,40 @@ class SettingsService:
         except Exception as exc:  # noqa: BLE001
             raise self._http_error("embed", exc) from exc
 
+    def tts_effective(self) -> tuple[str, str, str]:
+        """云端朗读实际使用的 (base_url, model, api_key)。
+
+        端点留空 → 沿用对话模型的端点；Key 留空 → **仅当端点主机与对话模型
+        主机相同**时沿用对话模型的 Key。把 A 站点的密钥发往 B 站点属于密钥
+        外泄，宁可让请求 401 由用户显式填写。**模型名不回退**——语音模型与
+        对话模型完全同名的情况不存在（如 FunAudioLLM/SpeechT5/TTS vs deepseek-chat），
+        沿用了必然报错，不如让上层明确提示未配置。
+        """
+        from urllib.parse import urlsplit
+
+        base = self.get("tts.base_url").strip().rstrip("/")
+        model = self.get("tts.model").strip()
+        key = self.get_secret("tts.api_key")
+        llm_base = self.get("llm.base_url").strip().rstrip("/")
+        if not base:
+            base = llm_base
+        if not key and base and llm_base:
+            try:
+                same_host = urlsplit(base).netloc.lower() == urlsplit(llm_base).netloc.lower()
+            except ValueError:
+                same_host = False
+            if same_host:
+                key = self.get_secret("llm.api_key")
+        return base, model, key
+
     def _test_tts(self) -> tuple[str, str | None]:
         """测试云端 TTS 端点：POST {base_url}/audio/speech。"""
-        base = self.get("tts.base_url").rstrip("/")
+        base, model, key = self.tts_effective()
         if not base:
-            raise AppError(2000, "TTS 端点未配置", "tts.base_url 为空")
-        key = self.get_secret("tts.api_key")
+            raise AppError(2000, "TTS 端点未配置", "请填写语音端点 base_url（或先把对话模型的端点配好）")
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         payload = {
-            "model": self.get("tts.model") or "tts-1",
+            "model": model or "tts-1",
             "voice": self.get("tts.voice") or "alloy",
             "input": "测试",
         }

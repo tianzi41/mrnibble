@@ -254,6 +254,164 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             except Exception: pass
 
 
+def cdp_settings_tts(base: str) -> None:
+    """用 CDP 真实打开设置页，量取语音区关键宽度，证伪「被挤扁」（问题 1）。
+
+    单脚本一次跑完：本函数内启动 Chrome、驱动交互、最后回收进程。
+    """
+    import asyncio as _a, json, subprocess
+    import websockets
+
+    chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    ud = "C:/tmp/zhiban_tts_%d" % int(time.time())
+    try:
+        os.makedirs(ud, exist_ok=True)
+    except Exception:
+        pass
+    port = 9224
+
+    def _check(name, cond, detail=""):
+        (PASS if cond else FAIL).append(name)
+        print(f"  {'✅' if cond else '❌'} {name}{('  | ' + detail) if (detail and not cond) else ''}")
+
+    proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+            "--no-proxy-server", f"--remote-debugging-port={port}",
+            f"--user-data-dir={ud}", "--window-size=1280,900", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        ver = None
+        for _ in range(60):
+            try:
+                ver = httpx.get(f"http://127.0.0.1:{port}/json/version", timeout=2).json()
+                break
+            except Exception:
+                _a.sleep(0.5)
+        if not ver:
+            _check("CDP 端口可达", False, "chrome 未启动")
+            return
+        _check("CDP 端口可达", True)
+
+        async def _run() -> None:
+            async with websockets.connect(ver["webSocketDebuggerUrl"], max_size=None, ping_interval=None) as bws:
+                _id = [0]
+                def nid():
+                    _id[0] += 1
+                    return _id[0]
+                async def bsend(method, params=None):
+                    i = nid()
+                    await bws.send(json.dumps({"id": i, "method": method, "params": params or {}}))
+                    return i
+                async def bwait(i, t=20):
+                    while True:
+                        r = json.loads(await _a.wait_for(bws.recv(), t))
+                        if r.get("id") == i:
+                            return r
+                r = await bsend("Target.createTarget", {"url": base + "/#/settings"})
+                tid = (await bwait(r))["result"]["targetId"]
+                pws = None
+                for _ in range(40):
+                    lst = httpx.get(f"http://127.0.0.1:{port}/json/list", timeout=3).json()
+                    t = next((x for x in lst if x.get("id") == tid), None)
+                    if t and t.get("webSocketDebuggerUrl"):
+                        pws = t["webSocketDebuggerUrl"]
+                        break
+                    _a.sleep(0.3)
+                if not pws:
+                    _check("页面调试端点", False)
+                    return
+                _check("页面调试端点", True)
+
+            async with websockets.connect(pws, max_size=None, ping_interval=None) as ws:
+                _id = [0]
+                def nid():
+                    _id[0] += 1
+                    return _id[0]
+                pending: dict = {}
+                async def reader():
+                    while True:
+                        try:
+                            raw = await ws.recv()
+                        except Exception:
+                            break
+                        try:
+                            msg = json.loads(raw)
+                        except Exception:
+                            continue
+                        if "id" in msg and msg["id"] in pending:
+                            pending[msg["id"]].set_result(msg)
+                _task = _a.create_task(reader())
+                async def ev(expr, t=25):
+                    i = nid()
+                    loop = _a.get_event_loop()
+                    fut = loop.create_future()
+                    pending[i] = fut
+                    await ws.send(json.dumps({"id": i, "method": "Runtime.evaluate",
+                                              "params": {"expression": expr, "returnByValue": True, "awaitPromise": True}}))
+                    try:
+                        res = await _a.wait_for(fut, t)
+                    finally:
+                        pending.pop(i, None)
+                    if "error" in res:
+                        raise RuntimeError(str(res["error"]))
+                    return res.get("result", {}).get("result", {}).get("value")
+
+                await ws.send(json.dumps({"id": nid(), "method": "Runtime.enable"}))
+                for _ in range(40):
+                    ok = await ev("!!document.getElementById('tts-mode')")
+                    if ok:
+                        break
+                    _a.sleep(0.3)
+                _check("2.40 设置页渲染出 #tts-mode", bool(ok))
+
+                # 默认 off → 云端行 display:none、宽度 0，必须先切到「云端 API」。
+                await ev("var m=document.getElementById('tts-mode');m.value='cloud';m.dispatchEvent(new Event('change'));")
+                _a.sleep(0.5)
+                w = await ev("""(function(){
+                    function w0(el){return el?el.getBoundingClientRect().width:0;}
+                    return {base:w0(document.getElementById('tts-base')),
+                            model:w0(document.getElementById('tts-model')),
+                            mode:w0(document.getElementById('tts-mode')),
+                            hasCloud:!!document.getElementById('tts-cloud-row'),
+                            hasKey:!!document.getElementById('tts-key-row')};
+                })()""")
+                _check("2.41 #tts-base 宽度 > 200（未被挤扁）",
+                       (w or {}).get("base", 0) > 200, f"base={(w or {}).get('base')}")
+                _check("2.42 #tts-model 宽度 > 200（未被挤扁）",
+                       (w or {}).get("model", 0) > 200, f"model={(w or {}).get('model')}")
+                _check("2.43 #tts-mode 宽度 < 320（已收回自适应宽度）",
+                       (w or {}).get("mode", 0) < 320, f"mode={(w or {}).get('mode')}")
+                _check("2.44 存在 #tts-cloud-row / #tts-key-row",
+                       bool((w or {}).get("hasCloud")) and bool((w or {}).get("hasKey")))
+
+                # 切回 off（等价于 updateTTSVis('off')），断言两行隐藏。
+                await ev("var m=document.getElementById('tts-mode');m.value='off';m.dispatchEvent(new Event('change'));")
+                _a.sleep(0.4)
+                disp = await ev("""(function(){
+                    var cr=document.getElementById('tts-cloud-row');
+                    var kr=document.getElementById('tts-key-row');
+                    return {cr: cr?cr.style.display:'?', kr: kr?kr.style.display:'?'};
+                })()""")
+                _check("2.45 切 off 后 #tts-cloud-row 隐藏",
+                       (disp or {}).get("cr") == "none", f"cr={(disp or {}).get('cr')}")
+                _check("2.46 切 off 后 #tts-key-row 隐藏",
+                       (disp or {}).get("kr") == "none", f"kr={(disp or {}).get('kr')}")
+                _task.cancel()
+
+        _a.run(_run())
+    finally:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=8)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
 def main() -> int:
     if DATA.exists():
         shutil.rmtree(DATA)
@@ -462,6 +620,13 @@ def main() -> int:
               dom_lesson.index('id="b-back"') < dom_lesson.index('id="lesson-actions"'))
         check("2.39 仅存在一个返回按钮", dom_lesson.count('id="b-back"') == 1,
               f"count={dom_lesson.count('id=\"b-back\"')}")
+
+        # 设置页语音区布局（问题 1 核心：#tts-base / #tts-model 不能被挤扁）
+        print("\n[2.40] 设置页语音区布局（CDP 真实浏览器）")
+        try:
+            cdp_settings_tts(BASE)
+        except Exception as e:
+            check("2.40 CDP 语音布局验证未异常", False, str(e)[:200])
 
         # 页面级 JS 错误会写进 DOM（main.js 的 catch 分支）
         m = re.search(r'data-view-error="1"[^>]*>加载失败：([^<]{0,140})', dom)
