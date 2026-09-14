@@ -123,9 +123,11 @@
             <button class="btn" id="tts-test">测试连接</button>
             <button class="btn primary" id="tts-save">保存语音设置</button>
             <button class="btn" id="tts-preview">🔊 试听</button>
-            <span class="hint" id="tts-test-result"></span>
-            <span class="hint" id="tts-preview-result"></span>
           </div>
+          <!-- 结果单独成行：文案很长（含 HTTP 状态与实际请求 URL），
+               塞在按钮同一行会把按钮挤到换行，导致「保存语音设/置」这种断词。 -->
+          <p class="hint" id="tts-test-result"></p>
+          <p class="hint" id="tts-preview-result"></p>
           <p class="hint">语音端点可与对话模型<strong>不同</strong>：<strong>同一个站点</strong>时端点与 Key <strong>都可以留空</strong>，程序自动沿用对话模型的地址与 Key（<strong>不需要另外申请第二个 Key</strong>）；<strong>换成别的语音站点</strong>时，才需要填该站点的地址与那家站点自己的 Key（此时不会误用对话模型的 Key）。本地朗读由浏览器调用 Windows 系统语音（如 Microsoft Huihui），完全离线、零 Key。开关在工作台底部；开启后每条新回答都会朗读。</p>
         </div>
       </div>`;

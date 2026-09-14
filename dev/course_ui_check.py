@@ -460,6 +460,24 @@ def cdp_settings_tts(base: str) -> None:
                        (saved or {}).get("data", {}).get("tts", {}).get("voice") == TEST_VOICE,
                        f"voice={(saved or {}).get('data', {}).get('tts', {}).get('voice')}")
 
+                # 结果文案很长（含 HTTP 状态与实际请求 URL），若与按钮同在一行会把按钮
+                # 挤到换行（「保存语音设/置」断词）。断言按钮行只有按钮、且按钮不换行。
+                lay = await ev("""(function(){
+                  var s=document.getElementById('tts-save');
+                  if(!s) return null;
+                  var row=s.parentElement;
+                  return {rowKids: row.children.length,
+                          testInRow: !!row.querySelector('#tts-test-result'),
+                          ws: getComputedStyle(s).whiteSpace,
+                          h: Math.round(s.getBoundingClientRect().height)};
+                })()""")
+                _check("2.73 语音按钮独占一行（结果文案不在按钮行内）",
+                       bool(lay) and lay.get("rowKids") == 3 and not lay.get("testInRow"),
+                       f"lay={lay}")
+                _check("2.74 语音按钮不换行（nowrap 且单行高度）",
+                       bool(lay) and lay.get("ws") == "nowrap" and 0 < (lay.get("h") or 0) < 46,
+                       f"lay={lay}")
+
                 _task.cancel()
 
         _a.run(_run())
