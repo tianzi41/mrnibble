@@ -285,7 +285,7 @@ def cdp_settings_tts(base: str) -> None:
                 ver = httpx.get(f"http://127.0.0.1:{port}/json/version", timeout=2).json()
                 break
             except Exception:
-                _a.sleep(0.5)
+                time.sleep(0.5)
         if not ver:
             _check("CDP 端口可达", False, "chrome 未启动")
             return
@@ -315,7 +315,7 @@ def cdp_settings_tts(base: str) -> None:
                     if t and t.get("webSocketDebuggerUrl"):
                         pws = t["webSocketDebuggerUrl"]
                         break
-                    _a.sleep(0.3)
+                    await _a.sleep(0.3)
                 if not pws:
                     _check("页面调试端点", False)
                     return
@@ -360,12 +360,12 @@ def cdp_settings_tts(base: str) -> None:
                     ok = await ev("!!document.getElementById('tts-mode')")
                     if ok:
                         break
-                    _a.sleep(0.3)
-                _check("2.40 设置页渲染出 #tts-mode", bool(ok))
+                    await _a.sleep(0.3)
+                _check("2.60 设置页渲染出 #tts-mode", bool(ok))
 
                 # 默认 off → 云端行 display:none、宽度 0，必须先切到「云端 API」。
                 await ev("var m=document.getElementById('tts-mode');m.value='cloud';m.dispatchEvent(new Event('change'));")
-                _a.sleep(0.5)
+                await _a.sleep(0.5)
                 w = await ev("""(function(){
                     function w0(el){return el?el.getBoundingClientRect().width:0;}
                     return {base:w0(document.getElementById('tts-base')),
@@ -374,42 +374,42 @@ def cdp_settings_tts(base: str) -> None:
                             hasCloud:!!document.getElementById('tts-cloud-row'),
                             hasKey:!!document.getElementById('tts-key-row')};
                 })()""")
-                _check("2.41 #tts-base 宽度 > 200（未被挤扁）",
+                _check("2.61 #tts-base 宽度 > 200（未被挤扁）",
                        (w or {}).get("base", 0) > 200, f"base={(w or {}).get('base')}")
-                _check("2.42 #tts-model 宽度 > 200（未被挤扁）",
+                _check("2.62 #tts-model 宽度 > 200（未被挤扁）",
                        (w or {}).get("model", 0) > 200, f"model={(w or {}).get('model')}")
-                _check("2.43 #tts-mode 宽度 < 320（已收回自适应宽度）",
+                _check("2.63 #tts-mode 宽度 < 320（已收回自适应宽度）",
                        (w or {}).get("mode", 0) < 320, f"mode={(w or {}).get('mode')}")
-                _check("2.44 存在 #tts-cloud-row / #tts-key-row",
+                _check("2.64 存在 #tts-cloud-row / #tts-key-row",
                        bool((w or {}).get("hasCloud")) and bool((w or {}).get("hasKey")))
 
                 # 切回 off（等价于 updateTTSVis('off')），断言两行隐藏。
                 await ev("var m=document.getElementById('tts-mode');m.value='off';m.dispatchEvent(new Event('change'));")
-                _a.sleep(0.4)
+                await _a.sleep(0.4)
                 disp = await ev("""(function(){
                     var cr=document.getElementById('tts-cloud-row');
                     var kr=document.getElementById('tts-key-row');
                     return {cr: cr?cr.style.display:'?', kr: kr?kr.style.display:'?'};
                 })()""")
-                _check("2.45 切 off 后 #tts-cloud-row 隐藏",
+                _check("2.65 切 off 后 #tts-cloud-row 隐藏",
                        (disp or {}).get("cr") == "none", f"cr={(disp or {}).get('cr')}")
-                _check("2.46 切 off 后 #tts-key-row 隐藏",
+                _check("2.66 切 off 后 #tts-key-row 隐藏",
                        (disp or {}).get("kr") == "none", f"kr={(disp or {}).get('kr')}")
 
                 # ── 2.47~2.50：测试连接按钮 + 试听真的发请求 + 暴露实际 URL ──
-                _check("2.47 存在 #tts-test 与 #tts-test-result",
+                _check("2.67 存在 #tts-test 与 #tts-test-result",
                        bool(await ev("!!document.getElementById('tts-test') "
                                      "&& !!document.getElementById('tts-test-result')")))
 
                 live = await ev("document.getElementById('tts-live') "
                                 "? document.getElementById('tts-live').textContent : ''")
-                _check("2.48 #tts-live 文案含「当前生效」", "当前生效" in (live or ""), f"live={live}")
+                _check("2.68 #tts-live 文案含「当前生效」", "当前生效" in (live or ""), f"live={live}")
 
                 # 切到云端，点「🔊 试听」——证明云端试听真的发起了请求，
                 # 而不是像以前那样直接 return「设置页不试听」。
                 await ev("var m=document.getElementById('tts-mode');"
                          "m.value='cloud';m.dispatchEvent(new Event('change'));")
-                _a.sleep(0.4)
+                await _a.sleep(0.4)
                 await ev("var b=document.getElementById('tts-preview');if(b)b.click();")
                 # 试听是异步的：先发请求到后端，拿到结果后再异步追加「（实际请求：…）」。
                 # 因此必须等到「实际请求」出现，不能一见 HTTP 就收（否则会漏掉追加部分）。
@@ -419,17 +419,17 @@ def cdp_settings_tts(base: str) -> None:
                                            "? document.getElementById('tts-preview-result').textContent : ''")
                     if preview_txt and "实际请求" in preview_txt:
                         break
-                    _a.sleep(0.3)
-                _check("2.49 云端试听发起请求（结果含 HTTP）",
+                    await _a.sleep(0.3)
+                _check("2.69 云端试听发起请求（结果含 HTTP）",
                        "HTTP" in (preview_txt or ""), f"preview={preview_txt}")
-                _check("2.50 试听暴露「实际请求」URL",
+                _check("2.70 试听暴露「实际请求」URL",
                        "实际请求" in (preview_txt or ""), f"preview={preview_txt}")
 
                 # ── 2.51~2.52：新增「音色」输入可见 + 可提交 ──
                 # 确保处于云端模式（2.49/2.50 已切到 cloud，这里再确保一次）。
                 await ev("var m=document.getElementById('tts-mode');"
                          "if(m.value!=='cloud'){m.value='cloud';m.dispatchEvent(new Event('change'));}")
-                _a.sleep(0.4)
+                await _a.sleep(0.4)
                 vo = await ev("""(function(){
                     var el=document.getElementById('tts-voice');
                     var row=document.getElementById('tts-cloud-row');
@@ -437,7 +437,7 @@ def cdp_settings_tts(base: str) -> None:
                             w: el ? el.getBoundingClientRect().width : 0,
                             rowVisible: row ? row.style.display !== 'none' : false};
                 })()""")
-                _check("2.51 存在 #tts-voice 且切到云端后可见（宽度>100）",
+                _check("2.71 存在 #tts-voice 且切到云端后可见（宽度>100）",
                        bool((vo or {}).get("exists")) and (vo or {}).get("w", 0) > 100
                        and bool((vo or {}).get("rowVisible")),
                        f"vo={vo}")
@@ -455,8 +455,8 @@ def cdp_settings_tts(base: str) -> None:
                             break
                     except Exception:
                         pass
-                    _a.sleep(0.3)
-                _check("2.52 #tts-voice 提交后 GET /api/settings 回显一致",
+                    await _a.sleep(0.3)
+                _check("2.72 #tts-voice 提交后 GET /api/settings 回显一致",
                        (saved or {}).get("data", {}).get("tts", {}).get("voice") == TEST_VOICE,
                        f"voice={(saved or {}).get('data', {}).get('tts', {}).get('voice')}")
 
@@ -687,11 +687,11 @@ def main() -> int:
               f"count={dom_lesson.count('id=\"b-back\"')}")
 
         # 设置页语音区布局（问题 1 核心：#tts-base / #tts-model 不能被挤扁）
-        print("\n[2.40] 设置页语音区布局（CDP 真实浏览器）")
+        print("\n[2.60] 设置页语音区布局（CDP 真实浏览器）")
         try:
             cdp_settings_tts(BASE)
         except Exception as e:
-            check("2.40 CDP 语音布局验证未异常", False, str(e)[:200])
+            check("2.99 CDP 语音布局验证未异常", False, str(e)[:200])
 
         # 页面级 JS 错误会写进 DOM（main.js 的 catch 分支）
         m = re.search(r'data-view-error="1"[^>]*>加载失败：([^<]{0,140})', dom)
