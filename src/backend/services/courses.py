@@ -23,6 +23,7 @@ from __future__ import annotations
 import difflib
 import json
 import logging
+import math
 import re
 import threading
 import traceback
@@ -68,9 +69,10 @@ _SCRIPT_MIN_EXPAND = 1.25
 
 # ── 通用规则（所有课程生成提示词共用）───────────────────
 _BASE_RULES = """通用规则：
-1. **只依据下方 [材料N]** 组织内容，引用一律写 [[c:编号]]（编号取自 [材料N] 的 N）；禁止自己书写页码、章节号或文件名。
-2. 材料里没有的内容不要编造；确需补充时以「（材料外补充）」开头。
-3. 只输出一个 JSON 对象，不要输出 JSON 以外的任何文字（包括解释与代码块标记）。"""
+1. **只依据下方 [材料N]** 组织内容；引用一律写 [[c:编号]]（编号取自 [材料N] 实际给出的 N，不得使用未出现的编号）；禁止自己书写页码、章节号或文件名。
+2. 材料里没有的内容不要编造；确需补充时以「（材料外补充）」开头，每次生成最多 2 处。
+3. 全部内容使用简体中文（专有名词、公式符号可保留原文）。
+4. 只输出一个 JSON 对象，不要输出 JSON 以外的任何文字（包括解释与代码块标记），不要输出 schema 之外的字段。"""
 
 _UNIT_SUMMARY_PROMPT = """你是学习教练。这个单元已经学完，请根据「学过的内容」与「练习表现」写一份单元总结。
 
@@ -85,19 +87,41 @@ _UNIT_SUMMARY_PROMPT = """你是学习教练。这个单元已经学完，请根
 weak_points 必须来自练习中真实答错或得分偏低的题目。
 """ + _BASE_RULES
 
-_OUTLINE_PROMPT = """你是课程设计师。请根据用户的学习目标与材料，设计一门可学完的课程大纲。
+_OUTLINE_PROMPT = """你是课程设计师。请依据用户的学习目标与材料，设计一门「能学完」的课程大纲。
+学习者水平与深度要求见用户消息中的【课程信息】。
 
-要求：
-- 课程标题：一句话点明主题；
+结构要求：
+- 课程标题：一句话点明主题，具体到方法或领域，不空泛；
 - __UNITS_RULE__；
-- 每个单元最后一个讲次是 ``practice``（随堂练习），其余为 ``lecture``；
-- ``objective`` 写「学完这一节能做到什么」，不要写成章节名；
-- 讲次顺序必须由浅入深，覆盖材料的主要内容。
+- 每个单元最后一个讲次固定为 practice（随堂练习），objective 写「检验本单元各讲目标是否达成」；其余为 lecture；
+- 讲次顺序由浅入深；同一单元内讲次的 depth 大体递进；
+- 去重：每个讲次聚焦一个学习目标，不同讲次的 objective 不得相近或重复。
+
+字段写法：
+- 讲次 title 用「主题 · 侧重点」形式，点明这一讲的角度（例：「洛必达法则 · 什么时候不能用」），不要与单元标题相同；
+- 讲次 objective 以「能 + 可检验动词」开头（能说明/能计算/能推导/能区分/能应用/能判断），
+  禁止「了解/熟悉/掌握/学习」等无法检验的动词。
+  反例（禁止）：「了解极限的概念」。正例：「能用自己的话解释极限的直观含义，并判断给定数列是否收敛」；
+- 讲次 depth 四选一（认知层级，决定该讲讲义的讲法）：
+  establish——建立动机与直观理解（为什么需要它、它解决什么问题）；
+  define——给出准确定义、符号与适用条件；
+  derive——推导性质、证明结论或分析原理；
+  apply——用它完成具体例题或应用；
+- 单元 summary：1~2 句，说明该单元在整门课中的角色（承接什么、为后续铺垫什么）。
+
+覆盖要求：
+- 优先按材料中体现的章节/主题组织单元；材料覆盖的主要内容不得留整块缺口；
+- 材料里没有的主题不得编造；用户目标与材料冲突时以材料为准，并在 summary 里说明取舍。
 
 输出 JSON：
-{"title":"课程标题","summary":"课程简介（2~3 句）",
+{"title":"课程标题","summary":"课程简介（2~3 句，说明适合谁、学完能做什么）",
  "units":[{"title":"单元标题","summary":"单元简介",
  "lessons":[{"title":"讲次标题","objective":"学习目标","kind":"lecture|practice","depth":"establish|define|derive|apply"}]}]}
+
+输出前自查（只自查，不输出过程）：
+- 是否有任意两个讲次的 objective 说的其实是同一件事？
+- objective 里有没有「了解/熟悉/掌握」？
+- 材料的主要章节是否都有讲次覆盖？
 """ + _BASE_RULES
 
 # 学习目标推荐（创建向导里的「帮我推荐」按钮）。
@@ -112,42 +136,77 @@ _GOAL_PROMPT = """你是学习规划师。用户挑了几份学习材料想开�
 只输出这一个 JSON 对象，不要输出 JSON 以外的任何文字（包括解释与代码块标记）。
 """
 
-_LECTURE_PROMPT = """你是课堂讲师。请为下面这一讲准备一版**课堂内容包**，__DEPTH__。
+_LECTURE_PROMPT = """你是课堂讲师，正在给一门真实课程备课。请为下面这一讲生成一版「课堂内容包」。
 
+【讲次信息】
 讲次：__TITLE__
-目标：__OBJECTIVE__
+学习目标（学完这一讲能做到什么）：__OBJECTIVE__
 所属单元：__UNIT__
 
-必须把三类内容分清楚：
-1. slides：学生看的课件页，短句、要点、对比、例子，不堆完整讲稿；
-2. scripts：讲师朗读/讲述的讲稿，按 slide_id 关联课件，围绕当前页解释、举例、衔接，不能只是复述课件；
-3. cards：讲义全文，供学生课后通读复习，可比 slides 更完整。
+【深度与篇幅】
+__DEPTH__
+
+这一讲产出三类内容，读者与形态必须分开：
+- slides（课件页）：学生课堂上跟着看的。每页 = 一个短标题 + 最多 5 条要点（每条 ≤25 字）或一个例子/公式；禁止把整段讲解塞进 bullets 或 body；
+- scripts（讲师讲稿）：讲课时朗读的。每页一段口语化的讲解——解释、举例、衔接；禁止复述课件；
+- cards（讲义卡片）：学生课后通读的。每张一个主题，比课件页完整：要说清「为什么」，并指出常见误区。
+
+课件页形态示例（好，内容须换成本讲材料）：
+{"id":"slide-2","kind":"example","title":"0/0 型长什么样","bullets":["分子分母同时趋于 0","直接代入得到 0/0，算不出值","例：lim(x→0) sinx/x"],"body":"","citation_refs":[3]}
+坏课件页（禁止）：body 里塞 200 字整段讲解——那是讲稿或讲义的事。
+
+课件页类型（kind）使用时机：
+- concept：核心概念或结论；example：例子/例题；formula：公式/表达式（附适用条件）；
+- quote：材料原句直引（必须带 [[c:N]]）；note：注意事项、易错点、衔接说明；
+- diagram：流程、步骤、因果、结构关系用图更清楚时；内容写入 diagram 字段（见下方【可视化页】）；
+- chart：材料里有能成图的数值对比时；数据写入 chart 字段。材料没有现成数字就不要硬造图表。
+
+【可视化页（可选，每讲最多 2 页，计入 slides 总页数）】
+- diagram 页：kind="diagram"，加字段 "diagram":{"lang":"mermaid","code":"..."}。
+  code 必须以下列之一开头：flowchart TD、flowchart LR、sequenceDiagram、stateDiagram-v2、classDiagram；
+  节点标签用简体中文、每个 ≤14 字，标签含括号等特殊字符时必须用双引号包住；
+  禁止 style、classDef、linkStyle、%% 注释等任何样式或指令语句；整段不超过 25 行；
+  图中不得出现材料里没有的新实体。
+- chart 页：kind="chart"，加字段
+  "chart":{"type":"bar|line|pie","title":"图表标题","unit":"数值单位（可选）","categories":["类目1","类目2"],"series":[{"name":"系列名","data":[12,30]}]}。
+  数据只能来自材料原文（或由材料数字直接换算），**禁止编造数值**；类目 ≤12 个；系列 ≤2 条；
+  categories 数量必须与每条 series 的 data 数量一致；pie 只给 1 条 series。
+- diagram/chart 页仍必须有 title 与 1~3 条 bullets（图旁要点，也是图渲染失败时学生看到的回退内容）；
+  scripts 照常为该页写讲稿：先说这张图整体画了什么，再带着听众走关键节点，最后落到结论。
+- 没有合适内容就一页可视化都不要硬加。
 
 输出 JSON：
 {"summary":"本讲一句话导览",
- "slides":[{"id":"slide-1","kind":"concept|example|formula|quote|note","title":"课件页标题","bullets":["短要点1","短要点2"],"body":"可选补充短句，可含 [[c:N]]","citation_refs":[1]}],
+ "slides":[{"id":"slide-1","kind":"concept|example|formula|quote|note|diagram|chart","title":"课件页标题","bullets":["短要点1","短要点2"],"body":"可选补充短句，可含 [[c:N]]","citation_refs":[1]}],
  "scripts":[{"slide_id":"slide-1","text":"讲师实际朗读的完整讲稿，可含 [[c:N]]。要解释课件、补充上下文和自然转场。"}],
  "cards":[{"kind":"concept|example|formula|quote|note","title":"讲义卡片标题","body":"讲义正文，可含 [[c:N]]"}],
  "outline":["要点1","要点2"],
  "keypoints":[{"term":"术语/公式","desc":"解释"}],
  "recap":"本讲回顾（3 句以内）",
  "marks":[{"n":1,"kind":"highlight","text":"这句为什么重要"}]}
+ "diagram"/"chart" 是可选字段，仅 kind 为 diagram/chart 的页使用，格式见上方【可视化页】；
 
-要求：
-- slides 至少 3 页；每页只放学生需要看的标题、短要点或例子，避免完整讲稿；
-- scripts 必须与 slides 逐页一一对应，slide_id 必须来自 slides；
-- **scripts 最重要的规则：讲师讲稿 ≠ 课件文字。禁止把课件标题与要点原样念一遍。**
-  每段 script 必须比对应 slide 明显更口语、更完整（建议长度是课件文字的 1.5 倍以上），
-  并且至少包含「解释为什么」「举一个例子」「和上一页衔接」这三类成分中的两类。
-  反例（禁止）：slide 写「要点：洛必达法则适用于 0/0 型」，script 也写「洛必达法则适用于 0/0 型」。
-  正例：script 写「我们刚才看到这个式子上下都趋于零，直接代入算不出来。这时候洛必达法则才有用——
-  它要求分子分母同时趋于零（或同时趋于无穷），也就是所谓的 0/0 型。举个最常见的例子……」。
-- cards 至少 3 张，其中至少 1 张 kind 为 quote（直接引用材料原句）；keypoints 至少 2 条；不要输出空数组；
-- slides/scripts/cards 中如引用材料，统一使用 [[c:N]]。citation_refs 只写本页用到的材料编号，不写页码。
+质量要求：
+1. 叙事结构：第 1 页做引入（承接上一讲的结尾，或点出本讲要解决的问题），最后一页做小结，中间由浅入深；
+2. **讲稿 ≠ 课件文字（最重要）**。禁止把课件标题与要点原样念一遍。
+   每段讲稿满足【深度与篇幅】里的字数要求之外，至少包含「解释为什么」「举一个例子」「和上一页衔接」中的两类。
+   反例（禁止）：slide 写「洛必达法则适用于 0/0 型」，script 也写「洛必达法则适用于 0/0 型」。
+   正例：script 写「我们刚才看到这个式子上下都趋于零，直接代入算不出来。这时候洛必达法则才有用——
+   它要求分子分母同时趋于零（或同时趋于无穷），也就是所谓的 0/0 型。举个最常见的例子……」；
+3. scripts 与 slides 逐页一一对应，slide_id 必须来自 slides，数量相同；
+4. cards 至少 3 张、至少 1 张 quote（直引材料原句并标 [[c:N]]）；kind 为 concept 的卡片至少 1 处标注 [[c:N]]；
+   keypoints 至少 2 条，term 必须是本讲 slides 或 scripts 里实际出现过的术语/公式；
+5. 讲稿口语化，但不得加入材料与课件都没有的具体数字或结论；拿不准的量只转述材料原文并标 [[c:N]]；
+6. 引用一律 [[c:N]]，N 只能是材料实际给出的编号；citation_refs 只写本页用到的编号。
 
-marks 是**材料标注意图**：n 必须是本讲引用到的材料编号（即你在内容里用过的
-[[c:N]] 的 N），kind 取 highlight（黄底高亮）或 circle（红圈），text 是要在旁边写的一句话旁注。
-没有把握就返回空数组，不要编造 n。
+marks 是**材料标注意图**：n 必须是本讲用过的 [[c:N]] 编号，kind 取 highlight（黄底高亮）或 circle（红圈），
+text 是写在旁边的一句旁注。没有把握就返回空数组，不要编造 n。
+
+输出前自查（只自查，不输出过程）：
+- 每段讲稿读起来像老师说话吗？有没有哪段只是在念课件？
+- slides 每页是否一眼能看完（短标题 + 短要点）？
+- 引用编号是否都来自材料？
+- 可视化页是否 ≤2 页？chart 里的数字是否都来自材料？
 """ + _BASE_RULES
 
 # 「讲稿照念课件」被结构判定拦下后的定向重写提示词（只重写有问题的页）。
@@ -159,6 +218,8 @@ _SCRIPT_REWRITE_PROMPT = """你是课堂讲师。下面列出的课件页，对�
 2. 每段讲稿至少包含「解释为什么这样」「举一个具体例子」「和上下文衔接」中的两类；
 3. 长度明显长于课件文字（建议 1.5 倍以上），读起来像老师在讲台上说话，不是念 PPT；
 4. 如引用材料仍用 [[c:N]]，不要写页码。
+5. 每段重写讲稿不少于 120 字（课件页太短时「1.5 倍」标准失效，用绝对下限兜底）；
+6. 原讲稿中已有的 [[c:N]] 引用若仍成立，重写后保留。
 
 待重写的页：
 __PAYLOAD__
@@ -203,9 +264,18 @@ _GRADE_PROMPT = """你是阅卷老师。请为学生的开放题作答评分。
 """
 
 _DEPTH_HINT = {
-    "brief": "控制在最核心的内容，讲解精炼",
-    "standard": "篇幅适中，讲清概念并给出例子",
-    "detailed": "详尽展开，含推导、易错点与更多例子",
+    "brief": "篇幅档·概览：slides 3~5 页，每页要点 ≤4 条；scripts 每段 80~150 字；cards 3~4 张；只讲最核心结论，例子最多 1 个。",
+    "standard": "篇幅档·标准：slides 5~8 页，每页要点 ≤5 条；scripts 每段 150~300 字；cards 4~6 张，其中 1 张写易错点。",
+    "detailed": "篇幅档·深入：slides 8~12 页，每页要点 ≤6 条；scripts 每段 300~500 字；cards 6~9 张，含推导细节与对比。",
+}
+
+# 讲次认知层级（course_lessons.depth：establish/define/derive/apply）
+# 旧版缺失：讲次 depth 查 _DEPTH_HINT（brief/standard/detailed）永远 miss，恒为 standard。
+_LESSON_DEPTH_HINT = {
+    "establish": "讲法侧重·引入：从「为什么需要它」讲起，多打比方、建立直觉，暂不展开严格定义。",
+    "define": "讲法侧重·定义：给出准确定义、符号含义与适用条件，明确「是什么、什么时候能用/不能用」。",
+    "derive": "讲法侧重·推导：展示推导或论证主线，讲清每一步依据，允许较长篇幅。",
+    "apply": "讲法侧重·应用：以例题或应用场景为主线，示范完整解题/使用步骤，指出易错点。",
 }
 
 # 填空题归一化：去空白、去句末标点、全角转半角、英文小写。
@@ -497,9 +567,22 @@ class CourseService:
         """后台线程：检索材料 → 生成大纲 → 校验 → 落库（失败走兜底模板）。"""
         db = get_db()
         try:
-            hits, context, table = self._material(document_ids, goal, top_k=_MAX_HITS)
+            # §1.1 overview 优先 + goal 检索补充：先拿全文章节结构与开头切片，
+            # 再叠加与学习目标最相关的片段，两路 hits 合并后 build_context，
+            # 让模型同时看到「材料结构」与「目标相关重点」（overview 用法照抄 _material 兜底分支）。
+            rs = get_retrieval_service()
+            ids = list(document_ids)
+            over_hits, outline = rs.material_overview(ids)
+            goal_hits, _, _ = rs.hybrid_search(goal, document_ids=ids or None, top_k=6)
+            merged: dict[Any, dict[str, Any]] = {}
+            for h in over_hits + goal_hits:
+                key = h.get("chunk_id")
+                if key is not None:
+                    merged.setdefault(key, h)
+            hits = list(merged.values())
             if not hits:
                 raise AppError(1002, "没有可用材料", "来源文档没有可检索的文本内容")
+            context, table = build_context(hits, outline=outline)
 
             self._set_stage(job_id, "正在构思初步思路")
             self._set_stage(job_id, "正在构建课程结构")
@@ -584,11 +667,20 @@ class CourseService:
                 kind = str(l.get("kind") or "lecture").strip().lower()
                 if kind not in ("lecture", "practice", "project"):
                     kind = "lecture"
+                # §2.2 禁词校验：objective 前 12 字含「了解/熟悉/掌握/学习」→ 判不合规，
+                # 触发既有重试链（返回 None 让 _run_outline 走重试 / 兜底）。
+                l_obj = str(l.get("objective") or "").strip()[:300]
+                if any(w in l_obj[:12] for w in ("了解", "熟悉", "掌握", "学习")):
+                    return None
+                # §1.2 depth 归一到四值枚举：establish|define|derive|apply，
+                # 未知值（含脏值、课程级 brief/standard/detailed 等）一律默认 define，不透传脏值。
+                depth_raw = str(l.get("depth") or "").strip().lower()
+                depth = depth_raw if depth_raw in ("establish", "define", "derive", "apply") else "define"
                 lessons.append({
                     "title": l_title[:120],
-                    "objective": str(l.get("objective") or "").strip()[:300],
+                    "objective": l_obj,
                     "kind": kind,
-                    "depth": str(l.get("depth") or "standard").strip()[:32],
+                    "depth": depth,
                 })
             if lessons:
                 units.append({
@@ -1113,28 +1205,40 @@ class CourseService:
         try:
             lesson = self._require_lesson(lesson_id)
             document_ids = self._course_document_ids(lesson["course_id"])
-            query = " ".join(x for x in (lesson["title"], lesson["objective"]) if x)
+            course_row = dict(get_db().query_one(
+                "SELECT goal, level, depth FROM courses WHERE id = ?", (lesson["course_id"],)
+            ) or {})   # query_one 返回 sqlite3.Row：没有 .get，先转 dict
+            unit_title = self._unit_title(lesson["unit_id"])
+            goal = (course_row or {}).get("goal") or ""
+            # §1.3 recall：检索 query 扩为 title + objective + 单元标题 + 课程目标
+            query = " ".join(x for x in (lesson["title"], lesson["objective"], unit_title, goal) if x)
             hits, context, table = self._material(document_ids, query, top_k=_MAX_HITS)
             if not hits:
                 raise AppError(1002, "没有可用材料", "来源文档没有可检索的文本内容")
 
             self._set_stage(job_id, "正在生成讲义内容")
-            unit_title = self._unit_title(lesson["unit_id"])
+            # §1.2/§2.4：__DEPTH__ 改为「讲法侧重 + 篇幅档」正交拼接
+            lesson_hint = _LESSON_DEPTH_HINT.get(str(lesson.get("depth") or "").strip(), "")
+            volume_hint = _DEPTH_HINT.get(
+                str((course_row or {}).get("depth") or "standard").strip() or "standard",
+                _DEPTH_HINT["standard"],
+            )
+            depth_block = "；".join(x for x in (lesson_hint, volume_hint) if x)
             prompt = (
                 _LECTURE_PROMPT
-                .replace("__DEPTH__", _DEPTH_HINT.get(lesson["depth"], _DEPTH_HINT["standard"]))
+                .replace("__DEPTH__", depth_block)
                 .replace("__TITLE__", lesson["title"])
                 .replace("__OBJECTIVE__", lesson["objective"] or lesson["title"])
                 .replace("__UNIT__", unit_title)
             )
             messages = [
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": self._material_user(query, context)},
+                {"role": "user", "content": self._lesson_user(lesson, query, context)},
             ]
 
             obj: dict[str, Any] | None = None
             for _ in range(_MAX_RETRY + 1):
-                raw = self._chat(messages, max_tokens=4096)
+                raw = self._chat(messages, max_tokens=8192)
                 parsed = self._safe_json(raw)
                 if parsed is not None:
                     validated = self._validate_lecture(parsed)
@@ -1155,7 +1259,15 @@ class CourseService:
                 # 这条用文本相似度做结构判定，不依赖模型自觉。
                 obj = self._repair_mirrored_scripts(obj, job_id)
 
+            # §可视化契约：落库前净化 diagram/chart（限页数、剥非法字段、数字转 float）
+            obj = self._sanitize_visuals(obj)
             board, citations = self._resolve_board(obj, table)
+            # §四 观察点（第一条）：检索有命中但讲义未引用任何材料 → 记录，不阻断
+            if not citations and hits:
+                logger.info(
+                    "讲义落库但引用为空（检索有命中，模型未引用材料）",
+                    extra={"extra_fields": {"lesson": lesson_id, "hits": len(hits)}},
+                )
             db = get_db()
             db.execute(
                 "UPDATE course_lessons SET board_json=?, board_md=?, slides_json=?, script_json=?, citations=?,"
@@ -1200,6 +1312,108 @@ class CourseService:
             cards.append({"kind": kind, "title": title[:120] or "要点", "body": body})
         return cards
 
+    # ── 可视化契约：diagram / chart 的落库前净化 ─────────────────────
+    # 前端（visual.js）用 mermaid.js / ECharts 确定性渲染，这里只做**粗校验**：
+    # 语法级校验由前端 parse 兜底，前端失败还会回退要点页 —— 三层防线：
+    # 提示词约束 → 这里剥坏字段 → 前端渲染失败回退。任何一层失败都不影响整讲。
+    _MERMAID_STARTS = ("flowchart", "graph", "sequenceDiagram",
+                       "stateDiagram-v2", "stateDiagram", "classDiagram")
+    _MERMAID_BANNED = ("classDef", "linkStyle", "%%")
+
+    def _sanitize_visuals(self, obj: dict[str, Any]) -> dict[str, Any]:
+        """净化模型产出的可视化页（限页数、剥非法字段、数字转 float）。
+
+        非法字段直接剥掉并把 kind 退回 note —— 页面保留 title/bullets，
+        学生永远看不到空白或报错。合法的 chart.data 统一转 float 落库。
+        """
+        slides = obj.get("slides") if isinstance(obj, dict) else None
+        if not isinstance(slides, list):
+            return obj
+        for sl in slides:
+            if not isinstance(sl, dict):
+                continue
+            kind = str(sl.get("kind") or "")
+            if kind == "diagram":
+                if not self._valid_mermaid(sl.get("diagram")):
+                    sl.pop("diagram", None)
+                    sl["kind"] = "note"
+            elif kind == "chart":
+                if not self._valid_chart(sl.get("chart")):
+                    sl.pop("chart", None)
+                    sl["kind"] = "note"
+        # 页数上限：从后往前剥，保留前 2 页可视化
+        visual_idx = [i for i, sl in enumerate(slides)
+                      if isinstance(sl, dict) and sl.get("kind") in ("diagram", "chart")
+                      and (sl.get("diagram") or sl.get("chart"))]
+        for i in reversed(visual_idx[2:]):
+            sl = slides[i]
+            sl.pop("diagram", None)
+            sl.pop("chart", None)
+            sl["kind"] = "note"
+            logger.info("可视化页超限已剥除", extra={"extra_fields": {"index": i}})
+        return obj
+
+    @classmethod
+    def _valid_mermaid(cls, diagram: Any) -> bool:
+        """diagram 字段粗校验：图型白名单开头、≤30 行、无样式/指令语句。"""
+        if not isinstance(diagram, dict):
+            return False
+        code = diagram.get("code")
+        if not isinstance(code, str) or not code.strip():
+            return False
+        if str(diagram.get("lang") or "mermaid") != "mermaid":
+            return False
+        text = code.strip()
+        if not text.startswith(cls._MERMAID_STARTS):
+            return False
+        if len(text.splitlines()) > 30:
+            return False
+        if any(b in text for b in cls._MERMAID_BANNED):
+            return False
+        if re.search(r"(?m)^\s*style\s", text):
+            return False
+        return True
+
+    @staticmethod
+    def _valid_chart(chart: Any) -> bool:
+        """chart 字段粗校验：类型白名单、数值有限且等长、类目/系列上限。"""
+        if not isinstance(chart, dict):
+            return False
+        ctype = str(chart.get("type") or "").strip().lower()
+        if ctype not in ("bar", "line", "pie"):
+            return False
+        cats = chart.get("categories")
+        series = chart.get("series")
+        if not isinstance(cats, list) or not cats or len(cats) > 12:
+            return False
+        if not isinstance(series, list) or not series:
+            return False
+        if ctype == "pie" and len(series) != 1:
+            return False
+        if len(series) > 2:
+            return False
+        for s in series:
+            if not isinstance(s, dict):
+                return False
+            data = s.get("data")
+            if not isinstance(data, list) or len(data) != len(cats):
+                return False
+            clean: list[float] = []
+            for v in data:
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    return False
+                if not math.isfinite(v):
+                    return False
+                clean.append(float(v))
+            s["data"] = clean
+            if "name" in s:
+                s["name"] = str(s["name"])[:60]
+        chart["type"] = ctype
+        if "unit" in chart:
+            chart["unit"] = str(chart.get("unit") or "")[:20]
+        return True
+
+
     @staticmethod
     def _clean_slides(raw: Any) -> list[dict[str, Any]]:
         """清洗学生课件页：短内容、可展示、带稳定 id。"""
@@ -1222,7 +1436,7 @@ class CourseService:
                 sid = f"slide-{i}-{len(seen) + 1}"
             seen.add(sid)
             kind = str(item.get("kind") or "note").strip().lower()
-            if kind not in ("concept", "example", "formula", "quote", "note"):
+            if kind not in ("concept", "example", "formula", "quote", "note", "diagram", "chart"):
                 kind = "note"
             refs: list[int] = []
             for n in item.get("citation_refs") or []:
@@ -1232,14 +1446,21 @@ class CourseService:
                     continue
                 if iv > 0 and iv not in refs:
                     refs.append(iv)
-            slides.append({
+            # §可视化契约：diagram/chart 字段原样保留，供前端按字段渲染
+            # （_sanitize_visuals 在落库前再做合法性与页数校验）。
+            slide: dict[str, Any] = {
                 "id": sid,
                 "kind": kind,
                 "title": title[:120] or "课件页",
                 "bullets": bullets[:8],
                 "body": body[:900],
                 "citation_refs": refs[:8],
-            })
+            }
+            if kind == "diagram" and isinstance(item.get("diagram"), dict):
+                slide["diagram"] = item["diagram"]
+            elif kind == "chart" and isinstance(item.get("chart"), dict):
+                slide["chart"] = item["chart"]
+            slides.append(slide)
         return slides
 
     @staticmethod
@@ -1602,6 +1823,9 @@ class CourseService:
                 "bullets": [resolve(x) for x in (s.get("bullets") or [])],
                 "body": resolve(s.get("body") or ""),
                 "citation_refs": [x for x in (touch_ref(n) for n in (s.get("citation_refs") or [])) if x],
+                # §可视化契约：diagram/chart 原样透传（内容是 spec，不含 [[c:N]]）
+                **({"diagram": s["diagram"]} if isinstance(s.get("diagram"), dict) else {}),
+                **({"chart": s["chart"]} if isinstance(s.get("chart"), dict) else {}),
             }
             for i, s in enumerate((obj.get("slides") or []), start=1)
         ]
@@ -1706,7 +1930,13 @@ class CourseService:
         try:
             lesson = self._require_lesson(lesson_id)
             document_ids = self._course_document_ids(lesson["course_id"])
-            query = " ".join(x for x in (lesson["title"], lesson["objective"]) if x)
+            goal_row = dict(get_db().query_one(
+                "SELECT goal FROM courses WHERE id = ?", (lesson["course_id"],)
+            ) or {})   # query_one 返回 sqlite3.Row：没有 .get，先转 dict
+            unit_title = self._unit_title(lesson["unit_id"])
+            goal = (goal_row or {}).get("goal") or ""
+            # §1.3 recall：检索 query 扩为 title + objective + 单元标题 + 课程目标
+            query = " ".join(x for x in (lesson["title"], lesson["objective"], unit_title, goal) if x)
             hits, context, table = self._material(document_ids, query, top_k=_MAX_HITS)
             if not hits:
                 raise AppError(1002, "没有可用材料", "来源文档没有可检索的文本内容")
@@ -1721,7 +1951,7 @@ class CourseService:
             )
             messages = [
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": self._material_user(query, context)},
+                {"role": "user", "content": self._lesson_user(lesson, query, context)},
             ]
 
             items: list[dict[str, Any]] | None = None
@@ -2320,6 +2550,40 @@ class CourseService:
         """构造注入模型的用户消息（学习任务 + 编号材料）。"""
         head = f"【学习任务】{query}\n\n" if query else ""
         return f"{head}【学习材料检索结果】\n{context}"
+
+    @staticmethod
+    def _lesson_user(lesson: dict[str, Any], query: str, context: str) -> str:
+        """讲义/练习共用的用户消息：课程信息 + 学习任务 + 编号材料（§1.3）。
+
+        在用户消息头部注入【课程信息】块：课程目标 / 学习者水平 / 上一讲标题 /
+        下一讲标题，弥补讲义生成长期缺失的课程级上下文，避免讲次重复、断裂、难度漂移。
+        """
+        db = get_db()
+        course = dict(db.query_one(
+            "SELECT goal, level FROM courses WHERE id = ?", (lesson["course_id"],)
+        ) or {})   # query_one 返回 sqlite3.Row：没有 .get，先转 dict
+        ordinal = int(lesson.get("global_ordinal") or 0)
+        prev = db.query_one(
+            "SELECT title FROM course_lessons WHERE course_id = ? AND global_ordinal = ?",
+            (lesson["course_id"], ordinal - 1),
+        ) if ordinal > 1 else None
+        nxt = db.query_one(
+            "SELECT title FROM course_lessons WHERE course_id = ? AND global_ordinal = ?",
+            (lesson["course_id"], ordinal + 1),
+        )
+        level = _LEVEL_NAME.get(str((course or {}).get("level") or ""), "")
+        lines = ["【课程信息】"]
+        if course and course["goal"]:
+            lines.append(f"课程目标：{course['goal']}")
+        if level:
+            lines.append(f"学习者水平：{level}")
+        if prev:
+            lines.append(f"上一讲：{prev['title']}（讲稿结尾可自然承接，不要重讲它）")
+        if nxt:
+            lines.append(f"下一讲：{nxt['title']}（不抢它的主题）")
+        head = "\n".join(lines) + "\n\n"
+        task = f"【学习任务】{query}\n\n" if query else ""
+        return f"{head}{task}【学习材料检索结果】\n{context}"
 
     @staticmethod
     def _chat(messages: list[dict[str, str]], *, max_tokens: int = 4096) -> str:

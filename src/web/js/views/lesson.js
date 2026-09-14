@@ -46,6 +46,7 @@
   const KIND = {
     concept: ["概念", "#eef2ff"], example: ["例子", "#ecfdf5"],
     formula: ["公式", "#fff7ed"], quote: ["材料原文", "#fdf4ff"], note: ["补充", "#f8fafc"],
+    diagram: ["图示", "#f0f9ff"], chart: ["图表", "#fefce8"],
   };
 
   const el = (tag, cls, html) => {
@@ -775,6 +776,9 @@
       title: raw.title || "课件页",
       bullets,
       body: raw.body || "",
+      // 可视化页透传（后端契约：diagram/chart 仅在对应 kind 时存在）
+      diagram: (raw.kind === "diagram" && raw.diagram) ? raw.diagram : null,
+      chart: (raw.kind === "chart" && raw.chart) ? raw.chart : null,
     };
   }
 
@@ -801,6 +805,22 @@
   function slideDisplayText(sl) {
     return [sl.title].concat(sl.bullets || [], sl.body ? [sl.body] : [])
       .filter(Boolean).join("。");
+  }
+
+  /** P3 本讲导览：把 lesson.outline / lesson.keypoints 拼成两级 markdown（markmap 消费）。 */
+  function outlineMarkdown() {
+    const out = (S.lesson && Array.isArray(S.lesson.outline) ? S.lesson.outline : [])
+      .map((o) => String(o == null ? "" : o).trim()).filter(Boolean)
+      .map((o) => "- " + o);
+    const kps = (S.lesson && Array.isArray(S.lesson.keypoints) ? S.lesson.keypoints : [])
+      .map((k) => {
+        if (!k) return "";
+        const t = String((k.term == null ? "" : k.term)).trim();
+        const d = String((k.desc == null ? "" : k.desc)).trim();
+        if (!t) return "";                 // 空的子项跳过（避免脏数据撑出空节点）
+        return "  - " + t + (d ? "：" + d : "");
+      }).filter(Boolean);
+    return out.concat(kps).join("\n");
   }
 
   /** 读取「讲师讲稿」：优先使用新结构，旧数据才按课件生成兜底讲稿。 */
@@ -862,6 +882,25 @@
     const shown = S.teaching ? Math.max(0, S.slideIndex) : S.slides.length - 1;
     const total = S.slides.length;
 
+    // P3 本讲导览：不讲授时，于课件最前插入一张 markmap 导览卡。
+    // 讲授中(S.teaching)不显示，避免干扰自动翻页；markmap 失败则整卡移除。
+    if (!S.teaching) {
+      const md = outlineMarkdown();
+      if (md && window.MD && typeof window.MD.mindmap === "function") {
+        const oCard = el("div", "card lesson-outline-card");
+        oCard.appendChild(el("div", "card-kind", "本讲导览"));
+        const oBox = el("div");
+        oCard.appendChild(oBox);
+        wrap.appendChild(oCard);
+        try {
+          const svg = window.MD.mindmap(oBox, md);
+          if (!svg) oCard.remove();
+        } catch (e) {
+          oCard.remove();
+        }
+      }
+    }
+
     const bar = el("div", "slide-bar");
     bar.innerHTML = S.teaching
       ? `<span>课件 ${Math.min(shown + 1, total)} / ${total}</span><span class="hint">跟随讲授进度自动翻页</span>`
@@ -879,6 +918,15 @@
       card.id = "slide-" + i;
       card.appendChild(el("div", "card-kind", name + " · 第 " + (i + 1) + " 页"));
       if (sl.title) card.appendChild(el("div", "card-title", esc(sl.title)));
+      // P1/P2 可视化页：title 之后、bullets 之前插入渲染容器，交给 Viz 渲染。
+      // 失败回退由 Viz 内部放置 .viz-fallback（bullets 仍照常渲染，不归此处管）。
+      if (window.Viz && typeof window.Viz.render === "function"
+          && ((sl.kind === "diagram" && sl.diagram && sl.diagram.code)
+              || (sl.kind === "chart" && sl.chart))) {
+        const vbox = el("div", "viz-box");
+        card.appendChild(vbox);
+        window.Viz.render(vbox, sl);
+      }
       if (sl.bullets && sl.bullets.length) {
         const ul = el("ul", "card-body");
         sl.bullets.forEach((x) => ul.appendChild(el("li", null, esc(x))));

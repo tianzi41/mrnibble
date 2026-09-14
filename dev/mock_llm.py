@@ -153,6 +153,133 @@ def _mirror_lecture() -> str:
     return json.dumps(base, ensure_ascii=False)
 
 
+def _spy_dump(body: dict) -> None:
+    """把收到的 messages 原样落到 ZHIBAN_MOCK_SPY 文件（测试用：看提示词注入实况）。"""
+    import os
+    path = os.environ.get("ZHIBAN_MOCK_SPY")
+    if not path:
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(body.get("messages") or [], f, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def _viz_lecture_payload() -> str:
+    """可视化契约测试包：好/坏 diagram 与好/坏 chart 各一页。
+
+    坏 diagram 含 classDef（样式指令，禁止）；坏 chart 的 data 混入字符串。
+    服务端应剥掉两个坏字段（页面退化为要点页），保留两个好字段且数字转 float。
+    """
+    return json.dumps({
+        "summary": "本讲围绕批处理文件的解析流程与耗时对比展开 [[c:1]]。",
+        "slides": [
+            {"id": "slide-1", "kind": "concept", "title": "为什么要看解析流程", "bullets": [
+                "逐行读取", "先查编码再解析"], "body": "", "citation_refs": [1]},
+            {"id": "slide-2", "kind": "diagram", "title": "解析流程", "bullets": [
+                "两步流程", "先读后解析"],
+             "diagram": {"lang": "mermaid",
+                         "code": "flowchart TD\n  A[读取文件] --> B[逐行解析]"},
+             "body": "", "citation_refs": [1]},
+            {"id": "slide-3", "kind": "diagram", "title": "带样式指令的坏图", "bullets": [
+                "这页会被剥掉 diagram 字段"],
+             "diagram": {"lang": "mermaid",
+                         "code": "flowchart TD\n  A[上传] --> B[解析]\n  classDef bad fill:#f9f"},
+             "body": "", "citation_refs": [1]},
+            {"id": "slide-4", "kind": "chart", "title": "耗时对比", "bullets": [
+                "三种方式", "单位秒"],
+             "chart": {"type": "bar", "title": "三种方式耗时对比", "unit": "秒",
+                       "categories": ["方式A", "方式B", "方式C"],
+                       "series": [{"name": "耗时", "data": [12, 30, 25]}]},
+             "body": "", "citation_refs": [2]},
+            {"id": "slide-5", "kind": "chart", "title": "坏数据图表", "bullets": [
+                "这页会被剥掉 chart 字段"],
+             "chart": {"type": "bar", "title": "坏数据", "categories": ["甲", "乙", "丙"],
+                       "series": [{"name": "值", "data": ["abc", "12", "13"]}]},
+             "body": "", "citation_refs": [2]},
+        ],
+        "scripts": [
+            {"slide_id": "slide-1", "text": "这一讲我们先看整体：为什么要关心解析流程。材料里说批处理是逐行被解释执行的 [[c:1]]，这意味着顺序和编码都会影响结果。我们先建立一个整体印象，后面的图会把这个过程拆开来看。"},
+            {"slide_id": "slide-2", "text": "现在看这张图：它画的是解析的两步。左边是读取文件，右边是逐行解析。大家注意箭头的方向是单向的——正因为是单向，前面一步出了问题，后面一定跟着错。这就是材料强调先确认编码的原因 [[c:1]]。"},
+            {"slide_id": "slide-3", "text": "这一页我们把刚才的流程再走一遍，重点看每一步的输入是什么。读取这一步的输入是原始字节，解析这一步的输入已经是文本了。两者混在一起就会出错，这也是接下来对比耗时时要控制的前提 [[c:2]]。"},
+            {"slide_id": "slide-4", "text": "这张柱状图把三种方式的耗时放在了一起。请先看最高的那根柱子，再看最矮的。差距来自哪里？材料里提到不同实现的处理路径不同 [[c:2]]，所以耗时不同。看图时先找最大值和最小值，再解释中间的。"},
+            {"slide_id": "slide-5", "text": "最后我们把前面两页合起来：流程决定了哪一步最花时间，耗时数据又反过来验证流程分析。课后请按这张图自己复述一遍整个链路，能复述出来说明这一讲真的懂了 [[c:2]]。"},
+        ],
+        "cards": [
+            {"kind": "concept", "title": "解析流程 [[c:1]]",
+             "body": "批处理文件被逐行解释执行：先读取、再解析 [[c:1]]。顺序单向，前一步出错会传导。"},
+            {"kind": "quote", "title": "材料原文 [[c:2]]",
+             "body": "不同实现的处理路径不同，耗时也不同 [[c:2]]。"},
+            {"kind": "example", "title": "耗时对比怎么读", "body": "先看最大最小，再看中间：三种方式的差距来自处理路径 [[c:2]]。"},
+            {"kind": "note", "title": "易错提醒", "body": "不要把读取阶段的错误归咎于解析阶段。"},
+        ],
+        "outline": ["解析流程", "耗时对比"],
+        "keypoints": [
+            {"term": "逐行解析", "desc": "批处理的基本执行方式 [[c:1]]"},
+            {"term": "耗时对比", "desc": "三种方式差距来自处理路径 [[c:2]]"},
+        ],
+        "recap": "先看流程，再看数据 [[c:1]]。",
+        "marks": [
+            {"n": 1, "kind": "highlight", "text": "这里说明了解析是逐行的"},
+            {"n": 2, "kind": "circle", "text": "耗时差异的出处"},
+        ],
+    }, ensure_ascii=False)
+
+
+def _viz3_lecture_payload() -> str:
+    """三页全部是合法 diagram —— 验证「可视化页 ≤2」的上限剥除。"""
+    base = json.loads(_viz_lecture_payload())
+    slides = base["slides"]
+    # slide-4/5 的 chart 换成合法 diagram，变成 3 页 diagram
+    slides[3] = {"id": "slide-4", "kind": "diagram", "title": "流程补充", "bullets": ["第三张图"],
+                 "diagram": {"lang": "mermaid", "code": "flowchart LR\n  C[校验] --> D[执行]"},
+                 "body": "", "citation_refs": [2]}
+    del slides[4]
+    base["scripts"] = [sc for sc in base["scripts"] if sc["slide_id"] != "slide-5"]
+    return json.dumps(base, ensure_ascii=False)
+
+
+def _outline_payload() -> str:
+    """课程大纲：2 个单元，每单元 2 讲解 + 1 练习。"""
+    return json.dumps({
+        "title": "极限与洛必达法则",
+        "summary": "从极限定义出发，掌握洛必达法则的使用前提与典型题型。",
+        "units": [
+            {"title": "极限的基础", "summary": "建立极限的直觉与定义",
+             "lessons": [
+                 {"title": "极限是什么", "objective": "能用自己的话解释极限 [[c:1]]",
+                  "kind": "lecture", "depth": "establish"},
+                 {"title": "极限的运算法则", "objective": "会用四则运算求极限 [[c:1]]",
+                  "kind": "lecture", "depth": "define"},
+                 {"title": "基础练习", "objective": "能完成本节的基础练习", "kind": "practice",
+                  "depth": "apply"},
+             ]},
+            {"title": "洛必达法则", "summary": "未定式的处理",
+             "lessons": [
+                 {"title": "适用前提", "objective": "能判断何时可用 [[c:2]]",
+                  "kind": "lecture", "depth": "define"},
+                 {"title": "典型例题", "objective": "会做 0/0 与 ∞/∞ 型 [[c:2]]",
+                  "kind": "lecture", "depth": "derive"},
+                 {"title": "随堂练习", "objective": "能检验本单元各讲目标是否达成", "kind": "practice",
+                  "depth": "apply"},
+             ]},
+        ],
+    }, ensure_ascii=False)
+
+
+def _outline_dirty(kind: str) -> str:
+    """**故意违规**的大纲：kind=obj → objective 带禁词；kind=depth → depth 用脏值。"""
+    obj = json.loads(_outline_payload())
+    for u in obj["units"]:
+        for l in u["lessons"]:
+            if kind == "depth" and l["kind"] == "lecture":
+                l["depth"] = "deep"          # 不在四值枚举里
+            if kind == "obj" and l["kind"] == "lecture":
+                l["objective"] = "了解" + l["title"] + "的概念"   # 禁词开头
+    return json.dumps(obj, ensure_ascii=False)
+
+
 def _pick(body: dict) -> str:
     """按 model 名路由到对应行为，返回回复文本。"""
     model = str(body.get("model") or "")
@@ -212,30 +339,26 @@ def _pick(body: dict) -> str:
         }, ensure_ascii=False)
     if model == "mock-outline":
         # 课程大纲：2 个单元，每单元 2 讲解 + 1 练习
-        return json.dumps({
-            "title": "极限与洛必达法则",
-            "summary": "从极限定义出发，掌握洛必达法则的使用前提与典型题型。",
-            "units": [
-                {"title": "极限的基础", "summary": "建立极限的直觉与定义",
-                 "lessons": [
-                     {"title": "极限是什么", "objective": "能用自己的话解释极限 [[c:1]]",
-                      "kind": "lecture", "depth": "establish"},
-                     {"title": "极限的运算法则", "objective": "会用四则运算求极限 [[c:1]]",
-                      "kind": "lecture", "depth": "define"},
-                     {"title": "基础练习", "objective": "巩固本节内容", "kind": "practice",
-                      "depth": "apply"},
-                 ]},
-                {"title": "洛必达法则", "summary": "未定式的处理",
-                 "lessons": [
-                     {"title": "适用前提", "objective": "能判断何时可用 [[c:2]]",
-                      "kind": "lecture", "depth": "define"},
-                     {"title": "典型例题", "objective": "会做 0/0 与 ∞/∞ 型 [[c:2]]",
-                      "kind": "lecture", "depth": "derive"},
-                     {"title": "随堂练习", "objective": "检验掌握程度", "kind": "practice",
-                      "depth": "apply"},
-                 ]},
-            ],
-        }, ensure_ascii=False)
+        return _outline_payload()
+    if model == "mock-outline-dirty-obj":
+        # objective 带禁词：首轮违规触发重试，重试轮返回干净大纲
+        if "上一次输出不符合 JSON 结构要求" in "\n".join(
+                str(m.get("content") or "") for m in (body.get("messages") or [])):
+            return _outline_payload()
+        return _outline_dirty("obj")
+    if model == "mock-outline-dirtydepth":
+        # 讲次 depth 用脏值 "deep"：应被归一到四值枚举（不触发重试，直接落库）
+        return _outline_dirty("depth")
+    if model == "mock-spy-outline":
+        _spy_dump(body)
+        return _outline_payload()
+    if model == "mock-spy-lecture":
+        _spy_dump(body)
+        return _lecture_payload()
+    if model == "mock-lecture-viz":
+        return _viz_lecture_payload()
+    if model == "mock-lecture-viz3":
+        return _viz3_lecture_payload()
     if model == "mock-lecture":
         return _lecture_payload()
     if model in ("mock-lecture-mirror", "mock-lecture-stubborn"):
@@ -300,7 +423,7 @@ def _pick(body: dict) -> str:
             "units": [
                 {"title": f"单元{i}", "summary": f"第{i}单元简介",
                  "lessons": [
-                     {"title": f"单元{i}·讲解1", "objective": "能掌握核心概念", "kind": "lecture", "depth": "define"},
+                     {"title": f"单元{i}·讲解1", "objective": "能运用核心概念解题", "kind": "lecture", "depth": "define"},
                      {"title": f"单元{i}·讲解2", "objective": "能完成典型例题", "kind": "lecture", "depth": "derive"},
                      {"title": f"单元{i}·练习", "objective": "巩固本节内容", "kind": "practice", "depth": "apply"},
                  ]}

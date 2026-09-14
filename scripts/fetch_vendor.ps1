@@ -15,7 +15,9 @@ $files = @(
     @("https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets/styles/github.min.css",         "highlight\github.min.css"),
     @("https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js",                                   "d3\d3.min.js"),
     @("https://cdn.jsdelivr.net/npm/markmap-view/dist/browser/index.js",                    "markmap\markmap-view.js"),
-    @("https://cdn.jsdelivr.net/npm/markmap-lib/dist/browser/index.js",                     "markmap\markmap-lib.js")
+    @("https://cdn.jsdelivr.net/npm/markmap-lib/dist/browser/index.js",                     "markmap\markmap-lib.js"),
+    @("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js",                        "mermaid\mermaid.min.js"),
+    @("https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js",                         "echarts\echarts.min.js")
 )
 
 # KaTeX ships fonts, so fetch the npm tarball and extract dist/{js,css,fonts}

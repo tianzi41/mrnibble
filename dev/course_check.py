@@ -91,8 +91,10 @@ def main() -> int:
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
     procs = [
         # mock 端口用 ZHIBAN_MOCK_PORT 固定为 8763，与主自测（8761）互不干扰。
+        # ZHIBAN_MOCK_SPY：mock-spy-* 模型把收到的 messages 落到此文件（验证提示词注入）。
         subprocess.Popen([str(PY), str(ROOT / "dev" / "mock_llm.py")],
-                         env={**env, "ZHIBAN_MOCK_PORT": "8763"},
+                         env={**env, "ZHIBAN_MOCK_PORT": "8763",
+                              "ZHIBAN_MOCK_SPY": str(DATA / "mock-spy.json")},
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
         subprocess.Popen([str(PY), "-m", "backend.main"], cwd=str(ROOT), env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
@@ -620,6 +622,130 @@ def main() -> int:
         ]})
         check("J14 check 不产生额外作答次数（attempt_no 只 +1）",
               r["data"].get("attempt_no") == 3, str(r["data"].get("attempt_no")))
+
+        # ── V. 提示词优化 v1 + 可视化契约 ──────────────
+        print("\n[V] 提示词优化 v1 + 可视化契约")
+        SPY = DATA / "mock-spy.json"
+
+        def _read_spy() -> list:
+            for _ in range(20):
+                if SPY.exists():
+                    try:
+                        return json.loads(SPY.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                time.sleep(0.3)
+            return []
+
+        def _cleanup_courses(*cids: str) -> None:
+            with httpx.Client(trust_env=False) as cli:
+                for c in cids:
+                    cli.delete(f"{BACKEND}/api/courses/{c}", timeout=20)
+
+        # D21 脏 depth 归一到四值枚举
+        set_model("mock-outline-dirtydepth")
+        r = post("/api/courses", {"goal": "深度归一测试", "document_ids": [doc_id], "unit_count": 2})
+        cid_d = r["data"]["course_id"]
+        job = wait_job(r["data"]["job_id"])
+        depths = [l["depth"] for u in (get(f"/api/courses/{cid_d}")["data"]["units"] or [])
+                  for l in u["lessons"]]
+        check("D21 脏 depth 归一到四值枚举",
+              job.get("status") == "ready"
+              and depths and all(d in ("establish", "define", "derive", "apply") for d in depths),
+              str(depths))
+
+        # D22 objective 禁词触发重试 → 二轮干净
+        set_model("mock-outline-dirty-obj")
+        r = post("/api/courses", {"goal": "禁词重试测试", "document_ids": [doc_id], "unit_count": 2})
+        cid_o = r["data"]["course_id"]
+        job = wait_job(r["data"]["job_id"])
+        objs = [l["objective"] for u in (get(f"/api/courses/{cid_o}")["data"]["units"] or [])
+                for l in u["lessons"]]
+        check("D22 objective 禁词触发重试且二轮干净",
+              job.get("status") == "ready" and objs and not any(
+                  any(w in o[:12] for w in ("了解", "熟悉", "掌握", "学习")) for o in objs),
+              str(objs[:2]))
+
+        # D25 大纲喂料走 overview 路径（prompt 里出现概览段）
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-outline")
+        r = post("/api/courses", {"goal": "概览注入测试", "document_ids": [doc_id], "unit_count": 2})
+        cid_v = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        # 概览文本走 context → 在 user 消息里（build_context 把 outline 置于编号材料之前）
+        usr_all = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "user")
+        check("D25 大纲 prompt 注入材料概览段",
+              "【材料概览】" in usr_all and "本材料共切分" in usr_all)
+
+        # D23/D24 讲义 prompt：讲法侧重 + 篇幅档双注入；user 消息带【课程信息】
+        set_model("mock-spy-lecture")
+        lessons_v = [l for u in (get(f"/api/courses/{cid_v}")["data"]["units"] or [])
+                     for l in u["lessons"]]
+        SPY.unlink(missing_ok=True)
+        r = post(f"/api/courses/lessons/{lessons_v[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_txt = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "system")
+        usr_txt = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "user")
+        check("D23 讲义 prompt 含讲法侧重 + 篇幅档双行",
+              "讲法侧重" in sys_txt and "篇幅档" in sys_txt)
+        check("D24 讲义 user 消息含【课程信息】块",
+              "【课程信息】" in usr_txt and "课程目标" in usr_txt and "学习者水平" in usr_txt)
+
+        # D26 篇幅档随课程 depth 变化（brief vs detailed）
+        blocks: dict[str, str] = {}
+        for dep in ("brief", "detailed"):
+            set_model("mock-outline")
+            r = post("/api/courses", {"goal": f"{dep}篇幅对照", "document_ids": [doc_id],
+                                      "unit_count": 1, "depth": dep})
+            cxd = r["data"]["course_id"]
+            wait_job(r["data"]["job_id"])
+            ls = [l for u in (get(f"/api/courses/{cxd}")["data"]["units"] or [])
+                  for l in u["lessons"]]
+            SPY.unlink(missing_ok=True)
+            set_model("mock-spy-lecture")
+            r = post(f"/api/courses/lessons/{ls[0]['id']}/lecture")
+            wait_job(r["data"]["job_id"])
+            spy = _read_spy()
+            blocks[dep] = " ".join(str(m.get("content") or "") for m in spy
+                                   if m.get("role") == "system")
+        check("D26 篇幅档随课程 depth 变化",
+              "篇幅档·概览" in blocks.get("brief", "")
+              and "篇幅档·深入" in blocks.get("detailed", ""),
+              str({k: v[:60] for k, v in blocks.items()}))
+
+        # D27 可视化净化：好 diagram/chart 落库（数字转 float），坏字段剥除
+        set_model("mock-lecture-viz")
+        r = post(f"/api/courses/lessons/{lessons_v[1]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        vslides = get(f"/api/courses/lessons/{lessons_v[1]['id']}")["data"].get("slides") or []
+        vjson = json.dumps(vslides, ensure_ascii=False)
+        good_diag = next((s for s in vslides if s.get("kind") == "diagram"), None)
+        good_chart = next((s for s in vslides if s.get("kind") == "chart"), None)
+        check("D27a 合法 diagram 原样落库",
+              bool(good_diag) and str((good_diag.get("diagram") or {}).get("code", "")).startswith("flowchart"),
+              json.dumps(good_diag or {}, ensure_ascii=False)[:120])
+        _cs = ((good_chart or {}).get("chart") or {}).get("series") or []
+        _cd = (_cs[0].get("data") if _cs else []) or []
+        check("D27b 合法 chart 落库且数字转 float",
+              bool(_cd) and all(isinstance(v, float) for v in _cd),
+              json.dumps(good_chart or {}, ensure_ascii=False)[:160])
+        check("D27c 非法字段被剥除且页面退化为 note",
+              "classDef" not in vjson and '"abc"' not in vjson
+              and sum(1 for s in vslides if s.get("kind") == "note") >= 2,
+              vjson[:200])
+
+        # D28 可视化页 ≤2：三页 diagram 只留两页
+        set_model("mock-lecture-viz3")
+        r = post(f"/api/courses/lessons/{lessons_v[2]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        s3 = get(f"/api/courses/lessons/{lessons_v[2]['id']}")["data"].get("slides") or []
+        check("D28 可视化页超限被剥到 ≤2",
+              sum(1 for s in s3 if s.get("kind") == "diagram") == 2,
+              str([s.get("kind") for s in s3]))
+
+        _cleanup_courses(cid_d, cid_o, cid_v)
 
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")

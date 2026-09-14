@@ -517,6 +517,173 @@ def cdp_settings_tts(base: str) -> None:
                 pass
 
 
+def cdp_visuals(base: str) -> None:
+    """CDP 验证课件可视化渲染链路（P1 mermaid / P2 echarts / P3 markmap 依赖）。
+
+    不依赖课程数据：任意页面（vendor 是全局脚本）上直接构造容器调 window.Viz.render，
+    断言返回值与 DOM。真实课程数据下的净化/落库由 course_check 的 D27/D28 覆盖。
+    """
+    import asyncio as _a, json, subprocess
+    import websockets
+
+    chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    ud = "C:/tmp/zhiban_viz_%d" % int(time.time())
+    try:
+        os.makedirs(ud, exist_ok=True)
+    except Exception:
+        pass
+    port = 9225
+
+    def _check(name, cond, detail=""):
+        (PASS if cond else FAIL).append(name)
+        print(f"  {'✅' if cond else '❌'} {name}{('  | ' + detail) if (detail and not cond) else ''}")
+
+    proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+            "--no-proxy-server", f"--remote-debugging-port={port}",
+            f"--user-data-dir={ud}", "--window-size=1280,900", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        ver = None
+        for _ in range(60):
+            try:
+                ver = httpx.get(f"http://127.0.0.1:{port}/json/version", timeout=2).json()
+                break
+            except Exception:
+                time.sleep(0.5)
+        if not ver:
+            _check("viz CDP 端口可达", False, "chrome 未启动")
+            return
+        _check("viz CDP 端口可达", True)
+
+        async def _run() -> None:
+            async with websockets.connect(ver["webSocketDebuggerUrl"], max_size=None, ping_interval=None) as bws:
+                _id = [0]
+                def nid():
+                    _id[0] += 1
+                    return _id[0]
+                async def bsend(method, params=None):
+                    i = nid()
+                    await bws.send(json.dumps({"id": i, "method": method, "params": params or {}}))
+                    return i
+                async def bwait(i, t=20):
+                    while True:
+                        r = json.loads(await _a.wait_for(bws.recv(), t))
+                        if r.get("id") == i:
+                            return r
+                r = await bsend("Target.createTarget", {"url": base + "/#/settings"})
+                tid = (await bwait(r))["result"]["targetId"]
+                pws = None
+                for _ in range(40):
+                    lst = httpx.get(f"http://127.0.0.1:{port}/json/list", timeout=3).json()
+                    t = next((x for x in lst if x.get("id") == tid), None)
+                    if t and t.get("webSocketDebuggerUrl"):
+                        pws = t["webSocketDebuggerUrl"]
+                        break
+                    await _a.sleep(0.3)
+                if not pws:
+                    _check("viz 页面调试端点", False)
+                    return
+                _check("viz 页面调试端点", True)
+
+            async with websockets.connect(pws, max_size=None, ping_interval=None) as ws:
+                _id = [0]
+                def nid():
+                    _id[0] += 1
+                    return _id[0]
+                pending: dict = {}
+                async def reader():
+                    while True:
+                        try:
+                            raw = await ws.recv()
+                        except Exception:
+                            break
+                        try:
+                            msg = json.loads(raw)
+                        except Exception:
+                            continue
+                        if "id" in msg and msg["id"] in pending:
+                            fut = pending.pop(msg["id"])
+                            if not fut.done():
+                                fut.set_result(msg)
+                _task = _a.ensure_future(reader())
+                async def ev(expr, t=25):
+                    i = nid()
+                    loop = _a.get_event_loop()
+                    fut = loop.create_future()
+                    pending[i] = fut
+                    await ws.send(json.dumps({"id": i, "method": "Runtime.evaluate",
+                                              "params": {"expression": expr, "returnByValue": True, "awaitPromise": True}}))
+                    try:
+                        res = await _a.wait_for(fut, t)
+                    finally:
+                        pending.pop(i, None)
+                    if "error" in res:
+                        raise RuntimeError(str(res["error"]))
+                    return res.get("result", {}).get("result", {}).get("value")
+
+                await ws.send(json.dumps({"id": nid(), "method": "Runtime.enable"}))
+                for _ in range(40):
+                    ok = await ev("!!window.Viz")
+                    if ok:
+                        break
+                    await _a.sleep(0.3)
+                _check("3.2a Viz 全局可用", bool(ok))
+                _check("3.2b mermaid 全局可用", bool(await ev("typeof window.mermaid !== 'undefined'")))
+                _check("3.2c echarts 全局可用", bool(await ev("typeof window.echarts !== 'undefined'")))
+                _check("3.2d MD.mindmap 可用（P3 导览依赖）",
+                       bool(await ev("!!(window.MD && typeof window.MD.mindmap === 'function')")))
+
+                res = await ev("""
+                (async () => {
+                  const out = {};
+                  const mk = (id) => { const d = document.createElement('div');
+                                       d.className = 'viz-box'; d.id = id;
+                                       document.body.appendChild(d); return d; };
+                  out.goodM = await window.Viz.render(mk('v-good-m'),
+                    {kind:'diagram', title:'t', bullets:['x'],
+                     diagram:{lang:'mermaid', code:'flowchart TD\\n  A[开始] --> B[结束]'}});
+                  out.svgGood = !!document.querySelector('#v-good-m svg');
+                  out.badM = await window.Viz.render(mk('v-bad-m'),
+                    {kind:'diagram', title:'t', bullets:['x'],
+                     diagram:{lang:'mermaid', code:'flowchart TD\\nA[未闭合'}});
+                  out.fbBadM = !!document.querySelector('#v-bad-m .viz-fallback');
+                  out.goodC = window.Viz.render(mk('v-good-c'),
+                    {kind:'chart', title:'t', bullets:['x'],
+                     chart:{type:'bar', title:'成绩', unit:'分', categories:['甲','乙'],
+                            series:[{name:'数学', data:[88,92]}]}});
+                  out.cvGood = !!document.querySelector('#v-good-c canvas');
+                  out.badC = window.Viz.render(mk('v-bad-c'),
+                    {kind:'chart', title:'t', bullets:['x'],
+                     chart:{type:'bar', categories:['甲','乙'], series:[{name:'s', data:['x','y']}]}});
+                  out.fbBadC = !!document.querySelector('#v-bad-c .viz-fallback');
+                  return out;
+                })()""")
+                _check("3.3 好 mermaid → svg", res.get("goodM") == "svg" and res.get("svgGood"),
+                       json.dumps(res)[:120])
+                _check("3.4 坏 mermaid → fallback", res.get("badM") == "fallback" and res.get("fbBadM"),
+                       json.dumps(res)[:120])
+                _check("3.5 好 chart → canvas", res.get("goodC") == "canvas" and res.get("cvGood"),
+                       json.dumps(res)[:120])
+                _check("3.6 坏 chart → fallback", res.get("badC") == "fallback" and res.get("fbBadC"),
+                       json.dumps(res)[:120])
+
+                _task.cancel()
+
+        _a.run(_run())
+    finally:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=8)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
 def main() -> int:
     if DATA.exists():
         shutil.rmtree(DATA)
@@ -772,6 +939,13 @@ def main() -> int:
             cdp_settings_tts(BASE)
         except Exception as e:
             check("2.99 CDP 语音布局验证未异常", False, str(e)[:200])
+
+        # 课件可视化渲染链路（P1 mermaid / P2 echarts / P3 markmap）
+        print("\n[3.2] 课件可视化渲染（CDP 真实浏览器）")
+        try:
+            cdp_visuals(BASE)
+        except Exception as e:
+            check("3.9 CDP 可视化验证未异常", False, str(e)[:200])
 
         # 页面级 JS 错误会写进 DOM（main.js 的 catch 分支）
         m = re.search(r'data-view-error="1"[^>]*>加载失败：([^<]{0,140})', dom)
