@@ -112,9 +112,15 @@
           </div>
           <div class="row" id="tts-cloud-row">
             <div class="field" id="tts-cloud-wrap"><label>语音端点 base_url</label><input type="text" id="tts-base" value="${cfg.tts.base_url}" placeholder="留空 = 沿用对话模型端点"></div>
-            <div class="field" id="tts-cloud-model"><label>语音模型名</label><input type="text" id="tts-model" value="${cfg.tts.model}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
-            <div class="field" id="tts-voice-wrap"><label>音色 voice</label><input type="text" id="tts-voice" value="${cfg.tts.voice || ""}" placeholder="留空=服务商默认；如 StepFun 填 cixingnansheng"></div>
+            <div class="field" id="tts-cloud-model"><label>语音模型名</label><input type="text" id="tts-model" list="tts-model-list" value="${cfg.tts.model}" placeholder="FunAudioLLM/SpeechT5/TTS"><datalist id="tts-model-list"></datalist></div>
+            <div class="field" id="tts-voice-wrap"><label>音色 voice</label><input type="text" id="tts-voice" list="tts-voice-list" value="${cfg.tts.voice || ""}" placeholder="留空=服务商默认"><datalist id="tts-voice-list"></datalist><span class="hint" id="tts-voice-meta"></span></div>
           </div>
+          <div class="row" id="tts-discover-row">
+            <button class="btn small" id="tts-models">拉取模型</button>
+            <button class="btn small" id="tts-voices-fetch">拉取音色</button>
+            <button class="btn small" id="tts-voices-probe">探测可用音色</button>
+          </div>
+          <p class="hint" id="tts-discover-result"></p>
           <div class="row" id="tts-key-row">
             <div class="field"><label>语音 Key（留空则沿用对话模型 Key）</label><input type="password" id="tts-key" placeholder="${cfg.tts.api_key_set ? "已配置，留空则不修改" : "与对话模型同一站点时可留空"}"></div>
           </div>
@@ -214,8 +220,8 @@
     const engSel = document.getElementById("tts-engine");
     if (engSel) engSel.onchange = updateEngineHint;
 
-    /** 把语音表单当前值提交到后端（测试/试听前必须先提交，否则测的是旧配置）。 */
-    async function pushTtsForm() {
+  /** 把语音表单当前值提交到后端（测试/试听/自动发现前必须先提交，否则测的是旧配置）。 */
+  async function pushTtsForm() {
       const mode = document.getElementById("tts-mode").value;
       const eng = document.getElementById("tts-engine");
       const patch = {
@@ -248,6 +254,104 @@
       live.textContent = txt;
     }
     refreshTtsLive();
+
+    // ── 云端自动发现（docs/07 P1）：模型 / 音色三级降级 ────────────────
+    // 音色不靠「手填一个再去官网查」：官方接口 → 内置清单 → 批量探测，三级合并。
+    // StepFun 实测 /v1/audio/voices 返回 200 但列表为空，所以内置清单 + 探测是主力。
+    function fillVoiceList(items, defaultVoice, counts, note) {
+      const dl = document.getElementById("tts-voice-list");
+      if (!dl) return;
+      dl.innerHTML = "";
+      const seen = new Set();
+      const add = (id, label, source) => {
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        const o = document.createElement("option");
+        o.value = id;
+        o.label = (label && label !== id ? label + " · " : "") + source;
+        dl.appendChild(o);
+      };
+      if (defaultVoice) add(defaultVoice, "默认", "默认");
+      (items || []).forEach((v) => add(v.id, v.label, v.source));
+      const meta = document.getElementById("tts-voice-meta");
+      if (meta) {
+        const c = counts || {};
+        meta.textContent = `音色 ${items.length} 个 · 来源：api ${c.api || 0} / 内置 ${c.builtin || 0}`
+          + ` / 探测 ${c.probe || 0} · 默认：${defaultVoice || "服务商默认"}` + (note ? `（${note}）` : "");
+      }
+    }
+
+    /** 拉取音色。quiet=true 时不弹错误、不落盘表单（用于换端点后的静默刷新）。 */
+    async function fetchVoices(opts) {
+      opts = opts || {};
+      const meta = document.getElementById("tts-voice-meta");
+      if (!opts.quiet) {
+        try { await pushTtsForm(); }
+        catch (e) { Toast("保存配置失败：" + e.message, true); return false; }
+        if (meta) meta.textContent = "拉取音色中…";
+      }
+      try {
+        const r = await Api.get("/api/tts/voices" + (opts.refresh ? "?refresh=1" : ""));
+        fillVoiceList(r.items, r.default_voice, r.source_counts, r.official_error || "");
+        return true;
+      } catch (e) {
+        if (!opts.quiet) Toast("拉取音色失败：" + e.message, true);
+        return false;
+      }
+    }
+
+    document.getElementById("tts-models").onclick = async () => {
+      const out = document.getElementById("tts-discover-result");
+      try { await pushTtsForm(); }
+      catch (e) { out.textContent = "❌ 保存配置失败：" + e.message; return; }
+      out.textContent = "拉取模型中…";
+      try {
+        const r = await Api.get("/api/settings/models?target=tts");
+        const models = (r.models || []).filter(Boolean);
+        const dl = document.getElementById("tts-model-list");
+        dl.innerHTML = "";
+        models.slice(0, 40).forEach((m) => {
+          const o = document.createElement("option"); o.value = m; dl.appendChild(o);
+        });
+        out.textContent = models.length
+          ? `端点返回 ${models.length} 个模型 —— 点「语音模型名」输入框即可从下拉里选`
+          : "端点未返回模型列表，请手动填写模型名。";
+      } catch (e) { out.textContent = "❌ 拉取模型失败：" + e.message; }
+    };
+
+    document.getElementById("tts-voices-fetch").onclick = async () => {
+      const out = document.getElementById("tts-discover-result");
+      out.textContent = "拉取音色中…";
+      const okr = await fetchVoices({});
+      out.textContent = okr
+        ? "已拉取音色 —— 点「音色 voice」输入框即可从下拉里选"
+        : "拉取失败，详见音色栏提示";
+    };
+
+    document.getElementById("tts-voices-probe").onclick = async () => {
+      const btn = document.getElementById("tts-voices-probe");
+      const out = document.getElementById("tts-discover-result");
+      const old = btn.textContent;
+      btn.disabled = true; btn.textContent = "探测中…";
+      out.textContent = "探测中…（对每个候选音色发一次短合成，会消耗少量额度）";
+      try {
+        await pushTtsForm();
+        const r = await Api.post("/api/tts/voices/probe", { limit: 12 });
+        const bad = (r.items || []).filter((x) => !x.ok);
+        out.textContent = `探测完成：可用 ${r.ok} / 共 ${r.items.length}`
+          + (r.skipped ? `（未测 ${r.skipped} 个，可再点一次）` : "")
+          + (bad.length ? `；不可用示例：${bad[0].id}（${bad[0].error || "HTTP " + bad[0].http}）` : "");
+        await fetchVoices({ quiet: true });   // 成功者已进缓存，刷新下拉
+      } catch (e) {
+        out.textContent = "❌ 探测失败：" + e.message;
+      } finally {
+        btn.disabled = false; btn.textContent = old;
+      }
+    };
+
+    // 换端点后静默刷新音色清单（失败不打扰，可点「拉取音色」重试）
+    const ttsBaseEl = document.getElementById("tts-base");
+    if (ttsBaseEl) ttsBaseEl.addEventListener("change", () => { fetchVoices({ quiet: true }); });
 
     document.getElementById("tts-test").onclick = async () => {
       const out = document.getElementById("tts-test-result");
@@ -410,10 +514,14 @@
 
   function val(id) { const n = document.getElementById(id); return n ? n.value.trim() : ""; }
   function updateTTSVis(mode) {
-    // 云端三项（端点 / 模型名 / Key）只在「云端 API」时出现；其余模式不占位。
+    // 云端四项（端点 / 模型名 / 音色 / 自动发现按钮）只在「云端 API」时出现；其余模式不占位。
     const cloud = mode === "cloud";
     document.getElementById("tts-cloud-row").style.display = cloud ? "" : "none";
     document.getElementById("tts-key-row").style.display = cloud ? "" : "none";
+    const disc = document.getElementById("tts-discover-row");
+    if (disc) disc.style.display = cloud ? "" : "none";
+    const discRes = document.getElementById("tts-discover-result");
+    if (discRes) discRes.style.display = cloud ? "" : "none";
     const local = document.getElementById("tts-local-wrap");
     if (local) local.style.display = mode === "local" ? "" : "none";
     updateEngineHint();

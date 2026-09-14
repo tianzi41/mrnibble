@@ -5,12 +5,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import Response
+from pydantic import BaseModel
 
+from ..deps import get_settings_service
 from ..errors import AppError, ok
 from ..services.asr import ASRService
 from ..services.tts import TTSService
+from ..services import tts_providers
 
 router = APIRouter()
 
@@ -56,8 +61,100 @@ def tts_speech(payload: dict) -> Response:
     text = str(payload.get("text") or "")
     voice = payload.get("voice") or None
     fmt = str(payload.get("format") or "mp3")
-    data, content_type = TTSService.get_instance().speech(text, voice=voice, fmt=fmt)
-    return Response(content=data, media_type=content_type)
+    meta: dict[str, Any] = {}
+    data, content_type = TTSService.get_instance().speech(text, voice=voice, fmt=fmt, meta=meta)
+    dropped = (meta.get("dropped") or []) + (meta.get("clipped") or [])
+    headers = {}
+    if dropped:
+        # header 值只能 ASCII，用 quote 编码；前端 decode 后展示给用户。
+        from urllib.parse import quote
+        headers["X-TTS-Dropped"] = quote("；".join(str(d) for d in dropped))
+    if meta.get("voice_sent"):
+        from urllib.parse import quote
+        headers["X-TTS-Voice"] = quote(str(meta["voice_sent"]))
+    return Response(content=data, media_type=content_type, headers=headers)
+
+
+class VoicesProbeRequest(BaseModel):
+    """批量探测音色的请求体（不传 voices 就用 内置+缓存 的候选）。"""
+
+    voices: list[str] | None = None
+    limit: int = 12
+
+
+@router.get("/tts/voices", summary="可用音色（官方接口 → 内置清单 → 探测缓存 三级合并）")
+def tts_voices(refresh: int = Query(default=0, description="1=忽略探测缓存重新合并")) -> dict:
+    """音色**不需要去官网逐个查**：三级来源合并后供设置页下拉选择。
+
+    ① 官方接口（StepFun 实测返回 200 但列表为空）；② 内置清单（实测可用音色）；
+    ③ 本地探测缓存。每项都带 ``source``，UI 会标注可信度。
+    """
+    s = get_settings_service()
+    base_url, model, api_key = s.tts_effective()
+    if not base_url or not model:
+        raise AppError(4002, "云端朗读未配置",
+                       "请先填写语音端点与模型名，再拉取音色")
+
+    items: dict[str, dict[str, Any]] = {}
+    counts = {"api": 0, "builtin": 0, "probe": 0}
+    official_err: str | None = None
+
+    official, official_err = tts_providers.fetch_official_voices(base_url, api_key)
+    for v in official:
+        items.setdefault(v["id"], {**v, "source": "api"})
+    counts["api"] = len(official)
+
+    for v in tts_providers.builtin_voices(base_url, model):
+        cur = items.get(v["id"])
+        if cur is None:
+            items[v["id"]] = {**v, "source": "builtin"}
+            counts["builtin"] += 1
+
+    if not refresh:
+        for v in tts_providers.load_probe_cache():
+            cur = items.get(str(v["id"]))
+            if cur is None:
+                items[str(v["id"])] = {"id": str(v["id"]), "label": str(v.get("label") or v["id"]),
+                                       "lang": "", "gender": "", "source": "probe"}
+                counts["probe"] += 1
+
+    cfg = tts_providers.effective_config(base_url, model)
+    return ok({
+        "provider": cfg["provider"],
+        "provider_label": cfg["label"],
+        "default_voice": cfg["default_voice"],
+        "official_error": official_err,
+        "source_counts": counts,
+        "items": sorted(items.values(), key=lambda x: (x["source"] != "api", x["id"])),
+    })
+
+
+@router.post("/tts/voices/probe", summary="批量探测音色可用性（只回报告，不返回音频）")
+def tts_voices_probe(payload: VoicesProbeRequest) -> dict:
+    """逐个发最小合成请求，报告可用性。**会消耗少量额度**，由用户点击触发。"""
+    s = get_settings_service()
+    base_url, model, api_key = s.tts_effective()
+    if not base_url or not model:
+        raise AppError(4002, "云端朗读未配置",
+                       "请先填写语音端点与模型名，再探测音色")
+
+    builtin = [v["id"] for v in tts_providers.builtin_voices(base_url, model)]
+    cached = [str(v["id"]) for v in tts_providers.load_probe_cache()]
+    given = [str(v) for v in (payload.voices or []) if str(v).strip()]
+    candidates = given or (builtin + cached) or ["alloy"]
+
+    limit = max(1, min(int(payload.limit or 12), 24))
+    todo, skipped = candidates[:limit], candidates[limit:]
+    results = tts_providers.probe_voices(base_url, model, api_key, todo)
+
+    good = [{"id": r["id"], "label": r["id"], "source": "probe"} for r in results if r["ok"]]
+    if good:
+        merged = {v["id"]: v for v in tts_providers.load_probe_cache()}
+        merged.update({v["id"]: v for v in good})
+        tts_providers.save_probe_cache(list(merged.values()))
+
+    return ok({"items": results, "ok": len(good), "bad": len(results) - len(good),
+               "cached": len(good), "skipped": len(skipped)})
 
 
 @router.post("/tts/local")

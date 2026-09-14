@@ -48,7 +48,7 @@ def list_ollama_models() -> dict[str, Any]:
 
 @router.get("/settings/models", summary="从端点读取可用模型名")
 def list_endpoint_models(
-    target: Literal["llm", "embed"] = Query(default="llm", description="llm | embed"),
+    target: Literal["llm", "embed", "tts"] = Query(default="llm", description="llm | embed | tts"),
 ) -> dict[str, Any]:
     """调用端点 ``GET /models``，返回可用模型名（供设置页点选）。"""
     service = get_settings_service()

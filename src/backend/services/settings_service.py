@@ -582,6 +582,10 @@ class SettingsService:
             base = self._resolve_embed_base()
             key = self.get_secret("embed.api_key") or self.get_secret("llm.api_key")
             label = "嵌入端点"
+        elif target == "tts":
+            # 云朗读端点：tts.base_url 为空时沿用对话模型端点（tts_effective 已封装该规则）
+            base, _model, key = self.tts_effective()
+            label = "语音端点"
         else:
             base = self.get("llm.base_url").rstrip("/")
             key = self.get_secret("llm.api_key")

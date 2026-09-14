@@ -33,6 +33,7 @@ from ..deps import get_settings_service
 from ..errors import AppError
 from ..paths import data_path, resource_path
 from .settings_service import upstream_hint, _looks_like_voice_problem
+from .tts_providers import default_voice, model_caps, provider_key
 
 logger = logging.getLogger(__name__)
 
@@ -204,8 +205,14 @@ class TTSService:
         return buf.getvalue(), int(audio.sample_rate)
 
     # ── 云端合成 ────────────────────────────────────────
-    def speech(self, text: str, *, voice: str | None = None, fmt: str = "mp3") -> tuple[bytes, str]:
+    def speech(self, text: str, *, voice: str | None = None, fmt: str = "mp3",
+               meta: dict[str, Any] | None = None) -> tuple[bytes, str]:
         """调用云端 ``/audio/speech`` 返回音频字节。
+
+        Args:
+            meta: 可选出参。传入 dict 时会被填入 ``dropped``（被忽略的参数）、
+                ``clipped``（被截断的字段）与 ``voice_sent``（实际发送的音色），
+                供路由层回显给用户——**静默改参数是最难查的问题，必须可见**。
 
         Raises:
             AppError: 4002 未配置 / 4003 合成失败。
@@ -221,19 +228,35 @@ class TTSService:
         text = (text or "").strip()
         if not text:
             raise AppError(1000, "朗读内容为空")
-        if len(text) > 4000:
-            text = text[:4000]
+
+        # 能力矩阵：发送前裁剪（docs/07 §4）——不支持的参数不发，超长文本截断，
+        # 全部记录进 meta 回显，避免「静默改了参数」这种最难查的问题。
+        caps = model_caps(base_url, model)
+        dropped: list[str] = []
+        clipped: list[str] = []
+        max_chars = int(caps.get("max_chars") or 4000)
+        if len(text) > max_chars:
+            text = text[:max_chars]
+            clipped.append(f"text（>{max_chars} 字，已截断）")
+        allowed_fmts = caps.get("formats") or ["mp3"]
+        if fmt not in allowed_fmts:
+            dropped.append(f"response_format={fmt}（该模型不支持）")
+            fmt = "mp3" if "mp3" in allowed_fmts else allowed_fmts[0]
 
         url = f"{base_url}/audio/speech"
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
+        voice_sent = (voice or s.get("tts.voice") or default_voice(base_url, model)).strip()
         body = {
             "model": model,
             "input": text,
-            "voice": (voice or s.get("tts.voice") or "alloy"),
-            "response_format": fmt if fmt in ("mp3", "opus", "aac", "flac", "wav", "pcm") else "mp3",
+            "voice": voice_sent,
+            "response_format": fmt,
         }
+        if meta is not None:
+            meta.update({"dropped": dropped, "clipped": clipped, "voice_sent": voice_sent,
+                         "provider": provider_key(base_url), "max_chars": max_chars})
 
         started = time.perf_counter()
         try:

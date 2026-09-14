@@ -104,7 +104,9 @@ main { flex: 1; min-height: 0; display: flex; }
    用 .field select.tts-mode-sel 提高特异性以覆盖 .field select 的 width:100%。 */
 .field select.tts-mode-sel { width: auto; flex: 0 0 auto; min-width: 200px; }
 /* 语音区的按钮不许被结果文案挤到换行（否则「保存语音设置」会断成两行） */
-#tts-test, #tts-save, #tts-preview { white-space: nowrap; flex: 0 0 auto; }
+#tts-test, #tts-save, #tts-preview, #tts-models, #tts-voices-fetch, #tts-voices-probe {
+  white-space: nowrap; flex: 0 0 auto;
+}
 /* 云端端点/模型名两列在窄屏换行，避免互相挤压 */
 #tts-cloud-row { flex-wrap: wrap; }
 #tts-cloud-row .field { min-width: 240px; }

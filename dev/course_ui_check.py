@@ -478,6 +478,25 @@ def cdp_settings_tts(base: str) -> None:
                        bool(lay) and lay.get("ws") == "nowrap" and 0 < (lay.get("h") or 0) < 46,
                        f"lay={lay}")
 
+                # P1：音色/模型自动发现（docs/07）
+                disc = await ev("""(function(){
+                  return {dl: !!document.getElementById('tts-voice-list'),
+                          mdl: !!document.getElementById('tts-model-list'),
+                          fetchBtn: !!document.getElementById('tts-voices-fetch'),
+                          probeBtn: !!document.getElementById('tts-voices-probe'),
+                          modelBtn: !!document.getElementById('tts-models'),
+                          meta: !!document.getElementById('tts-voice-meta'),
+                          listInput: (document.getElementById('tts-voice')||{}).getAttribute &&
+                                     document.getElementById('tts-voice').getAttribute('list')};
+                })()""")
+                _check("2.75 音色/模型自动发现的 UI 元素齐备",
+                       bool(disc) and all(disc.get(k) for k in
+                                          ("dl", "mdl", "fetchBtn", "probeBtn", "modelBtn", "meta")),
+                       f"disc={disc}")
+                _check("2.76 音色输入框已挂 datalist（可输可选）",
+                       bool(disc) and disc.get("listInput") == "tts-voice-list",
+                       f"disc={disc}")
+
                 _task.cancel()
 
         _a.run(_run())
