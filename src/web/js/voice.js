@@ -251,7 +251,11 @@
         return;
       }
       const chunks = cut(capped);
-      const PREFETCH = 2;                       // 预取深度（段）
+      // 预取深度：云端单句合成 2~3s、有抖动，深度 2 时偶尔跟不上播放
+      //（实测表现为连续几段后停 2~3 秒、字幕回退到「准备开始…」）。
+      // 云端提到 4 路并行（合成速率 ≈ 播放速率 2 倍）；本地 melo 是 CPU 合成，
+      // 3 路已足够且避免抢主线程。
+      const PREFETCH = isCloud ? 4 : 3;
       const fetchOne = isCloud
         ? requestCloud
         : (t) => requestLocal(t).then((b) => ({ blob: b, mime: "audio/wav" }));

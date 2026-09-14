@@ -36,10 +36,10 @@
     slideIndex: 0,          // 当前讲到第几页（0-based）
     teaching: false,        // 是否正在上课讲授中
     speakLog: [],           // 讲师讲述历史（已讲完的每页一段，可上翻）
-    paused: false,          // 讲授中停在互动检查点
+    paused: false,          // （已废弃）暂停式互动检查点已按用户要求永久移除；字段保留仅为兼容
     finished: false,        // 本讲已讲完（显示下一步选项）
-    noPause: false,         // 学生选择「不用停，直接讲完」后跳过后续检查点
-    voicePaused: false,     // 用户主动暂停朗读（区别于互动检查点的 S.paused）
+    noPause: false,         // （已废弃）同上
+    voicePaused: false,     // 用户主动暂停朗读
     lessonId: null,         // 当前课堂对应的讲次 id（用于切页续讲）
   };
 
@@ -974,37 +974,13 @@
     host.appendChild(wrap);
   }
 
-  /* ── 屏幕中下方「授课舞台」：字幕 + 互动选择 ── */
-  /**
-   * 互动检查点的选择卡片。
-   *
-   * 原先放在右上角「讲师讲述」面板底部，用户反馈**很难发现**（视线在前方
-   * 课件与讲述上，不会去看右栏角落）。现在改为在屏幕中下方、紧贴字幕弹出，
-   * 与「听到这里，还好吗？」的场景位置一致。
-   */
-  function buildAskCard() {
-    const card = el("div", "teach-card");
-    card.appendChild(el("div", "t", "听到这里，还好吗？"));
-    const row = el("div", "row");
-    const go = el("button", "btn small primary", "继续上课");
-    go.onclick = resumeTeaching;
-    const again = el("button", "btn small", "重讲本页");
-    again.onclick = replaySlide;
-    const ask = el("button", "btn small", "我有疑问");
-    ask.onclick = () => {
-      const ta = document.getElementById("lesson-input");
-      if (ta) { ta.focus(); ta.placeholder = "输入你的疑问，讲完这段我接着讲"; }
-    };
-    const skip = el("button", "btn small", "不用停，直接讲完");
-    skip.onclick = () => { S.noPause = true; resumeTeaching(); };
-    row.appendChild(go); row.appendChild(again); row.appendChild(ask); row.appendChild(skip);
-    card.appendChild(row);
-    return card;
-  }
+  /* ── 屏幕中下方「授课舞台」：字幕 ── */
+  /* 暂停式互动检查点（「听到这里，还好吗？」及其四个选项）已按用户要求
+   * 于 2026-09-14 **永久移除**：讲授改为逐页连续进行，不再中途暂停。
+   * 选择题/互动题类互动保留在随堂练习里。 */
 
   /**
-   * 重画授课舞台：字幕常显（默认开启，不提供关闭入口），
-   * 互动选择在暂停时出现在字幕正上方。
+   * 重画授课舞台：字幕常显（默认开启，不提供关闭入口）。
    */
   function renderStage() {
     const stage = document.getElementById("teach-stage");
@@ -1014,14 +990,9 @@
     // 上课时给课件区留出字幕高度（见 app.css 的 body.teaching-on #tab-body）
     document.body.classList.toggle("teaching-on", visible);
     if (!visible) return;
-    const ask = document.getElementById("teach-ask");
     const sub = document.getElementById("teach-sub");
-    if (!ask || !sub) return;
-    ask.innerHTML = "";
-    const showAsk = S.paused && S.teaching;
-    ask.hidden = !showAsk;
-    if (showAsk) ask.appendChild(buildAskCard());
-    // 字幕文本优先级：暂停提示 > 正在朗读的句子 > 已讲完提示 > 待开始提示
+    if (!sub) return;
+    // 字幕文本优先级：主动暂停提示 > 正在朗读的句子 > 已讲完提示 > 待开始提示
     const text = S.voicePaused ? "⏸ 已暂停，点「▶ 继续」接着讲"
       : (S.subtitle || (S.finished ? "本讲讲完了。" : ""));
     sub.textContent = text || "准备开始…";
@@ -1032,7 +1003,7 @@
     const box = document.getElementById("lesson-speaking");
     if (!box) return;
     box.innerHTML = "";
-    const status = S.teaching ? (S.paused ? "⏸ 互动中" : "● 进行中") : (S.finished ? "✔ 已讲完" : "待开始");
+    const status = S.teaching ? "● 进行中" : (S.finished ? "✔ 已讲完" : "待开始");
     box.appendChild(el("div", "panel-head",
       `<span>讲师讲述（${S.speakLog.length} 段）</span><span class="fold">${status}</span>`));
     const body = el("div", "panel-body");
@@ -1082,10 +1053,10 @@
 
     box.appendChild(body);
     // 讲授中自动滚到底（最新一段可见）；暂停/讲完时不打扰用户上翻
-    if (S.teaching && !S.paused) body.scrollTop = body.scrollHeight;
+    if (S.teaching) body.scrollTop = body.scrollHeight;
   }
 
-  /** 一页讲稿读完后的分流：最后一页 → 讲完；每 2 页 → 互动检查点；否则直接下一页。 */
+  /** 一页讲稿读完后的分流：最后一页 → 讲完；否则直接下一页（连续讲授，不再暂停）。 */
   function afterSlideSpoken() {
     if (!S.teaching) return;
     // 把刚讲完的这页收进历史（可上翻回看）
@@ -1098,23 +1069,6 @@
     }
     const isLast = S.slideIndex >= S.slides.length - 1;
     if (isLast) { finishTeaching(); return; }
-    if (!S.noPause && (S.slideIndex + 1) % 2 === 0) { pauseForInteraction(); return; }
-    nextSlide();
-  }
-
-  function pauseForInteraction() {
-    S.paused = true;
-    S.speaking = "";
-    S.subtitle = "";
-    renderSpeaking();
-    renderStage();
-  }
-
-  function resumeTeaching() {
-    if (!S.teaching) return;
-    S.paused = false;
-    renderSpeaking();
-    renderStage();
     nextSlide();
   }
 
@@ -1148,17 +1102,6 @@
     });
   }
 
-  /** 重讲当前页（不前进），读完同样走 afterSlideSpoken 分流。 */
-  function replaySlide() {
-    if (!S.teaching) return;
-    S.paused = false;
-    const sl = S.slides[S.slideIndex];
-    if (!sl) return;
-    renderSpeaking();
-    renderStage();
-    speakSlide(sl);
-  }
-
   /** 逐页讲授：每页出现 → 朗读 → 读完走 afterSlideSpoken 分流。 */
   function nextSlide() {
     if (!S.teaching) return;
@@ -1172,7 +1115,6 @@
     S.voicePaused = false;
     Voice.resume();   // 清掉暂停标志，避免带着 _hold 卡死
     S.teaching = false;
-    S.paused = false;
     S.speaking = "";
     S.subtitle = "";
     S.finished = true;
@@ -1234,7 +1176,6 @@
     Voice.resume();   // 清掉暂停标志，避免带着 _hold 进入下一状态卡死
     Voice.stop();
     S.teaching = false;
-    S.paused = false;
     S.speaking = "";
     S.subtitle = "";
     renderHead();
@@ -1458,9 +1399,7 @@
     if (!S.slides.length) return Toast("这一节没有可讲的课件内容", true);
     S.slideIndex = -1;
     S.teaching = true;
-    S.paused = false;
     S.finished = false;
-    S.noPause = false;
     S.voicePaused = false;
     S.speakLog = [];
     S.subtitle = "";
@@ -1495,7 +1434,7 @@
 
   async function render(host, lessonId) {
     // 回到同一讲：保留授课进度（切去别的页再回来不该重头讲）
-    const resume = (S.lessonId === lessonId) && (S.teaching || S.paused || S.finished);
+    const resume = (S.lessonId === lessonId) && (S.teaching || S.finished);
     // 切到别的讲次或首次进入：停掉上一讲朗读，避免声音串台。
     if (!resume) Voice.stop();
     // 同步朗读引擎（系统语音 / 本地 MeloTTS），用户在设置页改过也能立刻生效。
@@ -1515,9 +1454,7 @@
     // 授课相关状态：仅在非 resume 时重置（resume 时保留，支持切页续讲）
     if (!resume) {
       S.teaching = false;
-      S.paused = false;
       S.finished = false;
-      S.noPause = false;
       S.voicePaused = false;
       S.speakLog = [];
       S.speaking = "";
@@ -1559,7 +1496,6 @@
       </div>
       <!-- 授课舞台：屏幕中下方常驻字幕 + 暂停时的互动选择（固定定位，不随页面滚动） -->
       <div class="teach-stage" id="teach-stage" hidden>
-        <div class="teach-ask" id="teach-ask" hidden></div>
         <div class="teach-sub" id="teach-sub"></div>
       </div>`;
 
@@ -1623,7 +1559,7 @@
       _returnPill.onclick = () => { if (S.lessonId) location.hash = "#/lessons/" + S.lessonId; };
       document.body.appendChild(_returnPill);
     }
-    const show = !!(S.lessonId && (S.teaching || S.paused || S.finished)
+    const show = !!(S.lessonId && (S.teaching || S.finished)
       && !location.hash.startsWith("#/lessons/" + S.lessonId));
     if (show) {
       _returnPill.textContent = "● 正在上《" + (S.lesson ? S.lesson.title : "") + "》 · 回到课堂";
@@ -1642,7 +1578,7 @@
 
   // 仅供测试：只读探针，便于交互级验证读取课堂内部状态
   window.LessonProbe = () => ({
-    teaching: S.teaching, paused: S.paused, finished: S.finished,
+    teaching: S.teaching, finished: S.finished,
     slideIndex: S.slideIndex, voicePaused: S.voicePaused, lessonId: S.lessonId,
   });
 

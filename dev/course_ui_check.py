@@ -684,6 +684,160 @@ def cdp_visuals(base: str) -> None:
                 pass
 
 
+def cdp_regen(base: str) -> None:
+    """CDP 实测「重新生成大纲」按钮的状态同步（用户反馈问题 1）。
+
+    点击后按钮应变为「重新生成中…」，任务完成后必须复位为「重新生成大纲」，
+    且 stage 提示清空 —— 不允许出现「按钮停在生成中、状态却已完成」。
+    """
+    import asyncio as _a, json, subprocess
+    import websockets
+
+    chrome = r"C://Program Files//Google//Chrome//Application//chrome.exe"
+    ud = "C:/tmp/zhiban_regen_%d" % int(time.time())
+    try:
+        os.makedirs(ud, exist_ok=True)
+    except Exception:
+        pass
+    port = 9226
+
+    def _check(name, cond, detail=""):
+        (PASS if cond else FAIL).append(name)
+        print(f"  {'✅' if cond else '❌'} {name}{('  | ' + detail) if (detail and not cond) else ''}")
+
+    proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+            "--no-proxy-server", f"--remote-debugging-port={port}",
+            f"--user-data-dir={ud}", "--window-size=1280,900", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        ver = None
+        for _ in range(60):
+            try:
+                ver = httpx.get(f"http://127.0.0.1:{port}/json/version", timeout=2).json()
+                break
+            except Exception:
+                time.sleep(0.5)
+        if not ver:
+            _check("regen CDP 端口可达", False, "chrome 未启动")
+            return
+        _check("regen CDP 端口可达", True)
+
+        async def _run() -> None:
+            async with websockets.connect(ver["webSocketDebuggerUrl"], max_size=None, ping_interval=None) as bws:
+                _id = [0]
+                def nid():
+                    _id[0] += 1
+                    return _id[0]
+                async def bsend(method, params=None):
+                    i = nid()
+                    await bws.send(json.dumps({"id": i, "method": method, "params": params or {}}))
+                    return i
+                async def bwait(i, t=20):
+                    while True:
+                        r = json.loads(await _a.wait_for(bws.recv(), t))
+                        if r.get("id") == i:
+                            return r
+                r = await bsend("Target.createTarget", {"url": base + "/#/courses"})
+                tid = (await bwait(r))["result"]["targetId"]
+                pws = None
+                for _ in range(40):
+                    lst = httpx.get(f"http://127.0.0.1:{port}/json/list", timeout=3).json()
+                    t = next((x for x in lst if x.get("id") == tid), None)
+                    if t and t.get("webSocketDebuggerUrl"):
+                        pws = t["webSocketDebuggerUrl"]
+                        break
+                    await _a.sleep(0.3)
+                if not pws:
+                    _check("regen 页面调试端点", False)
+                    return
+                _check("regen 页面调试端点", True)
+
+            async with websockets.connect(pws, max_size=None, ping_interval=None) as ws:
+                _id = [0]
+                def nid():
+                    _id[0] += 1
+                    return _id[0]
+                pending: dict = {}
+                async def reader():
+                    while True:
+                        try:
+                            raw = await ws.recv()
+                        except Exception:
+                            break
+                        try:
+                            msg = json.loads(raw)
+                        except Exception:
+                            continue
+                        if "id" in msg and msg["id"] in pending:
+                            fut = pending.pop(msg["id"])
+                            if not fut.done():
+                                fut.set_result(msg)
+                _task = _a.ensure_future(reader())
+                async def ev(expr, t=30):
+                    i = nid()
+                    loop = _a.get_event_loop()
+                    fut = loop.create_future()
+                    pending[i] = fut
+                    await ws.send(json.dumps({"id": i, "method": "Runtime.evaluate",
+                                              "params": {"expression": expr, "returnByValue": True, "awaitPromise": True}}))
+                    try:
+                        res = await _a.wait_for(fut, t)
+                    finally:
+                        pending.pop(i, None)
+                    if "error" in res:
+                        raise RuntimeError(str(res["error"]))
+                    return res.get("result", {}).get("result", {}).get("value")
+
+                await ws.send(json.dumps({"id": nid(), "method": "Runtime.enable"}))
+                for _ in range(40):
+                    ok = await ev("!!document.querySelector('#course-list .item')")
+                    if ok:
+                        break
+                    await _a.sleep(0.3)
+                _check("3.7 课程列表渲染", bool(ok))
+                # 打开第一个课程详情，点「重新生成大纲」
+                await ev("document.querySelector('#course-list .item').click()")
+                for _ in range(40):
+                    ok = await ev("!!document.getElementById('c-regen')")
+                    if ok:
+                        break
+                    await _a.sleep(0.3)
+                _check("3.8 详情页出现重新生成按钮", bool(ok))
+                await ev("document.getElementById('c-regen').click()")
+                for _ in range(30):
+                    txt = await ev("document.getElementById('c-regen').textContent")
+                    if txt == "重新生成中…":
+                        break
+                    await _a.sleep(0.3)
+                _check("3.9 点击后按钮进入生成中", txt == "重新生成中…", str(txt))
+                # mock 端点几秒内完成；轮询按钮复位（上限 240s）
+                final = ""
+                for _ in range(480):
+                    final = await ev("document.getElementById('c-regen') ? document.getElementById('c-regen').textContent : '(gone)'")
+                    if final == "重新生成大纲":
+                        break
+                    await _a.sleep(0.5)
+                _check("3.10 完成后按钮复位（不再停留生成中）", final == "重新生成大纲", f"final={final}")
+                stage = await ev("(document.getElementById('c-stage')||{textContent:''}).textContent")
+                _check("3.11 stage 提示随完成清空", stage == "", f"stage={stage}")
+
+                _task.cancel()
+
+        _a.run(_run())
+    finally:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=8)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
 def main() -> int:
     if DATA.exists():
         shutil.rmtree(DATA)
@@ -908,11 +1062,14 @@ def main() -> int:
               if re.search(r'<button[^>]*id="q-next"[^>]*>', dom) else "未找到按钮")
         check("2.27 给出未作答提示", "未作答时无法进入下一题" in dom)
 
-        # 授课舞台：屏幕中下方字幕 + 互动选择（原来在右栏角落，用户看不见）
+        # 授课舞台：屏幕中下方字幕（暂停式互动检查点已按用户要求永久移除）
         dom_lesson = dump(f"{BASE}/#/lessons/{lesson_id}")
         check("2.28 授课舞台容器存在", 'id="teach-stage"' in dom_lesson)
         check("2.29 字幕行存在", 'id="teach-sub"' in dom_lesson)
-        check("2.30 互动选择容器存在", 'id="teach-ask"' in dom_lesson)
+        check("2.30 暂停式互动已彻底移除",
+              "听到这里" not in dom_lesson and 'id="teach-ask"' not in dom_lesson
+              and "继续上课" not in dom_lesson and "重讲本页" not in dom_lesson
+              and "我有疑问" not in dom_lesson and "不用停" not in dom_lesson)
         check("2.31 未上课时舞台隐藏",
               re.search(r'id="teach-stage"[^>]*\bhidden\b', dom_lesson) is not None,
               (re.search(r'<div[^>]*id="teach-stage"[^>]*>', dom_lesson) or [""])[0]
@@ -945,7 +1102,14 @@ def main() -> int:
         try:
             cdp_visuals(BASE)
         except Exception as e:
-            check("3.9 CDP 可视化验证未异常", False, str(e)[:200])
+            check("3.2z CDP 可视化验证未异常", False, str(e)[:200])
+
+        # 「重新生成大纲」按钮状态同步（用户反馈问题 1）
+        print("\n[3.7] 重新生成大纲按钮状态（CDP 真实浏览器）")
+        try:
+            cdp_regen(BASE)
+        except Exception as e:
+            check("3.12 CDP 重新生成验证未异常", False, str(e)[:200])
 
         # 页面级 JS 错误会写进 DOM（main.js 的 catch 分支）
         m = re.search(r'data-view-error="1"[^>]*>加载失败：([^<]{0,140})', dom)

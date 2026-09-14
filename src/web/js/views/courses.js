@@ -187,12 +187,37 @@
   }
 
   /** 轮询大纲任务，完成后进入结构确认。 */
-  async function pollOutline(courseId, jobId, host, stageBox) {
-    for (let i = 0; i < 300; i++) {
-      const job = await Api.get("/api/courses/jobs/" + jobId);
+  /**
+   * 轮询大纲任务直到完成。
+   *
+   * ``onReady`` / ``onFail`` 由调用方注入收尾动作：
+   * - 建课向导 / 编辑结构：默认跳到结构确认页（confirmOutline）；
+   * - 课程详情页的「重新生成大纲」：**不能**把整个详情换成结构编辑器，
+   *   要原地重置按钮并刷新详情（否则按钮停在「重新生成中…」，状态与
+   *   右侧 stage 文案「已完成」不同步 —— 用户实测问题 1）。
+   * 轮询中对网络抖动容错（连续失败 >20 次才放弃），总时长上限提到 10 分钟
+   * （新提示词 + 8k 输出下，多单元大纲可能超过旧的 210 秒）。
+   */
+  async function pollOutline(courseId, jobId, host, stageBox, onReady, onFail) {
+    let misses = 0;
+    for (let i = 0; i < 600; i++) {
+      let job;
+      try {
+        job = await Api.get("/api/courses/jobs/" + jobId);
+        misses = 0;
+      } catch (e) {
+        if (++misses > 20) {
+          Toast("与服务的连接不稳定，请稍后在课程页查看结果", true);
+          if (onFail) { onFail(e); return; }
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
       if (stageBox) stageBox.textContent = job.stage || "";
       else showStage(host, job.stage);
       if (job.status === "ready") {
+        if (onReady) { await onReady(job); return; }
         await loadCourses();
         await loadCourse(courseId);
         renderList();
@@ -200,6 +225,7 @@
         return confirmOutline(host, courseId);
       }
       if (job.status === "failed") {
+        if (onFail) { onFail(new Error(job.error || "生成失败")); return; }
         host.innerHTML = `<div class="card"><b>大纲生成失败</b><div class="hint">${esc(job.error || "")}</div>
           <div class="row" style="margin-top:12px"><button class="btn primary" id="retry">重新生成</button></div></div>`;
         document.getElementById("retry").onclick = () => { S.creating = true; renderMain(); };
@@ -207,7 +233,8 @@
       }
       await new Promise((r) => setTimeout(r, 700));
     }
-    Toast("生成超时，请稍后查看课程", true);
+    Toast("生成超时，请稍后在课程页查看结果", true);
+    if (onFail) onFail(new Error("生成超时"));
   }
 
   function showStage(host, stage) {
@@ -398,9 +425,25 @@
       const note = (noteEl && noteEl.value || "").trim();
       btn.disabled = true; btn.textContent = "重新生成中…";
       if (stage) stage.textContent = note ? "正在按你的要求重新组织大纲…" : "正在重新生成大纲…";
+      const resetBtn = () => {
+        const b = document.getElementById("c-regen");
+        if (b) { b.disabled = false; b.textContent = "重新生成大纲"; }
+        const st = document.getElementById("c-stage");
+        if (st) st.textContent = "";
+      };
       try {
         const r = await Api.post(`/api/courses/${c.id}/outline:regenerate`, { note });
-        await pollOutline(c.id, r.job_id, host, stage);
+        // 详情页的重新生成：完成后**原地刷新详情**（新大纲/进度直接可见），
+        // 按钮复位 —— 不跳结构编辑器，避免「按钮停在生成中、状态却已完成」的不同步。
+        await pollOutline(c.id, r.job_id, host, stage,
+          async () => {
+            resetBtn();
+            await loadCourses();
+            await loadCourse(c.id);
+            renderDetail(host);
+            Toast("大纲已重新生成", false);
+          },
+          () => resetBtn());
       } catch (e) {
         Toast(e.message, true);
         btn.disabled = false; btn.textContent = "重新生成大纲";
