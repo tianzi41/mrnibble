@@ -395,6 +395,36 @@ def cdp_settings_tts(base: str) -> None:
                        (disp or {}).get("cr") == "none", f"cr={(disp or {}).get('cr')}")
                 _check("2.46 切 off 后 #tts-key-row 隐藏",
                        (disp or {}).get("kr") == "none", f"kr={(disp or {}).get('kr')}")
+
+                # ── 2.47~2.50：测试连接按钮 + 试听真的发请求 + 暴露实际 URL ──
+                _check("2.47 存在 #tts-test 与 #tts-test-result",
+                       bool(await ev("!!document.getElementById('tts-test') "
+                                     "&& !!document.getElementById('tts-test-result')")))
+
+                live = await ev("document.getElementById('tts-live') "
+                                "? document.getElementById('tts-live').textContent : ''")
+                _check("2.48 #tts-live 文案含「当前生效」", "当前生效" in (live or ""), f"live={live}")
+
+                # 切到云端，点「🔊 试听」——证明云端试听真的发起了请求，
+                # 而不是像以前那样直接 return「设置页不试听」。
+                await ev("var m=document.getElementById('tts-mode');"
+                         "m.value='cloud';m.dispatchEvent(new Event('change'));")
+                _a.sleep(0.4)
+                await ev("var b=document.getElementById('tts-preview');if(b)b.click();")
+                # 试听是异步的：先发请求到后端，拿到结果后再异步追加「（实际请求：…）」。
+                # 因此必须等到「实际请求」出现，不能一见 HTTP 就收（否则会漏掉追加部分）。
+                preview_txt = ""
+                for _ in range(60):
+                    preview_txt = await ev("document.getElementById('tts-preview-result') "
+                                           "? document.getElementById('tts-preview-result').textContent : ''")
+                    if preview_txt and "实际请求" in preview_txt:
+                        break
+                    _a.sleep(0.3)
+                _check("2.49 云端试听发起请求（结果含 HTTP）",
+                       "HTTP" in (preview_txt or ""), f"preview={preview_txt}")
+                _check("2.50 试听暴露「实际请求」URL",
+                       "实际请求" in (preview_txt or ""), f"preview={preview_txt}")
+
                 _task.cancel()
 
         _a.run(_run())

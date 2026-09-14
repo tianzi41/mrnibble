@@ -16,7 +16,7 @@
   async function render(host) {
     const cfg = await Api.get("/api/settings");
     const asr = await Api.get("/api/asr/status");
-    const tts = await Api.get("/api/tts/status");
+    let tts = await Api.get("/api/tts/status");
     TtsModelReady = !!(tts && tts.local_model_available);
 
     host.innerHTML = "";
@@ -117,9 +117,12 @@
           <div class="row" id="tts-key-row">
             <div class="field"><label>语音 Key（留空则沿用对话模型 Key）</label><input type="password" id="tts-key" placeholder="${cfg.tts.api_key_set ? "已配置，留空则不修改" : "与对话模型同一站点时可留空"}"></div>
           </div>
+          <p class="hint" id="tts-live"></p>
           <div class="row">
+            <button class="btn" id="tts-test">测试连接</button>
             <button class="btn primary" id="tts-save">保存语音设置</button>
             <button class="btn" id="tts-preview">🔊 试听</button>
+            <span class="hint" id="tts-test-result"></span>
             <span class="hint" id="tts-preview-result"></span>
           </div>
           <p class="hint">语音端点可与对话模型<strong>不同</strong>：<strong>同一个站点</strong>时端点与 Key <strong>都可以留空</strong>，程序自动沿用对话模型的地址与 Key（<strong>不需要另外申请第二个 Key</strong>）；<strong>换成别的语音站点</strong>时，才需要填该站点的地址与那家站点自己的 Key（此时不会误用对话模型的 Key）。本地朗读由浏览器调用 Windows 系统语音（如 Microsoft Huihui），完全离线、零 Key。开关在工作台底部；开启后每条新回答都会朗读。</p>
@@ -207,36 +210,139 @@
     updateTTSVis(cfg.tts.mode);
     const engSel = document.getElementById("tts-engine");
     if (engSel) engSel.onchange = updateEngineHint;
-    document.getElementById("tts-save").onclick = async () => {
+
+    /** 把语音表单当前值提交到后端（测试/试听前必须先提交，否则测的是旧配置）。 */
+    async function pushTtsForm() {
       const mode = document.getElementById("tts-mode").value;
+      const eng = document.getElementById("tts-engine");
       const patch = {
         tts: {
           enabled: mode !== "off", mode,
           base_url: val("tts-base"), model: val("tts-model"),
-          local_engine: engSel ? engSel.value : "system",
+          local_engine: eng ? eng.value : "system",
         },
       };
       const key = val("tts-key");
       if (key) patch.tts.api_key = key;
       await Api.put("/api/settings", patch);
+    }
+
+    /** 刷新「当前生效引擎」提示（保存到后端、或切模式后调用）。 */
+    function refreshTtsLive() {
+      const live = document.getElementById("tts-live");
+      if (!live) return;
+      let txt = "当前生效：已关闭";
+      if (tts.enabled && tts.mode === "cloud") {
+        txt = tts.cloud_configured ? "当前生效：云端朗读" : "当前生效：无 —— 云端尚未配置（端点或模型名为空）";
+      } else if (tts.enabled && tts.mode === "local") {
+        if ((tts.local_engine || "system") === "melo" && tts.local_model_available) {
+          txt = "当前生效：本地神经语音 MeloTTS";
+        } else {
+          txt = "当前生效：Windows 系统语音（浏览器合成）";
+        }
+      }
+      live.textContent = txt;
+    }
+    refreshTtsLive();
+
+    document.getElementById("tts-test").onclick = async () => {
+      const out = document.getElementById("tts-test-result");
+      if (document.getElementById("tts-mode").value !== "cloud") {
+        out.textContent = "仅「云端 API」模式需要测试连接";
+        return;
+      }
+      out.textContent = "测试中…";
+      try {
+        // 先把表单里的端点/模型名/Key 提交，否则测的是旧配置
+        await pushTtsForm();
+        const r = await Api.post("/api/settings/test", { target: "tts" });
+        out.textContent = "✅ " + (r.message || "端点可用");
+      } catch (e) {
+        out.textContent = "❌ " + e.message;
+      }
+    };
+
+    document.getElementById("tts-save").onclick = async () => {
+      try {
+        await pushTtsForm();
+      } catch (e) {
+        return Toast("保存失败：" + e.message, true);
+      }
       Toast("语音设置已保存");
+      try { tts = await Api.get("/api/tts/status"); } catch (e) { /* 刷新失败不影响保存 */ }
+      if (window.Voice && Voice.syncFromServer) await Voice.syncFromServer();
+      refreshTtsLive();   // 刷新「当前生效引擎」
     };
 
     const dl = document.getElementById("asr-dl");
     if (dl) dl.onclick = () => Toast("请在软件目录运行 scripts/download_models.ps1 下载语音模型", true);
 
-    // 试听：一键判断「本机到底有没有可用的中文系统语音」，省去来回试。
-    document.getElementById("tts-preview").onclick = () => {
+    // 试听真正会请求到的端点（脱敏：只拼 base+path，绝不打印 Key）。供用户排查用。
+    async function effectiveTtsUrl() {
+      const cfg = await Api.get("/api/settings");
+      let base = (cfg.tts && cfg.tts.base_url) || "";
+      if (!base) base = (cfg.llm && cfg.llm.base_url) || "";
+      base = (base || "").trim().replace(/\/+$/, "");
+      return base ? `实际请求：${base}/audio/speech` : "实际请求：未配置";
+    }
+
+    // 试听：三种模式都能在设置页直接听效果，并暴露「实际请求的 URL」让用户自查。
+    document.getElementById("tts-preview").onclick = async () => {
       const out = document.getElementById("tts-preview-result");
       const mode = document.getElementById("tts-mode").value;
-      if (mode === "off") { out.textContent = "请先把朗读模式选为「本地系统语音」"; return; }
-      if (mode === "cloud") { out.textContent = "云端朗读在工作台播放，设置页不试听"; return; }
+      const eng = (document.getElementById("tts-engine") || {}).value || "system";
+      const SENT = "知伴朗读测试：中文路径本身没有问题，问题在于不要把中文写进批处理文件。";
+      if (mode === "off") { out.textContent = "请先把朗读模式选为「本地朗读」或「云端 API」"; return; }
+      out.textContent = "试听中…";
+
+      if (mode === "cloud") {
+        try { await pushTtsForm(); } catch (e) { out.textContent = "❌ 保存配置失败：" + e.message; return; }
+        const t0 = performance.now();
+        try {
+          const resp = await fetch("/api/tts/speech", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: SENT }),
+          });
+          if (!resp.ok) {
+            let d = ""; try { d = ((await resp.json()) || {}).message || ""; } catch (e) {}
+            out.textContent = "❌ 云端合成失败：HTTP " + resp.status + (d ? "：" + d : "");
+            out.textContent += "（" + (await effectiveTtsUrl()) + "）";
+            return;
+          }
+          const mime = (resp.headers.get("content-type") || "audio/mpeg").split(";")[0].trim();
+          const blob = await resp.blob();
+          const ms = Math.round(performance.now() - t0);
+          try { await new Audio(URL.createObjectURL(blob)).play(); } catch (e) { /* 自动播放被拦也照样报元数据 */ }
+          out.textContent = `✅ 云端合成 OK：HTTP 200，${mime}，${blob.size} 字节，${ms} ms`;
+          out.textContent += "（" + (await effectiveTtsUrl()) + "）";
+        } catch (e) {
+          out.textContent = "❌ 云端合成失败（连不上后端或端点）：" + e.message;
+          out.textContent += "（" + (await effectiveTtsUrl()) + "）";
+        }
+        return;   // 无论成功失败都不再往下走本地分支
+      }
+
+      // local：先提交表单，再按引擎分流
+      try { await pushTtsForm(); } catch (e) { /* 本地试听不依赖保存结果 */ }
+      if (eng === "melo") {
+        try {
+          const resp = await fetch("/api/tts/local", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: SENT }),
+          });
+          if (!resp.ok) { out.textContent = "❌ 本地神经语音合成失败：HTTP " + resp.status; return; }
+          const blob = await resp.blob();
+          try { await new Audio(URL.createObjectURL(blob)).play(); } catch (e) {}
+          out.textContent = `✅ 本地神经语音 OK：${blob.size} 字节（完全离线）`;
+        } catch (e) { out.textContent = "❌ 本地神经语音失败：" + e.message; }
+        return;
+      }
+      // system：浏览器系统语音试听（原逻辑）
       if (!window.speechSynthesis) { out.textContent = "❌ 当前浏览器不支持本地朗读"; return; }
       const vs = speechSynthesis.getVoices() || [];
       const zh = vs.find((v) => /zh[-_]?CN|cmn|Huihui|Yaoyao|Xiaoxiao|Kangkang|晓晓|慧慧/i.test(v.name + " " + v.lang))
               || vs.find((v) => /^zh/i.test(v.lang));
-      const u = new SpeechSynthesisUtterance(
-        "知伴朗读测试：中文路径本身没有问题，问题在于不要把中文写进批处理文件。");
+      const u = new SpeechSynthesisUtterance(SENT);
       u.lang = "zh-CN";
       if (zh) u.voice = zh;
       u.onerror = (e) => { out.textContent = "❌ 播放失败：" + ((e && e.error) || "未知原因"); };

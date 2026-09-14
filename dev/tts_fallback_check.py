@@ -66,6 +66,34 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
 
+class _Handler2(BaseHTTPRequestHandler):
+    """按路径返回不同状态码：/audio/speech=200、/v1/audio/speech=404、/boom/audio/speech=401。"""
+    def do_POST(self) -> None:  # noqa: N802
+        n = int(self.headers.get("Content-Length") or 0)
+        self.rfile.read(n)
+        server = self.server  # type: ignore[attr-defined]
+        server.last_auth = self.headers.get("Authorization")  # type: ignore[attr-defined]
+        server.last_path = self.path  # type: ignore[attr-defined]
+        server.hits += 1  # type: ignore[attr-defined]
+        if self.path.endswith("/boom/audio/speech"):
+            code = 401
+        elif self.path.endswith("/v1/audio/speech"):
+            code = 404
+        else:
+            code = 200
+        self.send_response(code)
+        self.send_header("Content-Type", "audio/mpeg")
+        if code == 200:
+            self.send_header("Content-Length", str(len(b"fake-audio")))
+            self.end_headers()
+            self.wfile.write(b"fake-audio")
+        else:
+            self.end_headers()
+
+    def log_message(self, *args: object) -> None:  # 静默
+        pass
+
+
 def main() -> int:
     get_db().migrate()
     sv = SettingsService.get_instance()
@@ -140,6 +168,61 @@ def main() -> int:
               server.last_auth is None, str(server.last_auth))
     finally:
         server.shutdown()
+
+    # ── 7~10：配置/回退错误提示（独立于上面 6A/6B 的 mock，按路径返回状态码）──
+    server2 = ThreadingHTTPServer(("127.0.0.1", 0), _Handler2)
+    server2.last_auth = None
+    server2.last_path = None
+    server2.hits = 0
+    port2 = server2.server_address[1]
+    t2 = threading.Thread(target=server2.serve_forever, daemon=True)
+    t2.start()
+
+    def _tts_msg() -> str:
+        """调用 _test_tts，统一返回「给用户看的那条 message」（成功/失败都收口到这里）。"""
+        try:
+            code, warning = sv._test_tts()
+            return warning or code
+        except Exception as e:  # AppError 等非 2xx 落到这里
+            return getattr(e, "message", str(e))
+
+    try:
+        # 7) 云端未配置：mode=cloud 但 base_url/model 都空且 llm.base_url 也空
+        setv("llm.base_url", "")
+        setv("tts.base_url", "")
+        setv("tts.model", "")
+        setv("tts.mode", "cloud")
+        try:
+            sv._test_tts()
+            check("7 云端未配置报错含「端点」", False, "未抛异常")
+        except Exception as e:
+            check("7 云端未配置报错含「端点」",
+                  "端点" in getattr(e, "message", str(e)), getattr(e, "message", str(e)))
+
+        # 8) 端点返回 404 → message 含 404 且含该端点 host
+        setv("llm.base_url", "")
+        setv("tts.base_url", f"http://127.0.0.1:{port2}/v1")
+        setv("tts.model", "tts-1")
+        setv("tts.api_key", "")
+        msg8 = _tts_msg()
+        check("8 端点 404 → message 含 404", "404" in msg8, msg8)
+        check("8 端点 404 → message 含 host", f"127.0.0.1:{port2}" in msg8, msg8)
+
+        # 9) 端点返回 401 → message 含 401
+        setv("tts.base_url", f"http://127.0.0.1:{port2}/boom")
+        setv("tts.model", "tts-1")
+        msg9 = _tts_msg()
+        check("9 端点 401 → message 含 401", "401" in msg9, msg9)
+
+        # 10) tts.base_url 留空、沿用 llm.base_url → message 含「沿用」
+        # 用根路径（/audio/speech 返回 200），避免与 8 的 /v1 404 路径冲突。
+        setv("tts.base_url", "")
+        setv("llm.base_url", f"http://127.0.0.1:{port2}")
+        setv("tts.model", "tts-1")
+        msg10 = _tts_msg()
+        check("10 留空沿用 llm → message 含「沿用」", "沿用" in msg10, msg10)
+    finally:
+        server2.shutdown()
 
     print("-" * 50)
     print(f"通过 {PASS} 项，失败 {FAIL} 项")

@@ -96,8 +96,10 @@
   // 代数计数：++gen 可让上一批的回调全部失效（stop() 时用）。
   let _gen = 0;
 
-  // 本地引擎：system=浏览器系统语音（默认，零依赖）；melo=后端 MeloTTS 神经语音。
+  // 本地引擎：system=浏览器系统语音（默认，零依赖）；melo=后端 MeloTTS 神经语音；cloud=云端 OpenAI 兼容 /audio/speech。
   let _engine = "system";
+  // cloud 模式下「为何没真正走云端」的原因（缺配置/失败）。供 UI 显示，绝不静默换成别的引擎。
+  let _cloudReason = "";
   // melo 模式下正在播放的 Audio（stop() 时要掐掉）。
   let _audio = null;
   // 用户主动暂停：melo 在两段合成之间有间隙，此时 _audio 为 null，
@@ -115,20 +117,32 @@
   /**
    * 从后端读取朗读设置并据此选择引擎。
    *
-   * 只有「已启用 + mode=local + engine=melo + 模型就位」四个条件都满足才用
-   * MeloTTS，否则一律回退系统语音——保证模型没下载时功能不残废。
+   * - 云端模式：引擎就是 cloud。缺配置时**只记原因、不换引擎**——静默改用系统
+   *   语音正是用户这次抱怨的根源（降级后用户分不清是配置错还是软件 bug）。
+   * - 本地模式：仅当「melo 引擎 + 模型就位」才用 MeloTTS，否则系统语音。
    */
   async function syncFromServer() {
     try {
-      const st = await Api.get("/api/tts/status");
-      const useMelo = !!(st && st.enabled && st.mode === "local"
-        && st.local_engine === "melo" && st.local_model_available);
-      _engine = useMelo ? "melo" : "system";
+      const st = (await Api.get("/api/tts/status")) || {};
+      if (st.enabled && st.mode === "cloud") {
+        // 云端模式：引擎就是 cloud。缺配置时**只记原因，不换引擎**——
+        // 静默改用系统语音正是用户这次抱怨的根源。
+        _engine = "cloud";
+        _cloudReason = st.cloud_configured ? "" : "云端朗读尚未配置（缺少语音端点或模型名）";
+      } else if (st.enabled && st.mode === "local"
+                 && st.local_engine === "melo" && st.local_model_available) {
+        _engine = "melo"; _cloudReason = "";
+      } else {
+        _engine = "system"; _cloudReason = "";
+      }
     } catch (e) {
-      _engine = "system";
+      _engine = "system"; _cloudReason = "";
     }
     return _engine;
   }
+
+  /** 当前云端未生效的原因（供 UI 显示）。云端未启用时返回空串。 */
+  function cloudIssue() { return _cloudReason; }
 
   /** 调后端本地合成（MeloTTS），返回 WAV 的 ArrayBuffer。 */
   async function requestLocal(text) {
@@ -141,11 +155,36 @@
     return await resp.arrayBuffer();
   }
 
-  /** 播放一段 WAV；播放结束或出错都 resolve（不卡住队列）。 */
-  function playWav(buf) {
+  /** 调后端云端合成（OpenAI 兼容 /audio/speech），返回 {blob, mime}。 */
+  async function requestCloud(text) {
+    const resp = await fetch("/api/tts/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!resp.ok) {
+      let detail = "";
+      try {
+        const j = await resp.json();
+        detail = (j && (j.message || j.detail)) || "";
+      } catch (e) { /* 非 JSON 响应 */ }
+      throw new Error("HTTP " + resp.status + (detail ? "：" + detail : ""));
+    }
+    const mime = (resp.headers.get("content-type") || "audio/mpeg").split(";")[0].trim();
+    return { blob: await resp.blob(), mime };
+  }
+
+  /**
+   * 播放一段音频：src 可以是 ArrayBuffer 或 Blob；mime 指定 MIME（默认 audio/wav）。
+   * 播放结束或出错都走同一个 done() 并 resolve（不卡住队列）。
+   * 语义保持：设 _audio、_audio === a 时才清空、URL.revokeObjectURL。
+   */
+  function playAudio(src, mime) {
+    mime = mime || "audio/wav";
     return new Promise((resolve) => {
       try {
-        const url = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+        const blob = (src instanceof Blob) ? src : new Blob([src], { type: mime });
+        const url = URL.createObjectURL(blob);
         const a = new Audio(url);
         _audio = a;
         const done = () => {
@@ -188,11 +227,39 @@
 
     const myGen = ++_gen;
 
-    // 单块上限：melo 后端单段上限 300 字，这里切得更保守；system 引擎单次 1200 字。
-    const hardMax = _engine === "melo" ? 120 : 1200;
+    // 单块上限：melo 后端单段上限 300 字，这里切得更保守；system/cloud 单次 1200 字。
+    const hardMax = _engine === "system" ? 1200 : (_engine === "melo" ? 120 : 1200);
     const detailed = Number(opts.chunkChars) > 0;
     const chunkMax = detailed ? Math.min(Number(opts.chunkChars), hardMax) : hardMax;
     const cut = (t) => (detailed ? splitBySentence(t, chunkMax) : splitChunks(t, chunkMax));
+
+    if (_engine === "cloud") {
+      // 云端模式：未配置或失败都明确报错，**绝不**静默换成系统语音。
+      if (_cloudReason) {
+        fail(_cloudReason + "。请到「设置 → 语音」填写语音端点与模型名，"
+             + "点「测试连接」确认可用后再试。");
+        return;   // 明确失败，不换引擎
+      }
+      const chunks = cut(capped);
+      for (let i = 0; i < chunks.length; i++) {
+        if (myGen !== _gen) return;
+        let got;
+        try {
+          got = await requestCloud(chunks[i]);
+        } catch (e) {
+          if (myGen !== _gen) return;
+          fail("云端朗读失败：" + e.message);   // 不降级
+          return;
+        }
+        if (myGen !== _gen) return;
+        while (_hold && myGen === _gen) await new Promise((r) => setTimeout(r, 120));
+        if (myGen !== _gen) return;
+        if (opts.onChunk) opts.onChunk(chunks[i], i, chunks.length);
+        await playAudio(got.blob, got.mime);
+      }
+      if (myGen === _gen && opts.onEnd) opts.onEnd();
+      return;
+    }
 
     if (_engine === "melo") {
       // 边合成边播、延迟更低。
@@ -213,7 +280,7 @@
         while (_hold && myGen === _gen) await new Promise((r) => setTimeout(r, 120));
         if (myGen !== _gen) return;
         if (opts.onChunk) opts.onChunk(chunks[i], i, chunks.length);
-        await playWav(buf);
+        await playAudio(buf, "audio/wav");
       }
       if (myGen === _gen && opts.onEnd) opts.onEnd();
       return;
@@ -270,7 +337,8 @@
    */
   function pause() {
     _hold = true;
-    if (_engine === "melo") {
+    // cloud 与 melo 都走 <audio> 播放，pause/resume 语义一致。
+    if (_engine !== "system") {
       if (_audio) { try { _audio.pause(); } catch (e) { /* 忽略 */ } }
       return;
     }
@@ -279,7 +347,7 @@
 
   function resume() {
     _hold = false;
-    if (_engine === "melo") {
+    if (_engine !== "system") {
       if (_audio) { try { _audio.play(); } catch (e) { /* 忽略 */ } }
       return;
     }
@@ -288,12 +356,12 @@
 
   /** 是否正在朗读（用于「离开课堂再回来」时判断该不该续讲）。 */
   function isSpeaking() {
-    if (_engine === "melo") return !!_audio;
+    if (_engine !== "system") return !!_audio;
     return !!(window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending));
   }
 
   window.Voice = {
     ensureVoices, pickZhVoice, plainText, speak, stop,
-    configure, engine, syncFromServer, pause, resume, isSpeaking,
+    configure, engine, syncFromServer, cloudIssue, pause, resume, isSpeaking,
   };
 })();

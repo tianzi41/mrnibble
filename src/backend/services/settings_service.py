@@ -302,7 +302,7 @@ class SettingsService:
         else:
             raise AppError(1000, "不支持的测试目标", f"target={target}")
         latency = int((time.perf_counter() - started) * 1000)
-        result: dict[str, Any] = {"ok": True, "latency_ms": latency, "detail": detail}
+        result: dict[str, Any] = {"ok": True, "latency_ms": latency, "detail": detail, "message": detail}
         if warning:
             result["warning"] = warning
         return result
@@ -454,28 +454,48 @@ class SettingsService:
         return base, model, key
 
     def _test_tts(self) -> tuple[str, str | None]:
-        """测试云端 TTS 端点：POST {base_url}/audio/speech。"""
+        """测试云端 TTS 端点：POST {base_url}/audio/speech。
+
+        所有返回都带上**实际使用的端点**（仅 netloc + path，**绝不打印 Key**），
+        让用户能直接看到「请求打到了哪」，而不是只给一个笼统的 HTTP 状态——
+        这正是用户「不知道是配置错还是软件 bug」的根因。
+        """
+        from urllib.parse import urlsplit
+
         base, model, key = self.tts_effective()
         if not base:
             raise AppError(2000, "TTS 端点未配置", "请填写语音端点 base_url（或先把对话模型的端点配好）")
+        # 端点留空、沿用对话模型时给出明确提示，便于用户自查。
+        inherited = not self.get("tts.base_url").strip() and bool(self.get("llm.base_url").strip())
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         payload = {
             "model": model or "tts-1",
             "voice": self.get("tts.voice") or "alloy",
             "input": "测试",
         }
+        parsed = urlsplit(base)
+        host = parsed.netloc
+        req_path = parsed.path.rstrip("/") + "/audio/speech"
         try:
             with make_client(base, timeout=_TEST_TIMEOUT) as client:
                 resp = client.post(f"{base}/audio/speech", headers=headers, json=payload)
             problem = self._status_problem(resp, "TTS 端点")
             if problem is not None:
-                raise problem
+                raise AppError(
+                    problem.code, problem.message,
+                    f"{problem.detail}（实际请求：{host}{req_path}）",
+                )
             if resp.status_code >= 400:
-                return f"HTTP {resp.status_code}", (
+                return (
+                    f"HTTP {resp.status_code}",
                     f"该端点未提供语音合成接口（HTTP {resp.status_code}）；"
                     "本地朗读不受影响（走 Windows 系统语音）"
+                    f"（实际请求：{host}{req_path}）",
                 )
-            return f"HTTP {resp.status_code}", None
+            ok_msg = f"HTTP {resp.status_code}：{host}{req_path} 可用"
+            if inherited:
+                ok_msg += "（沿用对话模型端点）"
+            return ok_msg, None
         except AppError:
             raise
         except Exception as exc:  # noqa: BLE001

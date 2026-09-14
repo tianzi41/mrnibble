@@ -106,6 +106,8 @@ main { flex: 1; min-height: 0; display: flex; }
 /* 云端端点/模型名两列在窄屏换行，避免互相挤压 */
 #tts-cloud-row { flex-wrap: wrap; }
 #tts-cloud-row .field { min-width: 240px; }
+/* 测试结果/试听结果可能很长（含实际请求 URL），允许换行显示。 */
+#tts-test-result, #tts-preview-result, #tts-live { white-space: pre-wrap; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .sep { height: 1px; background: var(--border); margin: 16px 0; }
 .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }

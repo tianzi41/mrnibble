@@ -431,14 +431,10 @@
   function speak(text, force) {
     if (!S.tts || !S.tts.enabled || S.tts.mode === "off") return;
     if (!S.ttsOn && !force) return;
-    if (S.tts.mode === "cloud") {
-      Api.post("/api/tts/speech", { text: String(text).slice(0, 4000) })
-        .then(() => Toast("云端音频已生成；云端朗读需要能直接播放的音频端点"));
-      return;
-    }
+    // 引擎（system/melo/cloud）由设置决定；失败原样显示原因，绝不套「改用云端朗读」。
     Voice.speak(text, {
       onWarn: (m) => Toast(m, true),
-      onError: (m) => Toast(m + "（可在「设置 → 语音」点「试听」排查，或改用云端朗读）", true),
+      onError: (m) => Toast(m, true),
     });
   }
 
@@ -486,8 +482,10 @@
 
     // 朗读开关（状态记在 S.ttsOn，切换页面后仍然保持）
     const tw = document.getElementById("opt-tts-wrap");
-    if (S.tts && S.tts.mode === "local") {
-      const lab = el("label", "switch", `<input type="checkbox" id="opt-tts"> 🔊 朗读`);
+    if (S.tts && S.tts.enabled && S.tts.mode !== "off") {
+      const isCloud = S.tts.mode === "cloud";
+      const label = isCloud ? "🔊 朗读（云端）" : "🔊 朗读";
+      const lab = el("label", "switch", `<input type="checkbox" id="opt-tts"> ${label}`);
       tw.appendChild(lab);
       const cb = document.getElementById("opt-tts");
       cb.checked = S.ttsOn;
@@ -497,15 +495,18 @@
           const last = [...S.messages].reverse().find((m) => m.role === "assistant");
           speak(last ? last.content : "朗读已开启，之后的回答我会读出来。", true);
         } else {
-          speechSynthesis.cancel();
+          Voice.stop();   // cloud/melo/system 都要能停
         }
       };
-    } else if (S.tts && S.tts.mode === "cloud") {
-      const lab = el("label", "switch", `<input type="checkbox" id="opt-tts"> 🔊 朗读（云端）`);
-      tw.appendChild(lab);
-      const cb = document.getElementById("opt-tts");
-      cb.checked = S.ttsOn;
-      cb.onchange = (e) => { S.ttsOn = e.target.checked; };
+      // 云端模式：未配置时追加「未配置」徽标，点它去设置页排查。
+      if (isCloud && S.tts.cloud_configured === false) {
+        const pill = document.createElement("span");
+        pill.className = "pill bad";
+        pill.textContent = "云端未配置";
+        pill.style.marginLeft = "8px";
+        pill.title = "去设置 → 语音 填写端点与模型名，可点「测试连接」确认";
+        tw.appendChild(pill);
+      }
     } else {
       tw.innerHTML = `<span class="pill">朗读未启用</span>`;
       tw.title = "在「设置 → 语音」中开启";
