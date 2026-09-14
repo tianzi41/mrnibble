@@ -32,6 +32,21 @@ class CourseCreate(BaseModel):
     language: str = Field(default="zh", description="课程语言")
 
 
+class GoalSuggest(BaseModel):
+    """``POST /api/courses/suggest-goals`` 请求体。
+
+    注意：这个类**曾经缺失**（函数注解引用了不存在的 `GoalSuggest`）。
+    因为本模块有 `from __future__ import annotations`，注解是惰性字符串，
+    函数定义时不报错；但 FastAPI 解析不出请求体模型 → `payload` 恒为 ``None``
+    → 用户勾选的 ``document_ids`` **从未真正传进后端**，推荐只能退化为
+    「全部已解析材料」。用户实测：只勾《孔雀东南飞》却推荐出大模型目标
+    （库里另有大模型材料）。补上此类即修复传参链路。
+    """
+
+    document_ids: list[str] | None = Field(
+        default=None, description="参与推荐的材料 id；空=全部已解析材料")
+
+
 class OutlineUpdate(BaseModel):
     """``POST /api/courses/{id}/outline:regenerate`` 请求体（字段均可选）。"""
 

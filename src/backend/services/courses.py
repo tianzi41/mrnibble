@@ -523,15 +523,32 @@ class CourseService:
         if not ids:
             raise AppError(1002, "没有可用材料", "请先上传并解析完成至少一份文档")
 
-        hits, context, _ = self._material(ids, "材料主题与核心内容", top_k=_MAX_HITS)
+        # 直接喂**材料全貌**，不做语义检索。
+        #
+        # 原实现走 `_material(ids, "材料主题与核心内容")` —— 这个 query 对任何材料
+        # 都是词汇零交集（文言文更甚），FTS 必然 0 命中；向量侧若正处本地哈希降级，
+        # 打分近乎随机、可能全被 min_vec_score 过滤，兜底 `material_overview` 又只取
+        # 每份文档**开头 3 片**。于是模型面对近乎空白的上下文，凭训练语料幻觉出
+        # 「大模型/部署/量化」这类通用 AI 课目标（用户实测：勾《孔雀东南飞》推荐出大模型目标）。
+        #
+        # 推荐目标本该看整份材料的**结构**，而不是按空泛 query 抽片段——与 `_run_outline`
+        # 改「概览优先喂料」是同一个教训。这里加上 chunks_per_doc=6，文言文材料也够用。
+        hits, outline = get_retrieval_service().material_overview(ids, chunks_per_doc=6)
         if not hits:
             raise AppError(1002, "没有可用材料", "来源文档没有可检索的文本内容")
+        context, _ = build_context(hits, outline=outline)
 
         goals: list[str] = []
         try:
+            user_text = f"【学习材料概览】\n{context}"
+            if len(context) < 200:
+                # 材料文本极少时（扫描件、只有标题/序言），模型的幻觉风险最高，
+                # 明确禁止它假设技术领域。
+                user_text += ("\n\n（注意：以上材料文本非常少。目标必须直接来自上述原文，"
+                              "不得假设任何技术领域、不得补充材料中没有的主题。）")
             messages = [
                 {"role": "system", "content": _GOAL_PROMPT},
-                {"role": "user", "content": f"【学习材料检索结果】\n{context}"},
+                {"role": "user", "content": user_text},
             ]
             parsed = self._safe_json(self._chat(messages, max_tokens=800))
             raw_goals = parsed.get("goals") if isinstance(parsed, dict) else None
@@ -550,7 +567,22 @@ class CourseService:
             goals = [f"能用自己的话讲清「{t}」的核心内容" for t in topics[:4]]
             if not goals:
                 goals = ["能掌握所选材料的核心概念并完成配套练习"]
-        return {"goals": goals}
+
+        # 把「推荐基于哪些材料」一并返回：让材料来源**永远可见**。
+        # 主题错配无法程序化判定，但来源可见后用户一眼就能发现（本次 BUG 的核心诉求）。
+        sources: list[str] = []
+        try:
+            db = get_db()
+            for did in ids:
+                row = db.query_one("SELECT title FROM documents WHERE id = ?", (did,))
+                if not row:
+                    continue
+                title = str(row["title"] if isinstance(row, dict) else row[0]).strip()
+                if title and title not in sources:
+                    sources.append(title)
+        except Exception:  # noqa: BLE001 - 来源仅用于展示，取不到不影响推荐
+            sources = []
+        return {"goals": goals, "sources": sources}
 
     # ── 后台：大纲生成 ──────────────────────────────────
     def _run_outline(

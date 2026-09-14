@@ -745,6 +745,23 @@ def main() -> int:
               sum(1 for s in s3 if s.get("kind") == "diagram") == 2,
               str([s.get("kind") for s in s3]))
 
+        # D29/D30 学习目标推荐改喂「材料概览」（原走空泛语义检索：
+        # query「材料主题与核心内容」词汇零交集 → 0 命中 → 概览只取开头 3 片 →
+        # 模型面对近乎空白的上下文幻觉出通用 AI 课目标。用户实测：勾文言文材料
+        # 却推荐出「大模型/部署/量化」目标）。
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-goals")
+        r = post("/api/courses/suggest-goals", {"document_ids": [doc_id]})
+        spy = _read_spy()
+        usr_all = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "user")
+        check("D29 推荐喂料是材料概览且未越界到未勾选文档",
+              "【材料概览】" in usr_all and "洛必达" in usr_all
+              and "calculus" not in usr_all.lower(),
+              usr_all[:200])
+        srcs = (r.get("data") or {}).get("sources") or []
+        check("D30 推荐结果回传材料来源（供 UI 显示，错配一眼可见）",
+              len(srcs) == 1 and "高数" in srcs[0], str(srcs))
+
         _cleanup_courses(cid_d, cid_o, cid_v)
 
         # ── I. 删除 ────────────────────────────────────

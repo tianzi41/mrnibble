@@ -416,6 +416,17 @@ def _pick(body: dict) -> str:
                 "能说出使用洛必达法则前必须验证的两个前提",
             ],
         }, ensure_ascii=False)
+    if model == "mock-spy-goals":
+        # 落盘收到的 messages，供断言「推荐喂的是材料概览、且没越界到未勾选文档」
+        _spy_dump(body)
+        return json.dumps({
+            "goals": [
+                "能读懂《孔雀东南飞》的叙事脉络",
+                "能翻译并背诵指定段落",
+                "能辨析文中的偏义复词与古今异义",
+                "能说明乐府诗与近体诗在形式上的差别",
+            ],
+        }, ensure_ascii=False)
     if model == "mock-outline-5":
         return json.dumps({
             "title": "极限与洛必达法则（五单元）",
@@ -454,7 +465,7 @@ def health() -> dict:
 MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-empty-hits",
                "mock-echo-context", "mock-echo-guided", "mock-good-guided", "mock-stall-guided",
                "mock-outline", "mock-lecture", "mock-practice", "mock-grade",
-               "mock-summary", "mock-goals", "mock-outline-5", "mock-echo-flags",
+               "mock-summary", "mock-goals", "mock-spy-goals", "mock-outline-5", "mock-echo-flags",
                "mock-lecture-mirror", "mock-lecture-stubborn")
 
 

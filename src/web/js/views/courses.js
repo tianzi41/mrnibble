@@ -156,6 +156,13 @@
           b.onclick = () => { document.getElementById("f-goal").value = g; Toast("已填入，可再修改"); };
           box.appendChild(b);
         });
+        // 材料来源**永远可见**：推荐看的就是这几份材料，错配时一眼能发现
+        // （曾经勾文言文材料却推荐出大模型目标，界面上毫无线索）。
+        const srcs = r.sources || [];
+        if (srcs.length) {
+          box.appendChild(el("div", "hint",
+            `推荐基于你勾选的：${srcs.map((t) => esc(t)).join("、")}`));
+        }
       } catch (e) {
         box.textContent = "";
         Toast("推荐失败：" + e.message, true);

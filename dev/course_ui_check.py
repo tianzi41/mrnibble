@@ -244,6 +244,46 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             _check("4.10 回到课堂 teaching 仍为 true", bool(back and back.get("teaching")), f"probe={back}")
             _check("4.11 回到的是同一讲", bool(back and back.get("lessonId") == lesson_id), f"probe={back}")
 
+            # ---- 4.12/4.13 自动翻页后新页完整可见（用户实测：新页上半被字幕条压住一半）----
+            #
+            # 关键在于**造出「页高 > 容器可视高」**的场景：否则容器根本不滚动，
+            # 顶对齐与旧的底对齐观测值完全相同，断言没有区分度（已实测确认过）。
+            # 做法是把滚动容器临时压到 180px —— 走的仍是真实滚动逻辑，不动任何数据。
+            await ev("""(function(){var b=document.querySelector('.lesson-head');
+                if(!b) return false; b.style.flex='none'; b.style.height='120px'; return true;})()""")
+            await _asyncio.sleep(0.3)
+            # 先把容器拉到底，模拟「用户没主动往下滚、视图停在下方」
+            await ev("(function(){var b=document.querySelector('.lesson-head');"
+                     "if(b){b.scrollTop=b.scrollHeight;}return true;})()")
+            await _asyncio.sleep(0.3)
+            nav = await ev("window.__lessonScrollTo ? window.__lessonScrollTo(1) : false")
+            await _asyncio.sleep(1.6)
+            pos = await ev("""(function(){
+                var b=document.querySelector('.lesson-head');
+                if(!b) return {err:'no-scroll-box'};
+                var cur=document.querySelector('.board-card.slide.current');
+                if(!cur) return {err:'no-current'};
+                var r=cur.getBoundingClientRect(), br=b.getBoundingClientRect();
+                var bar=b.querySelector('.lesson-bar');
+                var barH=bar?bar.getBoundingClientRect().height:0;
+                return {curTop:Math.round(r.top), boxTop:Math.round(br.top),
+                        barH:Math.round(barH), curH:Math.round(r.height),
+                        boxH:Math.round(br.height), scrollTop:Math.round(b.scrollTop),
+                        scrollable:b.scrollHeight>b.clientHeight};
+            })()""")
+            _check("4.12 翻页后当前页顶部未被滚出容器",
+                   bool(pos and pos.get("curTop") is not None
+                        and (pos.get("boxH") or 0) <= 140 and pos.get("curH", 0) > (pos.get("boxH") or 0)
+                        and pos["curTop"] >= pos["boxTop"] - 2), f"nav={nav} pos={pos}")
+            _check("4.13 翻页后当前页顶部不被 sticky 操作条遮挡",
+                   bool(pos and pos.get("curTop") is not None
+                        and pos["curTop"] >= pos["boxTop"] + (pos.get("barH") or 0) - 4),
+                   f"pos={pos}")
+            # 恢复容器样式，避免影响后续断言
+            await ev("""(function(){var b=document.querySelector('.lesson-head');
+                if(b){b.style.flex=''; b.style.height='';} return true;})()""")
+            await _asyncio.sleep(0.2)
+
             _task.cancel()
     finally:
         try: proc.terminate()

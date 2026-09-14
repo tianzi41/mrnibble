@@ -940,10 +940,24 @@
       wrap.appendChild(card);
     }
     host.appendChild(wrap);
-    // 自动把当前页滚到可视区中央：讲授时无需手动往下翻
+    // 自动把当前页**顶边**对齐滚动容器顶部：新页从标题开始完整显示。
+    //
+    // 弃用 scrollIntoView —— 它按「视口」对齐，而底部字幕条（#teach-stage，
+    // position:fixed）盖在视口底之上；`body.teaching-on #tab-body` 的
+    // padding-bottom 只增大滚动总高度、**不参与**对齐计算，于是页底永远藏在
+    // 字幕后面（用户实测：新页被遮住一半）。顶对齐天然不受底部遮挡影响。
     if (S.teaching) {
       const cur = document.getElementById("slide-" + shown);
-      if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "end", behavior: "smooth" });   // 页底对齐视口底：高图页不再只滚到中部、下半截要手动翻
+      const box = document.querySelector(".lesson-head");
+      if (cur && box) {
+        // 容器顶部还压着 sticky 操作条（.lesson-bar），偏移量要加上它的高度，
+        // 否则只是把「被字幕遮」换成「被操作条遮」。
+        const bar = box.querySelector(".lesson-bar");
+        const pad = (bar ? bar.offsetHeight : 0) + 8;
+        // 用 rect 差值而非 offsetTop：不依赖 offsetParent 链，容器自身是否定位都成立
+        const delta = cur.getBoundingClientRect().top - box.getBoundingClientRect().top;
+        box.scrollTo({ top: Math.max(0, box.scrollTop + delta - pad), behavior: "smooth" });
+      }
     }
   }
 
@@ -1596,6 +1610,18 @@
     teaching: S.teaching, finished: S.finished,
     slideIndex: S.slideIndex, voicePaused: S.voicePaused, lessonId: S.lessonId,
   });
+
+  // 仅供测试：跳到指定页并重走课件渲染（含真实的自动滚动定位逻辑）。
+  // CDP 里无法等待真实朗读结束再翻页，用它验证「新页是否被字幕条/操作条遮挡」。
+  window.__lessonScrollTo = (idx) => {
+    if (!S.teaching || !S.slides.length) return false;
+    const i = Math.max(0, Math.min(Number(idx) || 0, S.slides.length - 1));
+    S.slideIndex = i;
+    S.tab = "slides";
+    renderTabs();
+    renderTabBody();      // 清空并重绘，内含真实的自动滚动定位
+    return true;
+  };
 
   window.Views = window.Views || {};
   window.Views.lesson = { render };
