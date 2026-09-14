@@ -487,14 +487,17 @@ def cdp_settings_tts(base: str) -> None:
                           modelBtn: !!document.getElementById('tts-models'),
                           meta: !!document.getElementById('tts-voice-meta'),
                           listInput: (document.getElementById('tts-voice')||{}).getAttribute &&
-                                     document.getElementById('tts-voice').getAttribute('list')};
+                                     document.getElementById('tts-voice').getAttribute('list') || ""};
                 })()""")
                 _check("2.75 音色/模型自动发现的 UI 元素齐备",
                        bool(disc) and all(disc.get(k) for k in
                                           ("dl", "mdl", "fetchBtn", "probeBtn", "modelBtn", "meta")),
                        f"disc={disc}")
-                _check("2.76 音色输入框已挂 datalist（可输可选）",
-                       bool(disc) and disc.get("listInput") == "tts-voice-list",
+                # 不能用 <datalist>：浏览器会按输入框已有值过滤选项
+                # （实测模型名 9 个只剩 1 个、音色 8 个一个都不显示），必须用点击填入列表
+                _check("2.76 音色/模型走「点击填入」列表（不再用 datalist）",
+                       bool(disc) and not disc.get("listInput")
+                       and disc.get("dl") is True and disc.get("mdl") is True,
                        f"disc={disc}")
 
                 _task.cancel()

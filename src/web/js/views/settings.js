@@ -112,8 +112,8 @@
           </div>
           <div class="row" id="tts-cloud-row">
             <div class="field" id="tts-cloud-wrap"><label>语音端点 base_url</label><input type="text" id="tts-base" value="${cfg.tts.base_url}" placeholder="留空 = 沿用对话模型端点"></div>
-            <div class="field" id="tts-cloud-model"><label>语音模型名</label><input type="text" id="tts-model" list="tts-model-list" value="${cfg.tts.model}" placeholder="FunAudioLLM/SpeechT5/TTS"><datalist id="tts-model-list"></datalist></div>
-            <div class="field" id="tts-voice-wrap"><label>音色 voice</label><input type="text" id="tts-voice" list="tts-voice-list" value="${cfg.tts.voice || ""}" placeholder="留空=服务商默认"><datalist id="tts-voice-list"></datalist><span class="hint" id="tts-voice-meta"></span></div>
+            <div class="field" id="tts-cloud-model"><label>语音模型名</label><input type="text" id="tts-model" value="${cfg.tts.model}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
+            <div class="field" id="tts-voice-wrap"><label>音色 voice</label><input type="text" id="tts-voice" value="${cfg.tts.voice || ""}" placeholder="留空=服务商默认"><span class="hint" id="tts-voice-meta"></span></div>
           </div>
           <div class="row" id="tts-discover-row">
             <button class="btn small" id="tts-models">拉取模型</button>
@@ -121,6 +121,12 @@
             <button class="btn small" id="tts-voices-probe">探测可用音色</button>
           </div>
           <p class="hint" id="tts-discover-result"></p>
+          <!-- 列表用「点击填入」按钮（与对话模型选择器同一模式）。
+               不能用 <datalist>：浏览器会按输入框已有值**过滤**选项 ——
+               模型名里已有 stepaudio-2.5-tts 时 9 个模型只剩 1 个可选，
+               音色里是 livelybreezy-female 时 8 个内置音色一个都不显示。 -->
+          <div id="tts-model-list" class="hint"></div>
+          <div id="tts-voice-list" class="hint"></div>
           <div class="row" id="tts-key-row">
             <div class="field"><label>语音 Key（留空则沿用对话模型 Key）</label><input type="password" id="tts-key" placeholder="${cfg.tts.api_key_set ? "已配置，留空则不修改" : "与对话模型同一站点时可留空"}"></div>
           </div>
@@ -258,21 +264,31 @@
     // ── 云端自动发现（docs/07 P1）：模型 / 音色三级降级 ────────────────
     // 音色不靠「手填一个再去官网查」：官方接口 → 内置清单 → 批量探测，三级合并。
     // StepFun 实测 /v1/audio/voices 返回 200 但列表为空，所以内置清单 + 探测是主力。
+    // 列表用「点击填入」按钮（与对话模型选择器同一模式）——**不能用 datalist**，
+    // 浏览器会按输入框已有值过滤选项，导致下拉只剩 1 个甚至 0 个。
     function fillVoiceList(items, defaultVoice, counts, note) {
-      const dl = document.getElementById("tts-voice-list");
-      if (!dl) return;
-      dl.innerHTML = "";
-      const seen = new Set();
-      const add = (id, label, source) => {
-        if (!id || seen.has(id)) return;
-        seen.add(id);
-        const o = document.createElement("option");
-        o.value = id;
-        o.label = (label && label !== id ? label + " · " : "") + source;
-        dl.appendChild(o);
-      };
-      if (defaultVoice) add(defaultVoice, "默认", "默认");
-      (items || []).forEach((v) => add(v.id, v.label, v.source));
+      const box = document.getElementById("tts-voice-list");
+      if (!box) return;
+      box.innerHTML = "";
+      if (!(items || []).length) {
+        box.textContent = "未发现可用音色 —— 点「探测可用音色」试一试。";
+        return;
+      }
+      box.textContent = "点击填入：";
+      (items || []).forEach((v) => {
+        const b = document.createElement("button");
+        b.className = "btn small";
+        b.style.margin = "4px 4px 0 0";
+        b.textContent = (v.label && v.label !== v.id ? v.label : v.id)
+          + (v.source && v.source !== "api" ? `（${v.source}）` : "");
+        b.title = v.id;
+        b.onclick = () => {
+          const inp = document.getElementById("tts-voice");
+          if (inp) inp.value = v.id;
+          Toast("已填入音色 " + v.id);
+        };
+        box.appendChild(b);
+      });
       const meta = document.getElementById("tts-voice-meta");
       if (meta) {
         const c = counts || {};
@@ -302,19 +318,34 @@
 
     document.getElementById("tts-models").onclick = async () => {
       const out = document.getElementById("tts-discover-result");
+      const list = document.getElementById("tts-model-list");
       try { await pushTtsForm(); }
       catch (e) { out.textContent = "❌ 保存配置失败：" + e.message; return; }
       out.textContent = "拉取模型中…";
       try {
         const r = await Api.get("/api/settings/models?target=tts");
         const models = (r.models || []).filter(Boolean);
-        const dl = document.getElementById("tts-model-list");
-        dl.innerHTML = "";
-        models.slice(0, 40).forEach((m) => {
-          const o = document.createElement("option"); o.value = m; dl.appendChild(o);
-        });
+        if (list) {
+          list.innerHTML = "";
+          if (!models.length) { list.textContent = "端点未返回模型列表，请手动填写模型名。"; }
+          else {
+            list.textContent = "点击填入：";
+            models.slice(0, 30).forEach((m) => {
+              const b = document.createElement("button");
+              b.className = "btn small";
+              b.style.margin = "4px 4px 0 0";
+              b.textContent = m;
+              b.onclick = () => {
+                const inp = document.getElementById("tts-model");
+                if (inp) inp.value = m;
+                Toast("已填入模型 " + m);
+              };
+              list.appendChild(b);
+            });
+          }
+        }
         out.textContent = models.length
-          ? `端点返回 ${models.length} 个模型 —— 点「语音模型名」输入框即可从下拉里选`
+          ? `端点返回 ${models.length} 个模型 —— 点下面的模型名即可填入`
           : "端点未返回模型列表，请手动填写模型名。";
       } catch (e) { out.textContent = "❌ 拉取模型失败：" + e.message; }
     };
@@ -324,7 +355,7 @@
       out.textContent = "拉取音色中…";
       const okr = await fetchVoices({});
       out.textContent = okr
-        ? "已拉取音色 —— 点「音色 voice」输入框即可从下拉里选"
+        ? "已拉取音色 —— 点下面的音色名即可填入"
         : "拉取失败，详见音色栏提示";
     };
 
@@ -338,10 +369,11 @@
         await pushTtsForm();
         const r = await Api.post("/api/tts/voices/probe", { limit: 12 });
         const bad = (r.items || []).filter((x) => !x.ok);
-        out.textContent = `探测完成：可用 ${r.ok} / 共 ${r.items.length}`
-          + (r.skipped ? `（未测 ${r.skipped} 个，可再点一次）` : "")
+        out.textContent = `探测完成：本次可用 ${r.ok} / 共 ${r.items.length}`
+          + (r.already ? `（此前已确认 ${r.already} 个）` : "")
+          + (r.skipped ? `（还有 ${r.skipped} 个未测，再点一次继续）` : "")
           + (bad.length ? `；不可用示例：${bad[0].id}（${bad[0].error || "HTTP " + bad[0].http}）` : "");
-        await fetchVoices({ quiet: true });   // 成功者已进缓存，刷新下拉
+        await fetchVoices({ quiet: true });   // 成功者已进缓存，刷新列表
       } catch (e) {
         out.textContent = "❌ 探测失败：" + e.message;
       } finally {

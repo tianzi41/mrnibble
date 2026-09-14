@@ -139,9 +139,18 @@ def tts_voices_probe(payload: VoicesProbeRequest) -> dict:
                        "请先填写语音端点与模型名，再探测音色")
 
     builtin = [v["id"] for v in tts_providers.builtin_voices(base_url, model)]
-    cached = [str(v["id"]) for v in tts_providers.load_probe_cache()]
+    cached_list = tts_providers.load_probe_cache()
+    cached = [str(v["id"]) for v in cached_list]
+    cached_ok = {str(v["id"]) for v in cached_list}
     given = [str(v) for v in (payload.voices or []) if str(v).strip()]
-    candidates = given or (builtin + cached) or ["alloy"]
+    if given:
+        # 显式指定：全部按用户给的测（即使探测过，也允许重测）
+        candidates = given
+    else:
+        # 隐式：优先测「还没确认过可用」的；已确认的放最后，避免重复烧额度
+        pool = list(dict.fromkeys(builtin + cached))
+        rest = [x for x in pool if x not in cached_ok]
+        candidates = rest + [x for x in pool if x in cached_ok]
 
     limit = max(1, min(int(payload.limit or 12), 24))
     todo, skipped = candidates[:limit], candidates[limit:]
@@ -154,7 +163,8 @@ def tts_voices_probe(payload: VoicesProbeRequest) -> dict:
         tts_providers.save_probe_cache(list(merged.values()))
 
     return ok({"items": results, "ok": len(good), "bad": len(results) - len(good),
-               "cached": len(good), "skipped": len(skipped)})
+               "cached": len(cached_ok), "already": len(cached_ok),
+               "skipped": len(skipped)})
 
 
 @router.post("/tts/local")
