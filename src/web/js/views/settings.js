@@ -258,7 +258,10 @@
         const r = await Api.post("/api/settings/test", { target: "tts" });
         out.textContent = "✅ " + (r.message || "端点可用");
       } catch (e) {
-        out.textContent = "❌ " + e.message;
+        // ApiError 已把封套里的 error.detail 取到 e.detail —— 那是唯一能说明
+        // 「到底哪里不对」的信息（端点未配置 / 连不上 / 401 / 404），必须显示。
+        const extra = [e.message, e.detail].filter(Boolean).join(" —— ");
+        out.textContent = "❌ " + extra + "（" + (await effectiveTtsUrl()) + "）";
       }
     };
 
@@ -304,8 +307,16 @@
             body: JSON.stringify({ text: SENT }),
           });
           if (!resp.ok) {
-            let d = ""; try { d = ((await resp.json()) || {}).message || ""; } catch (e) {}
-            out.textContent = "❌ 云端合成失败：HTTP " + resp.status + (d ? "：" + d : "");
+            // 错误封套 {code, message, data, error:{detail}}：上游真实原因在
+            // error.detail，两个都显示，用户才能分辨「填错了」还是「端点不支持」。
+            let s = "", d = "";
+            try {
+              const j = (await resp.json()) || {};
+              s = j.message || "";
+              d = (j.error && j.error.detail) || j.detail || "";
+            } catch (e) { /* 非 JSON 响应 */ }
+            const extra = [s, d].filter(Boolean).join(" —— ");
+            out.textContent = "❌ 云端合成失败：HTTP " + resp.status + (extra ? "：" + extra : "");
             out.textContent += "（" + (await effectiveTtsUrl()) + "）";
             return;
           }

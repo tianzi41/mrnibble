@@ -163,12 +163,17 @@
       body: JSON.stringify({ text }),
     });
     if (!resp.ok) {
-      let detail = "";
+      // 后端错误封套是 {code, message, data, error:{detail}}：上游端点的真实原因
+      // （如「语音端点返回 HTTP 404」）在 **error.detail** 里，message 只是
+      // 「TTS 合成失败」这类摘要。两个都要带上，否则用户查不出是配置错还是软件问题。
+      let summary = "", detail = "";
       try {
-        const j = await resp.json();
-        detail = (j && (j.message || j.detail)) || "";
+        const j = (await resp.json()) || {};
+        summary = j.message || "";
+        detail = (j.error && j.error.detail) || j.detail || "";
       } catch (e) { /* 非 JSON 响应 */ }
-      throw new Error("HTTP " + resp.status + (detail ? "：" + detail : ""));
+      const extra = [summary, detail].filter(Boolean).join(" —— ");
+      throw new Error("HTTP " + resp.status + (extra ? "：" + extra : ""));
     }
     const mime = (resp.headers.get("content-type") || "audio/mpeg").split(";")[0].trim();
     return { blob: await resp.blob(), mime };
