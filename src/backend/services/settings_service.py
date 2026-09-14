@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -100,6 +101,40 @@ _TEST_TIMEOUT = 8.0
 def _coerce_bool(value: str) -> bool:
     """把字符串转布尔（``true/1/yes/on`` 为真）。"""
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def upstream_hint(resp: Any) -> str:
+    """从上游响应体里抠出可读的失败原因，用于展示给用户。
+
+    只取前 200 字符并压缩空白；**绝不包含任何密钥**（响应体是服务商返回的，
+    不含我们的 Key，但仍按不可信文本处理）。解析不出来就退化为纯文本前缀。
+    """
+    raw = ""
+    try:
+        payload = resp.json()
+    except Exception:  # noqa: BLE001 - 非 JSON / 空体都按纯文本处理
+        payload = None
+    if isinstance(payload, dict):
+        for key in ("error.message", "error", "message", "msg", "detail"):
+            if key == "error.message":
+                em = payload.get("error")
+                cand = em.get("message") if isinstance(em, dict) else None
+            else:
+                cand = payload.get(key)
+            if isinstance(cand, str) and cand.strip():
+                raw = cand
+                break
+    if not raw:
+        raw = resp.text or ""
+    raw = (raw or "")[:200]
+    raw = re.sub(r"\s+", " ", raw).strip()
+    return raw
+
+
+def _looks_like_voice_problem(text: str) -> bool:
+    """上游报错是否与「音色」有关（用于给出针对性提示）。"""
+    t = (text or "").lower()
+    return ("voice" in t and ("exist" in t or "invalid" in t or "support" in t)) or "voice_id" in t
 
 
 class SettingsService:
@@ -486,12 +521,15 @@ class SettingsService:
                     f"{problem.detail}（实际请求：{host}{req_path}）",
                 )
             if resp.status_code >= 400:
-                return (
-                    f"HTTP {resp.status_code}",
-                    f"该端点未提供语音合成接口（HTTP {resp.status_code}）；"
-                    "本地朗读不受影响（走 Windows 系统语音）"
-                    f"（实际请求：{host}{req_path}）",
-                )
+                hint = upstream_hint(resp)
+                detail = f"语音端点返回 HTTP {resp.status_code}"
+                if hint:
+                    detail += f"：{hint}"
+                if _looks_like_voice_problem(hint):
+                    detail += ("。该服务商可能不支持当前音色——请在「设置 → 语音 → 音色」填写"
+                               "该服务商自己的音色名（例如 StepFun 用 cixingnansheng）")
+                detail += f"（实际请求：{host}{req_path}）"
+                raise AppError(4003, None, detail)
             ok_msg = f"HTTP {resp.status_code}：{host}{req_path} 可用"
             if inherited:
                 ok_msg += "（沿用对话模型端点）"

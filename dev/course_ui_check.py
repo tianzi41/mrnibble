@@ -425,6 +425,41 @@ def cdp_settings_tts(base: str) -> None:
                 _check("2.50 试听暴露「实际请求」URL",
                        "实际请求" in (preview_txt or ""), f"preview={preview_txt}")
 
+                # ── 2.51~2.52：新增「音色」输入可见 + 可提交 ──
+                # 确保处于云端模式（2.49/2.50 已切到 cloud，这里再确保一次）。
+                await ev("var m=document.getElementById('tts-mode');"
+                         "if(m.value!=='cloud'){m.value='cloud';m.dispatchEvent(new Event('change'));}")
+                _a.sleep(0.4)
+                vo = await ev("""(function(){
+                    var el=document.getElementById('tts-voice');
+                    var row=document.getElementById('tts-cloud-row');
+                    return {exists: !!el,
+                            w: el ? el.getBoundingClientRect().width : 0,
+                            rowVisible: row ? row.style.display !== 'none' : false};
+                })()""")
+                _check("2.51 存在 #tts-voice 且切到云端后可见（宽度>100）",
+                       bool((vo or {}).get("exists")) and (vo or {}).get("w", 0) > 100
+                       and bool((vo or {}).get("rowVisible")),
+                       f"vo={vo}")
+
+                # 填入一个音色值 → 点「保存语音设置」→ GET /api/settings 回显一致
+                TEST_VOICE = "test_voice_xiaxia"
+                await ev(f"document.getElementById('tts-voice').value={json.dumps(TEST_VOICE)};")
+                await ev("var b=document.getElementById('tts-save');if(b)b.click();")
+                saved = None
+                for _ in range(40):
+                    try:
+                        with httpx.Client(trust_env=False) as _c:
+                            saved = _c.get(f"{base}/api/settings", timeout=5).json()
+                        if (saved.get("data") or {}).get("tts", {}).get("voice") == TEST_VOICE:
+                            break
+                    except Exception:
+                        pass
+                    _a.sleep(0.3)
+                _check("2.52 #tts-voice 提交后 GET /api/settings 回显一致",
+                       (saved or {}).get("data", {}).get("tts", {}).get("voice") == TEST_VOICE,
+                       f"voice={(saved or {}).get('data', {}).get('tts', {}).get('voice')}")
+
                 _task.cancel()
 
         _a.run(_run())

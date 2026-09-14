@@ -94,6 +94,54 @@ class _Handler2(BaseHTTPRequestHandler):
         pass
 
 
+class _Handler3(BaseHTTPRequestHandler):
+    """按请求体 voice 字段返回不同结果（测试 11~14：上游报错暴露 + 音色提示）。
+
+    - voice="alloy"           → 400 + JSON（voice_id 报错，模拟 StepFun）
+    - voice="cixingnansheng"  → 200 + 一小段音频字节
+    - voice="plaintext"       → 400 + 非 JSON 纯文本
+    - 其它（如 "othermodel"） → 400 + JSON（无 voice 字样）
+    """
+    def do_POST(self) -> None:  # noqa: N802
+        import json as _json
+
+        n = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(n) or b""
+        server = self.server  # type: ignore[attr-defined]
+        server.last_path = self.path  # type: ignore[attr-defined]
+        server.hits += 1  # type: ignore[attr-defined]
+        try:
+            data = _json.loads(body.decode("utf-8", "replace"))
+            voice = data.get("voice", "")
+        except Exception:
+            voice = ""
+        if voice == "alloy":
+            code = 400
+            payload = (b'{"error":{"message":"The voice_id (alloy) does not exist '
+                       b'or you do not have access to it.","type":"voice_id_invalid"}}')
+            ctype = "application/json"
+        elif voice == "cixingnansheng":
+            code = 200
+            payload = b"fake-audio"
+            ctype = "audio/mpeg"
+        elif voice == "plaintext":
+            code = 400
+            payload = b"bad voice param"
+            ctype = "text/plain"
+        else:
+            code = 400
+            payload = b'{"message":"model not found"}'
+            ctype = "application/json"
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *args: object) -> None:  # 静默
+        pass
+
+
 def main() -> int:
     get_db().migrate()
     sv = SettingsService.get_instance()
@@ -184,7 +232,8 @@ def main() -> int:
             code, warning = sv._test_tts()
             return warning or code
         except Exception as e:  # AppError 等非 2xx 落到这里
-            return getattr(e, "message", str(e))
+            # 失败分支：message 与 detail 都带上（HTTP 状态常在 detail，鉴权失败常在 message）。
+            return (getattr(e, "message", "") + " | " + (getattr(e, "detail", "") or "")).strip(" |")
 
     try:
         # 7) 云端未配置：mode=cloud 但 base_url/model 都空且 llm.base_url 也空
@@ -223,6 +272,59 @@ def main() -> int:
         check("10 留空沿用 llm → message 含「沿用」", "沿用" in msg10, msg10)
     finally:
         server2.shutdown()
+
+    # ── 11~14：上游报错暴露 + 音色针对性提示（voice 字段驱动 mock）──
+    server3 = ThreadingHTTPServer(("127.0.0.1", 0), _Handler3)
+    server3.last_path = None
+    server3.hits = 0
+    port3 = server3.server_address[1]
+    t3 = threading.Thread(target=server3.serve_forever, daemon=True)
+    t3.start()
+    try:
+        setv("llm.base_url", "")
+        setv("tts.base_url", f"http://127.0.0.1:{port3}/v1")
+        setv("tts.model", "tts-1")
+        setv("tts.api_key", "")
+
+        # 11) voice=alloy → 400 + voice_id 报错 → 必须抛 AppError（不再返回成功串），
+        #     detail 含 voice_id/does not exist，且含「音色」针对性提示。
+        setv("tts.voice", "alloy")
+        try:
+            sv._test_tts()
+            check("11 alloy 400 → 抛 AppError（非成功串）", False, "未抛异常（返回了成功串）")
+        except Exception as e:
+            detail11 = getattr(e, "detail", "") or getattr(e, "message", str(e))
+            check("11 alloy 400 → 抛 AppError（非成功串）", True)
+            check("11 detail 含 voice_id 或 does not exist",
+                  ("voice_id" in detail11) or ("does not exist" in detail11), detail11)
+            check("11 detail 含「音色」针对性提示", "音色" in detail11, detail11)
+
+        # 12) voice=cixingnansheng → 200 + 音频 → message 含 HTTP 200 与假端点 host（回归保护）。
+        setv("tts.voice", "cixingnansheng")
+        msg12 = _tts_msg()
+        check("12 cixingnansheng 200 → message 含 HTTP 200", "HTTP 200" in msg12, msg12)
+        check("12 message 含假端点 host", f"127.0.0.1:{port3}" in msg12, msg12)
+
+        # 13) 非 JSON 纯文本 400 → 不崩溃，detail 含该文本片段。
+        setv("tts.voice", "plaintext")
+        try:
+            sv._test_tts()
+            check("13 纯文本 400 → 抛 AppError", False, "未抛异常")
+        except Exception as e:
+            detail13 = getattr(e, "detail", "") or getattr(e, "message", str(e))
+            check("13 纯文本 400 → 不崩溃且 detail 含 'bad voice param'",
+                  "bad voice param" in detail13, detail13)
+
+        # 14) 无 voice 字样 400 → detail 不含「音色」提示（证明没乱猜）。
+        setv("tts.voice", "othermodel")
+        try:
+            sv._test_tts()
+            check("14 无 voice 字样 → 抛 AppError", False, "未抛异常")
+        except Exception as e:
+            detail14 = getattr(e, "detail", "") or getattr(e, "message", str(e))
+            check("14 无 voice 字样 → detail 不含「音色」提示", "音色" not in detail14, detail14)
+    finally:
+        server3.shutdown()
 
     print("-" * 50)
     print(f"通过 {PASS} 项，失败 {FAIL} 项")

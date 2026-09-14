@@ -113,6 +113,7 @@
           <div class="row" id="tts-cloud-row">
             <div class="field" id="tts-cloud-wrap"><label>语音端点 base_url</label><input type="text" id="tts-base" value="${cfg.tts.base_url}" placeholder="留空 = 沿用对话模型端点"></div>
             <div class="field" id="tts-cloud-model"><label>语音模型名</label><input type="text" id="tts-model" value="${cfg.tts.model}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
+            <div class="field" id="tts-voice-wrap"><label>音色 voice</label><input type="text" id="tts-voice" value="${cfg.tts.voice || ""}" placeholder="留空=服务商默认；如 StepFun 填 cixingnansheng"></div>
           </div>
           <div class="row" id="tts-key-row">
             <div class="field"><label>语音 Key（留空则沿用对话模型 Key）</label><input type="password" id="tts-key" placeholder="${cfg.tts.api_key_set ? "已配置，留空则不修改" : "与对话模型同一站点时可留空"}"></div>
@@ -219,6 +220,7 @@
         tts: {
           enabled: mode !== "off", mode,
           base_url: val("tts-base"), model: val("tts-model"),
+          voice: val("tts-voice"),
           local_engine: eng ? eng.value : "system",
         },
       };

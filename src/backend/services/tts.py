@@ -32,6 +32,7 @@ from ..utils.http import make_client
 from ..deps import get_settings_service
 from ..errors import AppError
 from ..paths import data_path, resource_path
+from .settings_service import upstream_hint, _looks_like_voice_problem
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,14 @@ class TTSService:
             raise AppError(4003, None, f"无法连接语音端点（{type(exc).__name__}）") from exc
 
         if resp.status_code >= 400:
-            raise AppError(4003, None, f"语音端点返回 HTTP {resp.status_code}")
+            hint = upstream_hint(resp)
+            detail = f"语音端点返回 HTTP {resp.status_code}"
+            if hint:
+                detail += f"：{hint}"
+            if _looks_like_voice_problem(hint):
+                detail += ("。该服务商可能不支持当前音色——请在「设置 → 语音 → 音色」填写"
+                           "该服务商自己的音色名（例如 StepFun 用 cixingnansheng）")
+            raise AppError(4003, None, detail)
         content_type = resp.headers.get("content-type", "audio/mpeg")
         data = resp.content
         if not data:
