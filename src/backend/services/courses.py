@@ -264,9 +264,9 @@ _GRADE_PROMPT = """你是阅卷老师。请为学生的开放题作答评分。
 """
 
 _DEPTH_HINT = {
-    "brief": "篇幅档·概览：slides 3~5 页，每页要点 ≤4 条；scripts 每段 80~150 字；cards 3~4 张；只讲最核心结论，例子最多 1 个。",
-    "standard": "篇幅档·标准：slides 5~8 页，每页要点 ≤5 条；scripts 每段 150~300 字；cards 4~6 张，其中 1 张写易错点。",
-    "detailed": "篇幅档·深入：slides 8~12 页，每页要点 ≤6 条；scripts 每段 300~500 字；cards 6~9 张，含推导细节与对比。",
+    "brief": "篇幅档·概览：slides 8~10 页，每页要点 ≤4 条；scripts 每段 80~150 字；cards 5~7 张；只讲最核心结论，例子最多 1 个。",
+    "standard": "篇幅档·标准：slides 10~12 页，每页要点 ≤5 条；scripts 每段 150~300 字；cards 6~8 张，其中 1 张写易错点。",
+    "detailed": "篇幅档·深入：slides 12~16 页，每页要点 ≤6 条；scripts 每段 300~500 字；cards 8~12 张，含推导细节与对比。",
 }
 
 # 讲次认知层级（course_lessons.depth：establish/define/derive/apply）

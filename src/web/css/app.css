@@ -470,7 +470,8 @@ body.teaching-on #tab-body { padding-bottom: 132px; }
 
 /* ── 课件可视化页（mermaid / echarts）── */
 .viz-box { width: 100%; overflow: auto; padding: 6px 2px; }
-.viz-box svg { max-width: 100%; height: auto; }
+/* 小图按原始尺寸居中（不拉伸放大），超宽图缩到容器宽以内 */
+.viz-box svg { max-width: 100%; height: auto; margin: 0 auto; display: block; }
 .chart-box { width: 100%; height: 280px; }
 .viz-fallback { color: var(--muted); font-size: 12px; padding: 6px 0; }
 .lesson-outline-card { margin-bottom: 10px; }

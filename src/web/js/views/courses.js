@@ -389,6 +389,10 @@
 
   /* ── 课程详情 ─────────────────────────── */
   function renderDetail(host) {
+    // 详情页只承载一份内容：先清空再画。否则「重新生成大纲」完成后的
+    // 原地刷新（onReady → renderDetail）会把新详情 append 在旧详情下面，
+    // 出现新旧大纲上下并排（用户实测问题 1）。
+    host.innerHTML = "";
     const c = S.course;
     const p = c.progress || {};
     const head = el("div", "card");

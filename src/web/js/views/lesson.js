@@ -943,7 +943,7 @@
     // 自动把当前页滚到可视区中央：讲授时无需手动往下翻
     if (S.teaching) {
       const cur = document.getElementById("slide-" + shown);
-      if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "end", behavior: "smooth" });   // 页底对齐视口底：高图页不再只滚到中部、下半截要手动翻
     }
   }
 
@@ -993,9 +993,19 @@
     const sub = document.getElementById("teach-sub");
     if (!sub) return;
     // 字幕文本优先级：主动暂停提示 > 正在朗读的句子 > 已讲完提示 > 待开始提示
-    const text = S.voicePaused ? "⏸ 已暂停，点「▶ 继续」接着讲"
+    const text = S.voicePaused ? "已暂停——点这里继续上课"
       : (S.subtitle || (S.finished ? "本讲讲完了。" : ""));
     sub.textContent = text || "准备开始…";
+    // 暂停时整条字幕就是「继续」按钮：点字幕条任意位置即恢复播放
+    // （用户反馈：单独冒出一个提示条还要去找顶栏的 ▶ 继续，太绕）。
+    sub.onclick = S.voicePaused ? () => {
+      S.voicePaused = false;
+      Voice.resume();
+      renderHead();
+      renderStage();
+    } : null;
+    sub.style.cursor = S.voicePaused ? "pointer" : "";
+    sub.title = S.voicePaused ? "点击继续上课" : "";
   }
 
   /* ── 右侧「讲师讲述」：历史可上翻 + 完成后下一步 ── */
@@ -1080,6 +1090,11 @@
    */
   function speakSlide(sl) {
     const script = scriptTextForSlide(sl, S.slideIndex);
+    // 跨页预取：本页开播的同时，把**下一页**讲稿提前送进合成缓存。
+    // 流水线是页内的，页间冷启动（等下一页第一段合成 2~3s）正是
+    // 「连续几段后停顿、字幕显示准备开始」的主要来源——预热后页间零等待。
+    const nxt = S.slides[S.slideIndex + 1];
+    if (nxt) Voice.prime(scriptTextForSlide(nxt, S.slideIndex + 1), { chunkChars: SUB_CHARS });
     S.speaking = Voice.plainText(script);
     S.subtitle = "";
     renderSpeaking();
@@ -1210,7 +1225,7 @@
       return '<button class="btn small primary" id="b-lecture-2">生成讲义，开始学习</button>';
     }
     return `<button class="btn small primary" id="b-done">${
-      lesson.status === "done" ? "再学一次" : "标记完成，继续下一节"}</button>`;
+      lesson.status === "done" ? "再学一次" : "跳过本节课，进入下一节"}</button>`;
   }
 
   /** 从 hash 查询串读取页签（如 #/lessons/xxx?tab=summary）。 */

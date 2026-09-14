@@ -102,6 +102,40 @@
   let _cloudReason = "";
   // melo 模式下正在播放的 Audio（stop() 时要掐掉）。
   let _audio = null;
+  // 合成结果缓存（跨页预取）：key=原文文本，value={ok,v} 或 promise。
+  // 命中即秒回，页间切换不再等第一段合成（朗读偶发停顿的主源）。
+  const _prime = new Map();
+  const PRIME_MAX = 32;
+
+  function fetchCached(text, fetcher) {
+    if (_prime.has(text)) return _prime.get(text);
+    const pr = fetcher(text).then(
+      (v) => ({ ok: true, v }),
+      (e) => ({ ok: false, e }));
+    _prime.set(text, pr);
+    if (_prime.size > PRIME_MAX) {
+      const first = _prime.keys().next().value;
+      _prime.delete(first);
+    }
+    return pr;
+  }
+
+  /** 预热：把一段讲稿按 speak 相同的规则切块并提前合成（不播放）。
+   *  lesson.js 在朗读第 i 页时对第 i+1 页调用，页间切换即命中缓存。 */
+  function prime(text, opts) {
+    try {
+      opts = opts || {};
+      const detailed = !!opts.detailed;
+      const hardMax = _engine === "system" ? 1200 : (_engine === "melo" ? 120 : 1200);
+      const chunkMax = detailed ? Math.min(Number(opts.chunkChars), hardMax) : hardMax;
+      const capped = String(text || "").slice(0, Math.max(40, hardMax));
+      const pieces = splitChunks(capped, chunkMax);   // 与 speak 非详细模式同一切块规则，保证缓存命中
+      const fetchOne = _engine === "cloud"
+        ? requestCloud
+        : (t) => requestLocal(t).then((b) => ({ blob: b, mime: "audio/wav" }));
+      pieces.forEach((pc) => { try { fetchCached(pc, fetchOne); } catch (e) { /* 忽略 */ } });
+    } catch (e) { /* 预热失败不影响播放 */ }
+  }
   // 用户主动暂停：melo 在两段合成之间有间隙，此时 _audio 为 null，
   // 只 pause 当前 Audio 会漏掉间隙，所以要用 _hold 让「下一段」先等一等。
   let _hold = false;
@@ -323,6 +357,7 @@
   }
 
   function stop() {
+    _prime.clear();   // 停止时清预热缓存，避免换讲次后误用旧内容
     _gen++;
     _hold = false;   // 停止时清掉暂停标志，否则下次朗读会被卡住
     // melo 引擎：掐掉正在播放的音频；system 引擎：取消语音队列。
@@ -366,5 +401,6 @@
   window.Voice = {
     ensureVoices, pickZhVoice, plainText, speak, stop,
     configure, engine, syncFromServer, cloudIssue, pause, resume, isSpeaking,
+    prime,
   };
 })();

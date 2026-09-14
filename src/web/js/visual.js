@@ -34,6 +34,14 @@
         securityLevel: "strict",
         theme: "neutral",
         fontFamily: "inherit",
+        // useMaxWidth:false：SVG 不再被强行拉伸到容器宽度——
+        // 纵向窄图曾被等比放大到满宽，节点巨大、空间浪费严重（用户实测）。
+        // 原始尺寸输出 + CSS max-width:100% 兜底超宽图，小图由样式居中。
+        flowchart: { useMaxWidth: false, nodeSpacing: 30, rankSpacing: 34, padding: 8 },
+        sequence: { useMaxWidth: false },
+        state: { useMaxWidth: false },
+        class: { useMaxWidth: false },
+        themeVariables: { fontSize: "14px" },
       });
       _mermaidInit = true;
     }
