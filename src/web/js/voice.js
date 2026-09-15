@@ -104,8 +104,10 @@
   let _audio = null;
   // 合成结果缓存（跨页预取）：key=原文文本，value={ok,v} 或 promise。
   // 命中即秒回，页间切换不再等第一段合成（朗读偶发停顿的主源）。
+  // 上限 64：云端预热 4000 字按 90 字/句可达 40+ 段，32 会在长页把
+  // 「最先要播的几段」挤出去（它们插入得最早，淘汰必须从最新端开始）。
   const _prime = new Map();
-  const PRIME_MAX = 32;
+  const PRIME_MAX = 64;
 
   function fetchCached(text, fetcher) {
     if (_prime.has(text)) return _prime.get(text);
@@ -114,8 +116,9 @@
       (e) => ({ ok: false, e }));
     _prime.set(text, pr);
     if (_prime.size > PRIME_MAX) {
-      const first = _prime.keys().next().value;
-      _prime.delete(first);
+      // 「保留最旧」：条目按插入顺序排列，最先插入的最先要播，从**最新端**淘汰。
+      const keys = [..._prime.keys()];
+      _prime.delete(keys[keys.length - 1]);
     }
     return pr;
   }
@@ -301,18 +304,22 @@
         : (t) => requestLocal(t).then((b) => ({ blob: b, mime: "audio/wav" }));
       // 包成「永不 reject」的形状：预取中的请求若失败，在有人 await 它之前
       // 不会产生未处理的 Promise 拒绝。
+      // ⚠️ 合成请求必须走 fetchCached（跨页缓存）：prime() 预热的下一段就躺在这里，
+      // 直接调 fetchOne 会让预热白做——页间照样冷启动（上一轮只统一了切块规则、
+      // 忘了让 speak 消费缓存，就是漏掉的另一半）。
       const inflight = new Map();
       const kick = (i) => {
         if (i < 0 || i >= chunks.length || inflight.has(i)) return;
-        inflight.set(i, fetchOne(chunks[i]).then(
-          (v) => ({ ok: true, v }),
-          (e) => ({ ok: false, e })));
+        inflight.set(i, fetchCached(chunks[i], fetchOne));
       };
       for (let k = 0; k < PREFETCH; k++) kick(k);
       for (let i = 0; i < chunks.length; i++) {
         if (myGen !== _gen) return;
         const got = await inflight.get(i);
         inflight.delete(i);
+        // 已就绪并即将播放的段从跨页缓存移除：不会再听第二遍，
+        // 缓存容量留给下一页预热的内容（淘汰策略因此几乎不会触发）。
+        _prime.delete(chunks[i]);
         // 先补上后面的预取，再等暂停/播放 —— 让网络请求与播放真正并行
         kick(i + PREFETCH);
         if (!got.ok) {
