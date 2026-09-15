@@ -162,14 +162,29 @@
   function renderVisual(host, slide) {
     if (!host) return "fallback";
     try {
-      if (slide && slide.kind === "diagram" && slide.diagram && slide.diagram.code) {
-        const r = renderMermaid(host, slide.diagram.code);
-        if (r === true) return "svg";
-        if (r && typeof r.then === "function") {
-          return r.then(function (ok) { return ok ? "svg" : (fallbackHTML(host), "fallback"); });
+      // ① 新形态：后端已用确定性编译器把 typed IR 编成 SVG（Archify 式）。
+      //    直接内联即可 —— 前端不再承担「把图形语言画出来」的责任，
+      //    渲染结果与后端校验/回归测试看到的是同一份字节。
+      if (slide && slide.kind === "diagram" && slide.diagram) {
+        const svg = slide.diagram.svg;
+        if (typeof svg === "string" && svg.indexOf("<svg") >= 0) {
+          // 只接受我们自己编译器产出的 svg 根标签，避免任何非预期内容被注入
+          const trimmed = svg.trim();
+          if (trimmed.indexOf("<svg") === 0 && trimmed.indexOf("<script") < 0) {
+            host.innerHTML = trimmed;
+            if (host.querySelector("svg")) return "svg";
+          }
         }
-        fallbackHTML(host);
-        return "fallback";
+        // ② 旧形态：库里早先落下的讲义存的是 Mermaid 源码，保留老渲染路径（向后兼容）
+        if (slide.diagram.code) {
+          const r = renderMermaid(host, slide.diagram.code);
+          if (r === true) return "svg";
+          if (r && typeof r.then === "function") {
+            return r.then(function (ok) { return ok ? "svg" : (fallbackHTML(host), "fallback"); });
+          }
+          fallbackHTML(host);
+          return "fallback";
+        }
       }
       if (slide && slide.kind === "chart" && slide.chart) {
         if (renderChart(host, slide.chart)) return "canvas";

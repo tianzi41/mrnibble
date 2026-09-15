@@ -198,6 +198,40 @@ def _p1_lecture_payload() -> str:
     }, ensure_ascii=False)
 
 
+_IR_WF = {
+    "schema_version": 1, "diagram_type": "workflow",
+    "meta": {"title": "chcp 设置流程"},
+    "lanes": [{"id": "l1", "label": "准备"}, {"id": "l2", "label": "执行"}],
+    "nodes": [{"id": "open", "type": "frontend", "label": "打开命令行", "lane": "l1"},
+              {"id": "chcp", "type": "backend", "label": "运行 chcp", "lane": "l2"},
+              {"id": "set", "type": "backend", "label": "切换代码页", "lane": "l2"}],
+    "edges": [{"id": "e1", "from": "open", "to": "chcp", "label": "输入命令"},
+              {"id": "e2", "from": "chcp", "to": "set", "label": "确认编号"}],
+}
+
+# 坏 IR：多出一条指向不存在节点的边（触发 graph/dangling-ref 回执）
+_IR_WF_BAD = {**_IR_WF,
+              "edges": [*_IR_WF["edges"],
+                        {"id": "e9", "from": "open", "to": "ghost", "label": "幽灵"}]}
+
+
+def _ir_lecture_payload(ir: dict) -> str:
+    """把合格讲义包的第 2 页换成 diagram 页（kind=diagram + typed IR）。"""
+    base = json.loads(_lecture_payload())
+    base["slides"][1] = {
+        "id": "slide-2", "kind": "diagram", "title": "chcp 设置流程",
+        "bullets": ["先看命令行怎么进", "再看代码页怎么切"],
+        "body": "", "citation_refs": [1], "diagram": {"ir": ir},
+    }
+    base["scripts"][1] = {
+        "slide_id": "slide-2",
+        "text": "这张图画的是从打开命令行到切换代码页的两步。注意箭头是单向的："
+                "先运行 chcp 看到当前编号，才知道该不该切、往哪个值切。"
+                "材料里说代码页决定非 ASCII 字符怎么解释 [[c:1]]，所以这一步的顺序不能颠倒。",
+    }
+    return json.dumps(base, ensure_ascii=False)
+
+
 def _mirror_lecture() -> str:
     """**故意违规**的课堂内容包：讲稿就是课件文字原样念一遍。
 
@@ -414,6 +448,18 @@ def _pick(body: dict) -> str:
         return _lecture_payload()
     if model == "mock-lecture-p1":
         return _p1_lecture_payload()
+    if model in ("mock-lecture-ir", "mock-lecture-ir-bad", "mock-lecture-ir-stubborn"):
+        asked_rewrite = "课堂图示编辑" in "\n".join(
+            str(m.get("content") or "") for m in (body.get("messages") or []))
+        if model == "mock-lecture-ir-bad" and asked_rewrite:
+            # 收到带诊断的回执 → 给出修好的 IR（验证「回执重写」这条路径真的通）
+            return json.dumps({"diagram": {"ir": _IR_WF}}, ensure_ascii=False)
+        if model == "mock-lecture-ir-stubborn":
+            # 无论重写几次都坏 → 应退化为要点页
+            return _ir_lecture_payload(_IR_WF_BAD)
+        if model == "mock-lecture-ir-bad":
+            return _ir_lecture_payload(_IR_WF_BAD)
+        return _ir_lecture_payload(_IR_WF)
     if model == "mock-lecture-viz":
         return _viz_lecture_payload()
     if model == "mock-lecture-viz3":
@@ -544,6 +590,7 @@ MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-
                "mock-outline", "mock-lecture", "mock-practice", "mock-grade",
                "mock-summary", "mock-goals", "mock-spy-goals", "mock-outline-5", "mock-echo-flags",
                "mock-lecture-p1", "mock-practice-hands",
+               "mock-lecture-ir", "mock-lecture-ir-bad", "mock-lecture-ir-stubborn",
                "mock-lecture-mirror", "mock-lecture-stubborn")
 
 

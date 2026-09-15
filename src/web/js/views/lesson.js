@@ -928,8 +928,10 @@
       if (sl.title) card.appendChild(el("div", "card-title", esc(sl.title)));
       // P1/P2 可视化页：title 之后、bullets 之前插入渲染容器，交给 Viz 渲染。
       // 失败回退由 Viz 内部放置 .viz-fallback（bullets 仍照常渲染，不归此处管）。
+      // 图示页现在有两种形态：后端已编译好的 svg（主）与历史数据的 mermaid code（兼容），
+      // 任一存在就要交给 Viz 渲染 —— 之前这里只认 code，导致新形态的图整页不渲染。
       if (window.Viz && typeof window.Viz.render === "function"
-          && ((sl.kind === "diagram" && sl.diagram && sl.diagram.code)
+          && ((sl.kind === "diagram" && sl.diagram && (sl.diagram.svg || sl.diagram.code))
               || (sl.kind === "chart" && sl.chart))) {
         const vbox = el("div", "viz-box");
         card.appendChild(vbox);

@@ -501,3 +501,11 @@ body.teaching-on #tab-body { padding-bottom: 132px; }
   background: var(--primary-soft); color: var(--primary);
   font-size: 17px; font-weight: 700; line-height: 1.7; text-align: center;
 }
+
+/* 架构化图示（后端确定性编辑器产出的内联 SVG）：只做容器侧微调。
+   颜色/描边等视觉全部由后端按 preset 内联在 SVG 里 —— 前后端不重复定义，
+   导出 PNG 时样式也自带，不会丢。 */
+.viz-box svg[data-preset="editorial"] text { font-family: Georgia, "Songti SC", "SimSun", serif; }
+.viz-box svg[data-preset="blueprint"] { background: #f8fbff; border-radius: 8px; }
+.viz-box svg[data-preset="signal-flow"] .zf-edge path { stroke-linecap: round; }
+.viz-box svg[data-diagram] { max-height: 460px; }

@@ -859,6 +859,76 @@ def main() -> int:
 
         _cleanup_courses(cid_on, cid_off)
 
+        # ── X. 架构化图示：typed IR → 后端确定性编译 ──
+        print("\n[X] 架构化图示（IR → 确定性编译 SVG）")
+        # 注意：[V] 组末尾已经清理掉它建的那门课，这里必须自己新建一门再取讲次
+        set_model("mock-outline")
+        _rx = post("/api/courses", {"goal": "架构化图示测试", "document_ids": [doc_id],
+                                   "unit_count": 2})
+        cid_x = _rx["data"]["course_id"]
+        wait_job(_rx["data"]["job_id"])
+        lessons_x = [l for u in (get(f"/api/courses/{cid_x}")["data"]["units"] or [])
+                     for l in u["lessons"]]
+        lec_ids = [l["id"] for l in lessons_x if str(l.get("kind")) == "lecture"]
+        check("X.a 取到可用的讲义讲次", len(lec_ids) >= 2,
+              str([l.get("kind") for l in lessons_x]))
+        lic = lec_ids[-1]
+
+        set_model("mock-lecture-ir")
+        r = post(f"/api/courses/lessons/{lic}/lecture")
+        check("X0 图示讲义任务已创建", r.get("code") == 0 and bool(r.get("data")), str(r)[:200])
+        wait_job(r["data"]["job_id"])
+        sl = get(f"/api/courses/lessons/{lic}")["data"].get("slides") or []
+        dg = next((s for s in sl if s.get("kind") == "diagram"), None)
+        dgv = (dg or {}).get("diagram") or {}
+        svg = dgv.get("svg") if isinstance(dgv.get("svg"), str) else ""
+        check("X1 图示页落库带后端编译好的 SVG",
+              bool(dg) and svg.lstrip().startswith("<svg"), json.dumps(dgv, ensure_ascii=False)[:140])
+        check("X2 SVG 内含真实节点与关系",
+              svg.count('class="zf-node"') >= 3 and svg.count('class="zf-edge"') >= 2,
+              f"nodes={svg.count('zf-node')} edges={svg.count('zf-edge')}")
+        check("X3 原始 IR 一并保留（可追溯、可重编译）",
+              isinstance(dgv.get("ir"), dict) and dgv["ir"].get("diagram_type") == "workflow")
+        check("X4 图型与预设随页落库",
+              dgv.get("diagram_type") == "workflow" and isinstance(dgv.get("preset"), str))
+
+        # 坏 IR → 带回执重写一次 → 编译成功（页面仍是图示页）
+        set_model("mock-lecture-ir-bad")
+        r = post(f"/api/courses/lessons/{lic}/lecture")
+        wait_job(r["data"]["job_id"])
+        sl2 = get(f"/api/courses/lessons/{lic}")["data"].get("slides") or []
+        dg2 = next((s for s in sl2 if s.get("kind") == "diagram"), None)
+        svg2 = ((dg2 or {}).get("diagram") or {}).get("svg") or ""
+        check("X5 坏 IR 经回执重写后编译成功（页面保住为图示页）",
+              bool(dg2) and isinstance(svg2, str) and svg2.lstrip().startswith("<svg"),
+              json.dumps((dg2 or {}).get("diagram") or {}, ensure_ascii=False)[:140])
+
+        # 顽固坏 IR → 退化要点页（永不空白）
+        set_model("mock-lecture-ir-stubborn")
+        r = post(f"/api/courses/lessons/{lic}/lecture")
+        wait_job(r["data"]["job_id"])
+        sl3 = get(f"/api/courses/lessons/{lic}")["data"].get("slides") or []
+        bad_page = next((s for s in sl3 if str(s.get("title") or "") == "chcp 设置流程"), None)
+        check("X6 重写仍不合格 → 退化为要点页（kind=note 且无 diagram 字段）",
+              bool(bad_page) and bad_page.get("kind") == "note" and "diagram" not in bad_page,
+              json.dumps(bad_page or {}, ensure_ascii=False)[:160])
+        check("X7 退化后学生看到的是要点（不是空白/报错）",
+              bool(bad_page) and bool(bad_page.get("bullets")))
+
+        # 旧 Mermaid 形态仍保留（历史讲义兼容）
+        set_model("mock-lecture-viz")
+        r = post(f"/api/courses/lessons/{lec_ids[0]}/lecture")
+        wait_job(r["data"]["job_id"])
+        _lid_legacy = lec_ids[0]
+        vsl = get(f"/api/courses/lessons/{_lid_legacy}")["data"].get("slides") or []
+        legacy_dg = next((s for s in vsl if s.get("kind") == "diagram"), None)
+        check("X8 旧 Mermaid 形态仍保留（向后兼容历史讲义）",
+              bool(legacy_dg) and isinstance((legacy_dg.get("diagram") or {}).get("code"), str)
+              and not (legacy_dg.get("diagram") or {}).get("svg"),
+              json.dumps((legacy_dg or {}).get("diagram") or {}, ensure_ascii=False)[:140])
+
+        _cleanup_courses(cid_x)
+
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")
         with httpx.Client(trust_env=False) as cli:

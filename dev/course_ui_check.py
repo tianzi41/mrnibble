@@ -1038,6 +1038,25 @@ def main() -> int:
             # 学生看到的是字面星号（实测曾是如此）。
             check("4.17 要点里的 **加粗** 已渲染为 <strong> 而非字面星号",
                   "<strong>" in p1dom and "**936**" not in p1dom)
+            # Archify 式图示：后端编译好的 SVG 在课堂页真实渲染
+            with httpx.Client(trust_env=False, timeout=20) as c4:
+                c4.put(f"{BASE}/api/settings", json={"llm": {"model": "mock-lecture-ir"}})
+                _jr = c4.post(f"{BASE}/api/courses/lessons/{last_lec['id']}/lecture",
+                              timeout=20).json()
+                for _ in range(160):
+                    _jb = c4.get(f"{BASE}/api/courses/jobs/{_jr['data']['job_id']}",
+                                 timeout=10).json()["data"]
+                    if _jb["status"] != "running":
+                        break
+                    time.sleep(0.5)
+                c4.put(f"{BASE}/api/settings", json={"llm": {"model": "mock-lecture"}})
+            irdom = dump(f"{BASE}/#/lessons/{last_lec['id']}")
+            check("4.18 后端编译的图示在课堂页内联渲染（.zf-svg）",
+                  'class="zf-svg"' in irdom and "zf-node" in irdom)
+            check("4.19 图上节点文字可见（不是空图）",
+                  "打开命令行" in irdom or "运行 chcp" in irdom)
+            check("4.20 图示不再依赖 mermaid 运行时（无 mermaid 报错回退文案）",
+                  "本页图示未能渲染" not in irdom)
             cli.put(f"{BASE}/api/settings", json={"llm": {"model": "mock-lecture"}}, timeout=10)
 
             # 完成剩余讲次 → 单元总结可生成（供单元总结页签验证）

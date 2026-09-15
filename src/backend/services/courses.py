@@ -34,6 +34,7 @@ from ..db.connection import get_db
 from ..errors import AppError
 from ..utils.ids import new_id
 from ..utils.timeutil import now_iso
+from . import diagram as diagram_mod
 from .citations import build_context, resolve_citations
 from .llm import LLMClient, extract_json_object
 from .retrieval import get_retrieval_service
@@ -159,7 +160,8 @@ __DEPTH__
 课件页类型（kind）使用时机：
 - concept：核心概念或结论；example：例子/例题；formula：公式/表达式（附适用条件）；
 - quote：材料原句直引（必须带 [[c:N]]）；note：注意事项、易错点、衔接说明；
-- diagram：流程、步骤、因果、结构关系用图更清楚时；内容写入 diagram 字段（见下方【可视化页】）；
+- diagram：流程、调用关系、数据流向、状态变化、组件分层用**图**更清楚时；
+  按内容选图型，结构写进 diagram 字段（见下方【可视化页与特色页】，**只写结构化 IR，不写图形语法**）；
 - chart：材料里有能成图的数值对比时；数据写入 chart 字段。材料没有现成数字就不要硬造图表。
 - table：**两个或多个方案/编码/观点的逐项对照**优先用表格（该对比就该用表格，别硬画成图）；
   内容写入 table 字段（见下方【可视化页与特色页】）；
@@ -167,17 +169,19 @@ __DEPTH__
 
 【可视化页与特色页（可选；diagram/chart/table 三类合计每讲最多 2 页，计入 slides 总页数；
   takeaway 是文字形态，不计入该上限，每讲最多 1 页）】
-- diagram 页：kind="diagram"，加字段 "diagram":{"lang":"mermaid","code":"..."}。
-  code 必须以下列之一开头：flowchart TD、flowchart LR、sequenceDiagram、stateDiagram-v2、classDiagram；
-  节点标签用简体中文、每个 ≤14 字，标签含括号等特殊字符时必须用双引号包住；
-  禁止 style、classDef、linkStyle、%% 注释等任何样式或指令语句；整段不超过 25 行；
-  图中不得出现材料里没有的新实体。
+__DIAGRAM_SPEC__
 - chart 页：kind="chart"，加字段
   "chart":{"type":"bar|line|pie","title":"图表标题","unit":"数值单位（可选）","categories":["类目1","类目2"],"series":[{"name":"系列名","data":[12,30]}]}。
   数据只能来自材料原文（或由材料数字直接换算），**禁止编造数值**；类目 ≤12 个；系列 ≤2 条；
   categories 数量必须与每条 series 的 data 数量一致；pie 只给 1 条 series。
 - diagram/chart 页仍必须有 title 与 1~3 条 bullets（图旁要点，也是图渲染失败时学生看到的回退内容）；
-  scripts 照常为该页写讲稿：先说这张图整体画了什么，再带着听众走关键节点，最后落到结论。
+  scripts 照常为该页写讲稿，而且**要真的在讲这张图**（不许只念图上的字）：
+  先说清这张图整体在画什么，再带着听众走一遍关键路径，最后落到结论。按图型各有侧重——
+  workflow 说「从哪开始、依次经过哪几步、哪一步最容易出错」；
+  sequence 说「谁先请求谁、返回了什么、什么时候会走另一条路」；
+  dataflow 说「数据从哪来、中间被做了什么变换、最后落到哪里」；
+  lifecycle 说「什么事件让状态发生迁移、正常终态与异常终态分别是什么」；
+  architecture 说「分成哪几层/哪几个边界、主要组件各自负责什么、主路径怎么走」。
 - table 页：kind="table"，加字段
   "table":{"title":"表题（可选）","columns":["列1","列2"],"rows":[["单元1","说明1"],["单元2","说明2"]]}。
   只用于逐项对照（两方案/多编码/多观点的异同）；列数 2~5、数据行 ≤8、单元格 ≤40 字；
@@ -196,6 +200,7 @@ __DEPTH__
  "recap":"本讲回顾（3 句以内）",
  "marks":[{"n":1,"kind":"highlight","text":"这句为什么重要"}]}
 "diagram"/"chart"/"table"/"takeaway" 都是**可选字段**，仅对应 kind 的页才出现，格式见上方【可视化页与特色页】；
+diagram 的写法是 "diagram":{"ir":{...}}（**只给 IR 对象，不要给 svg/html/坐标**）；
 
 质量要求：
 1. 叙事结构：第 1 页做引入（承接上一讲的结尾，或点出本讲要解决的问题），最后一页做小结，中间由浅入深；
@@ -219,6 +224,9 @@ text 是写在旁边的一句旁注。没有把握就返回空数组，不要编
 - 引用编号是否都来自材料？
 - 可视化页（diagram/chart/table）是否 ≤2 页？chart 里的数字、table 里的内容是否都来自材料？
 - 对比类内容（两方案/多编码/多观点）有没有用 table 而不是硬写成要点？takeaway 是不是只有一页？
+- diagram 页的图型选对了吗（有先后顺序用 workflow、谁调用谁用 sequence、数据流向用 dataflow、
+  状态变化用 lifecycle、组件分层用 architecture）？
+- IR 里的每个节点与关系是否都来自材料？有没有误加坐标、样式、SVG 或 Mermaid 语法之类的字段？
 """ + _BASE_RULES
 
 # 「讲稿照念课件」被结构判定拦下后的定向重写提示词（只重写有问题的页）。
@@ -267,6 +275,27 @@ _PRACTICE_PROMPT = """你是出题老师。请围绕这一讲出 __COUNT__ 道�
   系统会把材料对应页渲染成图；最多出 1 道图片题，没有合适的图就不要加 image 字段；
 - 每题都要有 explanation；全部题目必须来自本讲内容。
 """ + _BASE_RULES
+
+_DIAGRAM_REWRITE_PROMPT = """你是课堂图示编辑。下面这张课件图的 IR 没有通过确定性校验。
+
+【校验诊断】（规则码 + 出错位置 + 证据）
+__DIAGNOSTICS__
+
+【建议修复】
+__FIXES__
+
+【原始 IR】
+__IR__
+
+请修正这张图，要求：
+1. **只修被诊断点名的对象**，其余节点、关系与字段保持原样；不要重命名 id，除非诊断明确要求；
+2. 严格遵守字段契约：只能出现规定的字段，**不要给坐标、样式、SVG、Mermaid 语法**；
+3. 数量与字数上限继续遵守（节点 ≤12、关系 ≤18、标签 ≤14 字）；
+4. 修不好的部分可以整条删掉（少一个节点，也比一张错图好）。
+
+只输出 JSON：{"diagram":{"ir":<修正后的 IR 对象>}}
+不要输出 JSON 以外的任何文字。
+"""
 
 _GRADE_PROMPT = """你是阅卷老师。请为学生的开放题作答评分。
 
@@ -1299,6 +1328,7 @@ class CourseService:
                 .replace("__TITLE__", lesson["title"])
                 .replace("__OBJECTIVE__", lesson["objective"] or lesson["title"])
                 .replace("__UNIT__", unit_title)
+                .replace("__DIAGRAM_SPEC__", diagram_mod.prompt_spec())
             )
             messages = [
                 {"role": "system", "content": prompt},
@@ -1328,6 +1358,9 @@ class CourseService:
                 # 这条用文本相似度做结构判定，不依赖模型自觉。
                 obj = self._repair_mirrored_scripts(obj, job_id)
 
+            # §Archify 管线：先把 diagram 页的 IR 编译成 SVG
+            # （校验 → 带回执定向重写一次 → 仍失败则退化为要点页），再走统一的净化与限页。
+            obj = self._compile_diagrams(obj, job_id)
             # §可视化契约：落库前净化 diagram/chart（限页数、剥非法字段、数字转 float）
             obj = self._sanitize_visuals(obj)
             board, citations = self._resolve_board(obj, table)
@@ -1403,7 +1436,7 @@ class CourseService:
                 continue
             kind = str(sl.get("kind") or "")
             if kind == "diagram":
-                if not self._valid_mermaid(sl.get("diagram")):
+                if not self._valid_diagram(sl.get("diagram")):
                     sl.pop("diagram", None)
                     sl["kind"] = "note"
             elif kind == "chart":
@@ -1442,6 +1475,93 @@ class CourseService:
             slides[i]["kind"] = "note"
             logger.info("takeaway 页超限已剥除", extra={"extra_fields": {"index": i}})
         return obj
+
+    @classmethod
+    def _valid_diagram(cls, diagram: Any) -> bool:
+        """diagram 字段合法性：新形态（编译产物 svg + ir）或旧形态（mermaid code）任一生效即可。
+
+        旧形态是**向后兼容**用的：库里早先落下的讲义存的是 mermaid 源码，
+        前端仍走 mermaid 渲染路径，不能被这次升级判成坏字段。
+        """
+        if not isinstance(diagram, dict):
+            return False
+        svg = diagram.get("svg")
+        if isinstance(svg, str) and svg.lstrip().startswith("<svg"):
+            return True
+        return cls._valid_mermaid(diagram)
+
+    def _compile_diagrams(self, obj: dict[str, Any], job_id: str) -> dict[str, Any]:
+        """把 diagram 页的 IR 编译成 SVG —— Archify 的四段结构。
+
+        **校验 → 带回执定向重写一次 → 仍不合格则剥字段退化为要点页**，
+        与讲稿「雷同判定 → 定向重写 → 确定性兜底」是同一个范式：
+        不信任模型一次就写对，但也不让它把整页拖垮 —— 学生永远看不到空白或坏图。
+        """
+        slides = obj.get("slides")
+        if not isinstance(slides, list):
+            return obj
+        for sl in slides:
+            if not isinstance(sl, dict) or str(sl.get("kind") or "") != "diagram":
+                continue
+            dg = sl.get("diagram")
+            if not isinstance(dg, dict):
+                continue
+            if isinstance(dg.get("svg"), str) and dg["svg"].lstrip().startswith("<svg"):
+                continue                        # 已是编译产物（重放/迁移数据）
+            ir = dg.get("ir")
+            if not isinstance(ir, dict):
+                # 旧形态（模型偶发仍写 mermaid 代码）：交给 _valid_mermaid 老路径判定
+                continue
+            svg, receipt = diagram_mod.compile_ir(ir)
+            if svg is None:
+                logger.info("图示 IR 未通过校验", extra={"extra_fields": {
+                    "slide": sl.get("id"), "stage": receipt.get("stage"),
+                    "codes": [d.get("code") for d in (receipt.get("diagnostics") or [])][:4]}})
+                self._set_stage(job_id, "图示需要修正，正在按诊断重写")
+                fixed = self._rewrite_diagram(ir, receipt)
+                if fixed is not None:
+                    svg, _ = diagram_mod.compile_ir(fixed)
+                    if svg is not None:
+                        ir = fixed
+            if svg is None:
+                sl.pop("diagram", None)
+                sl["kind"] = "note"
+                logger.info("图示重写后仍不合格，已退化为要点页",
+                            extra={"extra_fields": {"slide": sl.get("id")}})
+                continue
+            sl["diagram"] = {
+                "ir": ir,
+                "svg": svg,
+                "preset": str((ir.get("meta") or {}).get("preset") or "classic"),
+                "diagram_type": str(ir.get("diagram_type") or ""),
+            }
+        return obj
+
+    def _rewrite_diagram(self, ir: dict[str, Any], receipt: dict[str, Any]) -> dict[str, Any] | None:
+        """带着修复回执重写一次图示 IR；模型没给出可用结果时返回 None。"""
+        diags = json.dumps(receipt.get("diagnostics") or [], ensure_ascii=False)[:2000]
+        fixes = json.dumps(receipt.get("supportedFixes") or [], ensure_ascii=False)[:1200]
+        try:
+            prompt = (
+                _DIAGRAM_REWRITE_PROMPT
+                .replace("__DIAGNOSTICS__", diags)
+                .replace("__FIXES__", fixes)
+                .replace("__IR__", json.dumps(ir, ensure_ascii=False)[:3000])
+            )
+            raw = self._chat(
+                [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "请只修正被点名的对象，输出修正后的 IR。"},
+                ],
+                max_tokens=1600,
+            )
+            parsed = self._safe_json(raw) or {}
+            cand = parsed.get("diagram") if isinstance(parsed, dict) else None
+            inner = cand.get("ir") if isinstance(cand, dict) else None
+            return inner if isinstance(inner, dict) else None
+        except Exception as exc:  # noqa: BLE001 - 重写失败就走兜底，不能影响整讲
+            logger.warning("图示重写失败", extra={"extra_fields": {"type": type(exc).__name__}})
+            return None
 
     @classmethod
     def _valid_mermaid(cls, diagram: Any) -> bool:

@@ -386,6 +386,33 @@ TEST_EXPR = r"""
           window.Viz.renderExtras(none, {kind:"concept", title:"t"}) === ""
           && none.children.length === 0);
   }
+  // 7. 架构化图示：后端已编译好的 SVG 直接内联（Archify 式管线的前端出口）
+  {
+    const host = document.createElement("div");
+    const backendSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" '
+      + 'class="zf-svg" data-diagram="workflow" data-preset="classic">'
+      + '<g class="zf-node" data-id="a"><rect x="10" y="10" width="80" height="40" rx="8"/>'
+      + '<text x="50" y="35">运行 chcp</text></g></svg>';
+    const r = window.Viz.render(host, {kind: "diagram", diagram: {svg: backendSvg, preset: "classic"}});
+    check("后端 SVG → 直接内联（返回 svg）", r === "svg", "r=" + r);
+    check("内联后 DOM 出现 .zf-svg", !!host.querySelector("svg.zf-svg"));
+    check("内联后节点与文字就位",
+          host.querySelectorAll(".zf-node").length === 1
+          && (host.textContent || "").indexOf("运行 chcp") >= 0);
+    check("后端 SVG 不需要 mermaid 参与（节点直接可用）",
+          host.querySelector("g.zf-node rect") !== null);
+
+    const evil = document.createElement("div");
+    const r2 = window.Viz.render(evil, {kind: "diagram",
+      diagram: {svg: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'}});
+    check("含 script 的 SVG 被拒绝并回退要点",
+          r2 === "fallback" && !!evil.querySelector(".viz-fallback"), "r=" + r2);
+
+    const legacyHost = document.createElement("div");
+    const r3 = window.Viz.render(legacyHost, {kind: "diagram",
+      diagram: {lang: "mermaid", code: "flowchart TD\n  A[甲] --> B[乙]"}});
+    check("旧 Mermaid 形态仍走老路径（向后兼容）", !!r3, "r=" + r3);
+  }
   return {results};
 })()
 """
