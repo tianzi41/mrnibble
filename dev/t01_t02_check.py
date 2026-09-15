@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from backend.db.migrations import SCHEMA_VERSION  # noqa: E402
 from backend.paths import (  # noqa: E402
     data_path,
     ensure_data_dirs,
@@ -98,7 +99,9 @@ def check_db_idempotent() -> None:
     v2 = db.query_one("SELECT value FROM schema_meta WHERE key='schema_version'")["value"]
 
     check("重复迁移表对象集合不变（幂等）", names_1 == names_2)
-    check("schema_version 稳定为 1", v1 == "1" and v2 == "1", f"{v1}/{v2}")
+    # 版本号不写死：跟随 backend.db.migrations.SCHEMA_VERSION（v6 起每加一列都会变）
+    _sv = str(SCHEMA_VERSION)
+    check(f"schema_version 稳定为 {_sv}", v1 == _sv and v2 == _sv, f"{v1}/{v2}")
     check(
         "FTS 虚表与触发器齐备",
         {"chunks_fts", "memories_fts", "trg_chunks_ai", "trg_chunks_ad", "trg_chunks_au",

@@ -24,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover - 仅类型标注
 __all__ = ["SCHEMA_VERSION", "run_migrations"]
 
 # 当前目标 schema 版本。新增 DDL 时 +1，并在此文件追加升级逻辑。
-SCHEMA_VERSION: int = 5
+SCHEMA_VERSION: int = 6
 
 
 def _get_version(db: "Database") -> int:
@@ -104,6 +104,18 @@ def _v5_course_hands_on(db: "Database") -> None:
         db.execute("ALTER TABLE courses ADD COLUMN hands_on INTEGER NOT NULL DEFAULT 1")
 
 
+def _v6_lesson_desc(db: "Database") -> None:
+    """v6：讲次教学设计（``course_lessons.desc_json``）。
+
+    大纲阶段为每讲一次性产出结构化描述（学习目标 / 知识点边界 / 术语口径 /
+    涉及操作 / 讲间衔接 / 可视化提示；练习讲为考察点 / 易错点 / 题型安排），
+    逐讲生成讲义时注入——弥补「逐讲独立调用只看得见一句话标题」的稳定性根因。
+    旧课程该列为 NULL：生成时按无 desc 处理，行为与旧版完全一致。
+    """
+    if not _column_exists(db, "course_lessons", "desc_json"):
+        db.execute("ALTER TABLE course_lessons ADD COLUMN desc_json TEXT")
+
+
 def run_migrations(db: "Database") -> int:
     """执行建库与迁移，返回迁移后的 schema 版本。
 
@@ -128,6 +140,8 @@ def run_migrations(db: "Database") -> int:
         _v4_courseware_split(db)
     if current < 5:
         _v5_course_hands_on(db)
+    if current < 6:
+        _v6_lesson_desc(db)
 
     # 3) 落版本与更新时间。
     if current != SCHEMA_VERSION:

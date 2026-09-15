@@ -628,10 +628,20 @@ def main() -> int:
         SPY = DATA / "mock-spy.json"
 
         def _read_spy() -> list:
+            # mock 端是 JSONL 追加写（一次业务动作可能连发多次模型调用），
+            # 这里逐行解析后摊平成消息列表。
             for _ in range(20):
                 if SPY.exists():
                     try:
-                        return json.loads(SPY.read_text(encoding="utf-8"))
+                        out: list = []
+                        for line in SPY.read_text(encoding="utf-8").splitlines():
+                            line = line.strip()
+                            if not line:
+                                continue
+                            msgs = json.loads(line)
+                            if isinstance(msgs, list):
+                                out.extend(msgs)
+                        return out
                     except Exception:
                         pass
                 time.sleep(0.3)
@@ -1017,6 +1027,82 @@ def main() -> int:
               bool(viz) and bool(ysl) and ysl[-1].get("id") != viz[0].get("id"),
               f"末尾={ysl[-1].get('id') if ysl else None} 补图={viz[0].get('id') if viz else None}")
 
+        # ── Z. 讲次教学设计 desc（大纲详细说明注入逐讲生成）──
+        print("\n[Z] 讲次教学设计 desc")
+
+        # Z1 讲义提示词实况：desc 注入【本讲教学设计】（cid_y1 的 mock 大纲带 desc）
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-lecture")
+        r = post(f"/api/courses/lessons/{lessons_y1[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_z1 = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "system")
+        check("Z1 讲义提示词：desc 注入【本讲教学设计】（边界/术语口径/衔接都在）",
+              "【本讲教学设计】" in sys_z1
+              and "知识点边界" in sys_z1
+              and "术语口径" in sys_z1
+              and "避免展开" in sys_z1,
+              sys_z1[sys_z1.find("【本讲教学设计"):][:120] if "【本讲教学设计" in sys_z1
+              else "提示词中未找到教学设计块")
+
+        # Z2 练习提示词实况：练习讲专用 desc 字段（考察点/易错点/题型安排）
+        prac_y1 = next(l for u in (get(f"/api/courses/{cid_y1}")["data"]["units"] or [])
+                       for l in u["lessons"] if l.get("kind") == "practice")
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-lecture")   # 回讲义桩：练习校验不过走兜底，但提示词已落盘
+        r = post(f"/api/courses/lessons/{prac_y1['id']}/practice")
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_z2 = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "system")
+        check("Z2 练习提示词：练习讲 desc（考察点/易错点/题型安排）注入，且不带正文讲字段",
+              "【本讲教学设计】" in sys_z2
+              and "考察点" in sys_z2
+              and "学生易错点" in sys_z2
+              and "题型安排" in sys_z2
+              and "知识点边界" not in sys_z2,
+              sys_z2[sys_z2.find("【本讲教学设计"):][:120] if "【本讲教学设计" in sys_z2
+              else "提示词中未找到教学设计块")
+
+        # Z3 大纲对齐校验真的发起了：同一次出纲里 spy 应同时落盘
+        # 大纲调用与「课程审校」对齐校验调用（JSONL 两行）
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-outline")
+        r = post("/api/courses", {"goal": "对齐校验提示词实况", "document_ids": [doc_id],
+                                  "unit_count": 2, "depth": "standard"})
+        cid_z3 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_z3 = [str(m.get("content") or "") for m in spy if m.get("role") == "system"]
+        check("Z3 大纲对齐校验已接入出纲链路（审校调用与大纲调用先后落盘）",
+              any("你是课程审校" in s for s in sys_z3)
+              and any("每个单元的讲次数" in s for s in sys_z3),
+              f"spy 落盘 system 消息 {len(sys_z3)} 条；"
+              f"审校={'有' if any('课程审校' in s for s in sys_z3) else '无'}")
+        _cleanup_courses(cid_z3)
+
+        # Z4 向后兼容：旧大纲（无 desc）生成的讲义提示词不含教学设计块，行为与旧版一致
+        set_model("mock-outline-5")
+        r = post("/api/courses", {"goal": "无 desc 向后兼容", "document_ids": [doc_id],
+                                  "unit_count": 5, "depth": "standard"})
+        cid_z4 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        lec_z4 = [l for u in (get(f"/api/courses/{cid_z4}")["data"]["units"] or [])
+                  for l in u["lessons"] if l.get("kind") == "lecture"]
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-lecture")
+        r = post(f"/api/courses/lessons/{lec_z4[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_z4 = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "system")
+        det_z4 = get(f"/api/courses/lessons/{lec_z4[0]['id']}")["data"]
+        check("Z4 旧大纲（无 desc）讲义正常生成且提示词不含教学设计块",
+              "【本讲教学设计】" not in sys_z4
+              and bool(det_z4.get("slides"))
+              and len(det_z4.get("slides") or []) == len(det_z4.get("scripts") or []),
+              f"slides={len(det_z4.get('slides') or [])} "
+              f"含教学设计块={'是' if '【本讲教学设计】' in sys_z4 else '否'}")
+
+        _cleanup_courses(cid_z4)
         _cleanup_courses(cid_y1)
 
         # ── I. 删除 ────────────────────────────────────

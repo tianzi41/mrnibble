@@ -282,14 +282,18 @@ def _mirror_lecture() -> str:
 
 
 def _spy_dump(body: dict) -> None:
-    """把收到的 messages 原样落到 ZHIBAN_MOCK_SPY 文件（测试用：看提示词注入实况）。"""
+    """把收到的 messages 原样落到 ZHIBAN_MOCK_SPY 文件（测试用：看提示词注入实况）。
+
+    **JSONL 追加写**：一次业务动作可能连发多次模型调用（如大纲 → 对齐校验），
+    覆盖写会让后一次抹掉前一次的落盘；每行一条完整 messages 数组，测试端逐行读。
+    """
     import os
     path = os.environ.get("ZHIBAN_MOCK_SPY")
     if not path:
         return
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(body.get("messages") or [], f, ensure_ascii=False)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(body.get("messages") or [], ensure_ascii=False) + "\n")
     except OSError:
         pass
 
@@ -369,7 +373,7 @@ def _viz3_lecture_payload() -> str:
 
 
 def _outline_payload() -> str:
-    """课程大纲：2 个单元，每单元 2 讲解 + 1 练习。"""
+    """课程大纲：2 个单元，每单元 2 讲解 + 1 练习；讲次带 desc 教学设计。"""
     return json.dumps({
         "title": "极限与洛必达法则",
         "summary": "从极限定义出发，掌握洛必达法则的使用前提与典型题型。",
@@ -377,20 +381,54 @@ def _outline_payload() -> str:
             {"title": "极限的基础", "summary": "建立极限的直觉与定义",
              "lessons": [
                  {"title": "极限是什么", "objective": "能用自己的话解释极限 [[c:1]]",
-                  "kind": "lecture", "depth": "establish"},
+                  "kind": "lecture", "depth": "establish",
+                  "desc": {"outcomes": ["能解释极限的直观含义"],
+                           "knowledge_points": ["极限的直观定义", "收敛与发散的直觉判断"],
+                           "concepts": ["极限", "收敛"],
+                           "operations": [],
+                           "transition": {"prev": "（首讲）", "next": "引向极限的运算法则",
+                                          "avoid": "四则运算法则留给下一讲"},
+                           "visual": "数列趋近的流程示意"}},
                  {"title": "极限的运算法则", "objective": "会用四则运算求极限 [[c:1]]",
-                  "kind": "lecture", "depth": "define"},
+                  "kind": "lecture", "depth": "define",
+                  "desc": {"outcomes": ["会用四则运算法则求极限"],
+                           "knowledge_points": ["极限四则运算法则", "法则的适用条件"],
+                           "concepts": ["极限", "运算法则"],
+                           "operations": [],
+                           "transition": {"prev": "承接极限的直观定义", "next": "引向随堂练习",
+                                          "avoid": "极限定义上一讲已讲"},
+                           "visual": "无"}},
                  {"title": "基础练习", "objective": "能完成本节的基础练习", "kind": "practice",
-                  "depth": "apply"},
+                  "depth": "apply",
+                  "desc": {"exercise_focus": ["极限的直观含义（第 1 讲）", "四则运算法则（第 2 讲）"],
+                           "expected_mistakes": ["把发散数列当收敛"],
+                           "exercise_flow": "3 道判断 + 2 道单选"}},
              ]},
             {"title": "洛必达法则", "summary": "未定式的处理",
              "lessons": [
                  {"title": "适用前提", "objective": "能判断何时可用 [[c:2]]",
-                  "kind": "lecture", "depth": "define"},
+                  "kind": "lecture", "depth": "define",
+                  "desc": {"outcomes": ["能判断何时可用洛必达法则"],
+                           "knowledge_points": ["0/0 与 ∞/∞ 未定式", "使用前提与失效情形"],
+                           "concepts": ["洛必达法则", "未定式"],
+                           "operations": [],
+                           "transition": {"prev": "（新单元首讲）", "next": "引向典型例题",
+                                          "avoid": "具体例题留给下一讲"},
+                           "visual": "判断能否用法则的流程图"}},
                  {"title": "典型例题", "objective": "会做 0/0 与 ∞/∞ 型 [[c:2]]",
-                  "kind": "lecture", "depth": "derive"},
+                  "kind": "lecture", "depth": "derive",
+                  "desc": {"outcomes": ["会做 0/0 与 ∞/∞ 型例题"],
+                           "knowledge_points": ["0/0 型例题", "∞/∞ 型例题"],
+                           "concepts": ["洛必达法则", "未定式"],
+                           "operations": [],
+                           "transition": {"prev": "承接使用前提", "next": "引向随堂练习",
+                                          "avoid": "使用前提上一讲已讲"},
+                           "visual": "解题步骤流程图"}},
                  {"title": "随堂练习", "objective": "能检验本单元各讲目标是否达成", "kind": "practice",
-                  "depth": "apply"},
+                  "depth": "apply",
+                  "desc": {"exercise_focus": ["使用前提（第 1 讲）", "两类未定式例题（第 2 讲）"],
+                           "expected_mistakes": ["非未定式硬用洛必达"],
+                           "exercise_flow": "3 道单选 + 1 道改错"}},
              ]},
         ],
     }, ensure_ascii=False)
@@ -420,6 +458,12 @@ def _pick(body: dict) -> str:
     )
     if "补图编辑" in _systems:
         return _visual_add_payload()
+    # 「大纲对齐校验」是出纲后**另发起的一次调用**，模型名与大纲相同，
+    # 按提示词特征识别（提示词首句是「你是课程审校」）。
+    # 注意先落盘再返回，否则 spy 测试看不到这次调用（一次业务动作的多次调用都要留痕）。
+    if "课程审校" in _systems:
+        _spy_dump(body)
+        return json.dumps({"ok": True}, ensure_ascii=False)
     if model == "mock-normal":
         return _quote_block()
     if model == "mock-stall-guided":

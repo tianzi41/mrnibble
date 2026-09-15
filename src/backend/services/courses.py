@@ -126,6 +126,8 @@ _OUTLINE_PROMPT = """你是课程设计师。请依据用户的学习目标与�
 - objective 里有没有「了解/熟悉/掌握」？
 - 材料的主要章节是否都有讲次覆盖？
 - 每个单元的讲次数是否**由内容体量决定**？有没有把一讲就能讲完的内容硬拆成两讲凑数？
+- 每讲的 desc 是否划清了与相邻讲次的边界（transition.avoid 写了吗）？
+- 同一个术语在所有讲次的 desc.concepts 里是否用了同一个译名？
 """ + _BASE_RULES
 
 # 学习目标推荐（创建向导里的「帮我推荐」按钮）。
@@ -140,12 +142,70 @@ _GOAL_PROMPT = """你是学习规划师。用户挑了几份学习材料想开�
 只输出这一个 JSON 对象，不要输出 JSON 以外的任何文字（包括解释与代码块标记）。
 """
 
+# 大纲 vs 材料对齐校验（B 防线）：desc 是后续所有讲义共同的上游，大纲阶段对材料的
+# 误解会「一致放大」到每一讲且难以察觉——出纲后用一次调用把编造的知识点拉回材料。
+_ALIGN_PROMPT = """你是课程审校。下面是一份为材料设计的课程大纲（含每讲教学设计 desc）。
+请对照材料核对：每讲 desc 里是否混入了**材料并不支持的知识点**（大纲替材料想出来的内容）、
+术语译名是否与材料一致。只修正 desc，不要改动标题/结构/讲次数量。
+
+输出 JSON 二选一：
+{"ok":true}
+或 {"ok":false,"fixes":[{"unit":单元序号(1起),"lesson":讲序号(单元内1起),"desc":{该讲修正后的完整 desc}}]}
+只输出这一个 JSON 对象，不要输出 JSON 以外的任何文字（包括解释与代码块标记）。
+"""
+
+
+def _norm_desc(raw: Any, kind: str) -> dict[str, Any] | None:
+    """归一化讲次教学设计 desc（模型输出不可信：缺字段/类型不对/超长一律清洗）。
+
+    正文讲与练习讲字段集不同，按 ``kind`` 切换；清洗后一条不剩则返回 ``None``。
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    def strs(v: Any, limit: int, width: int) -> list[str]:
+        if not isinstance(v, list):
+            return []
+        out: list[str] = []
+        for x in v[:limit]:
+            s = str(x or "").strip()
+            if s:
+                out.append(s[:width])
+        return out
+
+    if kind == "practice":
+        d: dict[str, Any] = {
+            "exercise_focus": strs(raw.get("exercise_focus"), 3, 30),
+            "expected_mistakes": strs(raw.get("expected_mistakes"), 3, 30),
+        }
+        flow = str(raw.get("exercise_flow") or "").strip()[:60]
+        if flow:
+            d["exercise_flow"] = flow
+    else:
+        d = {
+            "outcomes": strs(raw.get("outcomes"), 3, 40),
+            "knowledge_points": strs(raw.get("knowledge_points"), 5, 30),
+            "concepts": strs(raw.get("concepts"), 4, 12),
+            "operations": strs(raw.get("operations"), 4, 16),
+        }
+        tr = raw.get("transition")
+        if isinstance(tr, dict):
+            t = {k: str(tr.get(k) or "").strip()[:25] for k in ("prev", "next", "avoid")}
+            t = {k: v for k, v in t.items() if v}
+            if t:
+                d["transition"] = t
+        vis = str(raw.get("visual") or "").strip()[:40]
+        if vis and vis != "无":
+            d["visual"] = vis
+    return {k: v for k, v in d.items() if v} or None
+
 _LECTURE_PROMPT = """你是课堂讲师，正在给一门真实课程备课。请为下面这一讲生成一版「课堂内容包」。
 
 【讲次信息】
 讲次：__TITLE__
 学习目标（学完这一讲能做到什么）：__OBJECTIVE__
 所属单元：__UNIT__
+__DESC__
 
 【深度与篇幅】
 __DEPTH__
@@ -264,6 +324,7 @@ _PRACTICE_PROMPT = """你是出题老师。请围绕这一讲出 __COUNT__ 道�
 
 讲次：__TITLE__
 目标：__OBJECTIVE__
+__DESC__
 
 输出 JSON：
 {"items":[{"type":"single","stem":"题干","options":["A","B","C","D"],"answer":0,"explanation":"解析"},
@@ -806,6 +867,12 @@ class CourseService:
                 obj = self._outline_fallback(hits, unit_count)
                 self._set_stage(job_id, "模型输出不稳定，已按材料结构生成大纲")
 
+            # B 防线（大纲 vs 材料对齐校验）：desc 是后续所有讲义共同上游，
+            # 大纲对材料的误解会被一致放大到每一讲 → 出纲后核一遍再落库。
+            # 非阻塞：校验调用失败/超时一律静默跳过，不挡出纲。
+            self._set_stage(job_id, "正在核对大纲与材料")
+            obj = self._align_outline(obj, context)
+
             self._set_stage(job_id, "正在生成课程细节")
             self._persist_outline(cid, obj, document_ids)
             self._finish_job(job_id)
@@ -854,11 +921,15 @@ class CourseService:
                 # 未知值（含脏值、课程级 brief/standard/detailed 等）一律默认 define，不透传脏值。
                 depth_raw = str(l.get("depth") or "").strip().lower()
                 depth = depth_raw if depth_raw in ("establish", "define", "derive", "apply") else "define"
+                # desc 缺失不算失败（旧链路兼容），但给了就清洗归一化，
+                # 练习讲/正文讲按 kind 各自校验字段集。
+                desc = _norm_desc(l.get("desc"), kind)
                 lessons.append({
                     "title": l_title[:120],
                     "objective": l_obj,
                     "kind": kind,
                     "depth": depth,
+                    "desc": desc,
                 })
             if lessons:
                 units.append({
@@ -907,6 +978,60 @@ class CourseService:
             "units": units,
         }
 
+    def _align_outline(self, obj: dict[str, Any], context: str) -> dict[str, Any]:
+        """大纲 vs 材料对齐校验：把 desc 里编造的知识点拉回材料（只修 desc，不动结构）。
+
+        任何失败（解析不了/超限/字段非法）都静默返回原大纲——这是增强校验，
+        不能反过来成为出纲的新故障点。
+        """
+        try:
+            slim = [
+                {"unit": i, "title": u["title"],
+                 "lessons": [
+                     {"lesson": j, "title": l["title"], "kind": l["kind"],
+                      "desc": l.get("desc")}
+                     for j, l in enumerate(u["lessons"], 1)
+                 ]}
+                for i, u in enumerate(obj["units"], 1)
+            ]
+            raw = self._chat([
+                {"role": "system", "content": _ALIGN_PROMPT},
+                {"role": "user", "content": "【大纲】\n"
+                 + json.dumps(slim, ensure_ascii=False)
+                 + "\n\n【材料片段】\n" + context[:3000]},
+            ], max_tokens=2048)
+            parsed = self._safe_json(raw)
+            if not isinstance(parsed, dict) or parsed.get("ok") is not False:
+                return obj
+            fixes = parsed.get("fixes")
+            if not isinstance(fixes, list):
+                return obj
+            applied = 0
+            for f in fixes:
+                if not isinstance(f, dict):
+                    continue
+                try:
+                    ui, li = int(f.get("unit")), int(f.get("lesson"))
+                except (TypeError, ValueError):
+                    continue
+                if not (1 <= ui <= len(obj["units"])):
+                    continue
+                lessons = obj["units"][ui - 1]["lessons"]
+                if not (1 <= li <= len(lessons)):
+                    continue
+                nd = _norm_desc(f.get("desc"), str(lessons[li - 1]["kind"]))
+                if nd:
+                    lessons[li - 1]["desc"] = nd
+                    applied += 1
+            if applied:
+                logger.info(
+                    "大纲对齐校验修正 %d 讲", applied,
+                    extra={"extra_fields": {"type": "outline_align"}},
+                )
+            return obj
+        except Exception:  # noqa: BLE001 - 非阻塞防线
+            return obj
+
     def _persist_outline(
         self, cid: str, obj: dict[str, Any], document_ids: list[str]
     ) -> None:
@@ -926,14 +1051,16 @@ class CourseService:
                 )
                 for l_idx, lesson in enumerate(unit["lessons"], start=1):
                     global_ordinal += 1
+                    desc = lesson.get("desc")
                     db.execute(
                         "INSERT INTO course_lessons(id,course_id,unit_id,ordinal,global_ordinal,"
-                        "kind,title,objective,depth,status,created_at,updated_at)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "kind,title,objective,depth,status,created_at,updated_at,desc_json)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             new_id(), cid, uid, l_idx, global_ordinal,
                             lesson["kind"], lesson["title"], lesson.get("objective") or "",
                             lesson.get("depth") or "standard", "pending", ts, ts,
+                            json.dumps(desc, ensure_ascii=False) if desc else None,
                         ),
                     )
             db.execute(
@@ -1412,6 +1539,7 @@ class CourseService:
                 .replace("__TITLE__", lesson["title"])
                 .replace("__OBJECTIVE__", lesson["objective"] or lesson["title"])
                 .replace("__UNIT__", unit_title)
+                .replace("__DESC__", self._desc_block(lesson))
                 .replace("__DIAGRAM_SPEC__", diagram_mod.prompt_spec())
             )
             messages = [
@@ -2385,6 +2513,7 @@ class CourseService:
                 .replace("__DEPTH__", _DEPTH_HINT.get(lesson["depth"], _DEPTH_HINT["standard"]))
                 .replace("__TITLE__", lesson["title"])
                 .replace("__OBJECTIVE__", lesson["objective"] or lesson["title"])
+                .replace("__DESC__", self._desc_block(lesson))
             )
             if not allow_hands_on:
                 prompt += ('\n- 本课程**不包含**真实操作类题目：禁止输出 type 为 "hands_on" 的题。\n')
@@ -3017,6 +3146,59 @@ class CourseService:
         """构造注入模型的用户消息（学习任务 + 编号材料）。"""
         head = f"【学习任务】{query}\n\n" if query else ""
         return f"{head}【学习材料检索结果】\n{context}"
+
+    @staticmethod
+    def _desc_block(lesson: dict[str, Any]) -> str:
+        """讲次教学设计 desc → 提示词块（逐讲生成的稳定性锚点）。
+
+        旧课程 ``desc_json`` 为 NULL：返回空串，提示词与旧版逐字一致（向后兼容）。
+        """
+        raw = lesson.get("desc_json")
+        if not raw:
+            return ""
+        try:
+            d = json.loads(raw)
+        except Exception:  # noqa: BLE001 - 脏数据按无 desc 处理
+            return ""
+        if not isinstance(d, dict) or not d:
+            return ""
+        lines = ["【本讲教学设计】（大纲阶段已规划，本讲必须遵守：", ]
+        rules: list[str] = []
+        if d.get("knowledge_points"):
+            rules.append("知识点只讲边界清单内的内容")
+        if (d.get("transition") or {}).get("avoid"):
+            rules.append("avoid 点名的部分留给相邻讲次")
+        if rules:
+            lines[0] = "【本讲教学设计】（大纲阶段已规划，本讲必须遵守：" + "；".join(rules) + "）"
+        if d.get("outcomes"):
+            lines.append("学习目标：" + "；".join(d["outcomes"]))
+        if d.get("knowledge_points"):
+            lines.append("知识点边界：" + "；".join(d["knowledge_points"]))
+        if d.get("concepts"):
+            lines.append("术语口径（全课程统一译名）：" + "、".join(d["concepts"]))
+        if d.get("operations"):
+            lines.append("涉及操作：" + "；".join(d["operations"]))
+        tr = d.get("transition") or {}
+        seg = []
+        if tr.get("prev"):
+            seg.append("承接——" + tr["prev"])
+        if tr.get("next"):
+            seg.append("引向——" + tr["next"])
+        if tr.get("avoid"):
+            seg.append("避免展开——" + tr["avoid"])
+        if seg:
+            lines.append("讲间衔接：" + "；".join(seg))
+        if d.get("visual") and d["visual"] != "无":
+            lines.append("可视化提示：" + d["visual"])
+        if d.get("exercise_focus"):
+            lines.append("考察点（指向哪几讲的内容）：" + "；".join(d["exercise_focus"]))
+        if d.get("expected_mistakes"):
+            lines.append("学生易错点（供设计干扰项）：" + "；".join(d["expected_mistakes"]))
+        if d.get("exercise_flow"):
+            lines.append("题型安排：" + d["exercise_flow"])
+        if len(lines) == 1:
+            return ""
+        return "\n".join(lines) + "\n"
 
     @staticmethod
     def _lesson_user(lesson: dict[str, Any], query: str, context: str) -> str:
