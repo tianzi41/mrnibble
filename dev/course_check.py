@@ -762,6 +762,32 @@ def main() -> int:
         check("D30 推荐结果回传材料来源（供 UI 显示，错配一眼可见）",
               len(srcs) == 1 and "高数" in srcs[0], str(srcs))
 
+        # D31–D34 P1 特色页契约：对比表格（计入可视化页上限）/ 金句卡（不计入、限 1 页）
+        set_model("mock-lecture-p1")
+        r = post(f"/api/courses/lessons/{lessons_v[3]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        p1 = get(f"/api/courses/lessons/{lessons_v[3]['id']}")["data"].get("slides") or []
+        good_tbl = next((s for s in p1 if s.get("kind") == "table"), None)
+        gtab = (good_tbl or {}).get("table") or {}
+        check("D31 合法对比表格落库（列名与行数完整）",
+              bool(good_tbl) and gtab.get("columns") == ["项目", "936", "65001"]
+              and len(gtab.get("rows") or []) == 2,
+              json.dumps(good_tbl or {}, ensure_ascii=False)[:180])
+        bad_page = next((s for s in p1 if "坏表格" in str(s.get("title") or "")), None)
+        check("D32 列数不齐的坏表格被剥除且页面退化为 note",
+              bool(bad_page) and bad_page.get("kind") == "note" and "table" not in bad_page,
+              json.dumps(bad_page or {}, ensure_ascii=False)[:160])
+        tk = next((s for s in p1 if s.get("kind") == "takeaway"), None)
+        tk_text = str((tk or {}).get("takeaway") or "")
+        check("D33 金句卡落库且超长被截断到 ≤60 字",
+              bool(tk) and 0 < len(tk_text) <= 60
+              and len((tk or {}).get("title") or "") > 0,
+              f"len={len(tk_text)} text={tk_text[:40]}")
+        check("D34 金句卡超页数上限被剥到 1 页",
+              sum(1 for s in p1 if s.get("kind") == "takeaway") == 1
+              and not any("第二句金句" in str(s.get("takeaway") or "") for s in p1),
+              str([s.get("kind") for s in p1]))
+
         _cleanup_courses(cid_d, cid_o, cid_v)
 
         # ── I. 删除 ────────────────────────────────────

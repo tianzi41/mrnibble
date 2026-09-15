@@ -993,6 +993,32 @@ def main() -> int:
             except Exception as e:
                 check("4.0 CDP 验证脚本未异常", False, str(e)[:200])
 
+            # ---- P1 特色页端到端：后端落库的 table/takeaway → 课堂页真实渲染 ----
+            # （后端契约由 course_check D31–D34 保证、渲染函数由 viz_harness 保证，
+            #   这里补上两者的连接：renderSlides 真的把它们放到页面上）
+            cli.put(f"{BASE}/api/settings", json={"llm": {"model": "mock-lecture-p1"}}, timeout=10)
+            last_lec = [l for u in course["units"] for l in u["lessons"]
+                        if l.get("kind") == "lecture"][-1]
+            jr = cli.post(f"{BASE}/api/courses/lessons/{last_lec['id']}/lecture", timeout=20).json()
+            for _ in range(160):
+                jb = cli.get(f"{BASE}/api/courses/jobs/{jr['data']['job_id']}", timeout=10).json()
+                if jb["data"]["status"] != "running":
+                    break
+                time.sleep(0.5)
+            p1dom = dump(f"{BASE}/#/lessons/{last_lec['id']}")
+            check("4.14 对比表格页在课堂真实渲染（.viz-table + 3 列表头）",
+                  'class="viz-table"' in p1dom and p1dom.count("<th>") >= 3)
+            check("4.15 金句卡在课堂真实渲染（.takeaway-box）",
+                  'class="takeaway-box"' in p1dom)
+            check("4.16 坏表格未渲染出缺列的表（该页退化为要点页）",
+                  "列数不齐的坏表格" not in p1dom
+                  or p1dom.count('class="viz-table"') == 1)
+            # 提示词引导模型把关键术语/编号用 **加粗** 标出；若用纯文本渲染，
+            # 学生看到的是字面星号（实测曾是如此）。
+            check("4.17 要点里的 **加粗** 已渲染为 <strong> 而非字面星号",
+                  "<strong>" in p1dom and "**936**" not in p1dom)
+            cli.put(f"{BASE}/api/settings", json={"llm": {"model": "mock-lecture"}}, timeout=10)
+
             # 完成剩余讲次 → 单元总结可生成（供单元总结页签验证）
             for u in course["units"]:
                 for l in u["lessons"]:

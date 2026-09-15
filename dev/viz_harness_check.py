@@ -350,6 +350,42 @@ TEST_EXPR = r"""
     const has = await waitSel(host, "svg", 8000);
     check("MD.mindmap(outline) → svg 出现", has, "svg="+(!!svg));
   }
+  // 6. P1 特色页：对比表格 / 金句卡（renderExtras）
+  {
+    check("Viz.renderExtras 存在", typeof window.Viz.renderExtras === "function");
+    const tb = document.createElement("div");
+    const rt = window.Viz.renderExtras(tb, {kind:"table",
+      table:{title:"936 与 65001 对照", columns:["项目","936","65001"],
+             rows:[["编码","GBK","UTF-8"],["中文占用","2 字节","3 字节"]]}});
+    check("好表格 → 返回 table", rt === "table", "r="+rt);
+    check("好表格 → DOM 出 .viz-table 且列/行数正确",
+          !!tb.querySelector(".viz-table")
+          && tb.querySelectorAll("thead th").length === 3
+          && tb.querySelectorAll("tbody tr").length === 2
+          && tb.querySelectorAll("tbody td").length === 6,
+          "th=" + tb.querySelectorAll("thead th").length
+          + " tr=" + tb.querySelectorAll("tbody tr").length);
+    check("好表格 → 表题渲染",
+          ((tb.querySelector(".table-title") || {}).textContent || "") === "936 与 65001 对照");
+    check("好表格 → 单元格内容就位",
+          (tb.querySelectorAll("tbody td")[1] || {}).textContent === "GBK");
+
+    const tk = document.createElement("div");
+    const rk = window.Viz.renderExtras(tk, {kind:"takeaway", takeaway:"先分类，再选工具。"});
+    check("金句卡 → 返回 takeaway", rk === "takeaway", "r="+rk);
+    check("金句卡 → DOM 出 .takeaway-box 且文案就位",
+          ((tk.querySelector(".takeaway-box") || {}).textContent || "") === "先分类，再选工具。");
+
+    const bad = document.createElement("div");
+    const rb = window.Viz.renderExtras(bad, {kind:"table",
+      table:{title:"坏", columns:["甲","乙","丙"], rows:[["只有两列","少一列"]]}});
+    check("坏表格（行列不齐）→ 不渲染、返回空",
+          rb === "" && bad.children.length === 0, "r="+rb);
+    const none = document.createElement("div");
+    check("普通页 → 返回空且不产生 DOM",
+          window.Viz.renderExtras(none, {kind:"concept", title:"t"}) === ""
+          && none.children.length === 0);
+  }
   return {results};
 })()
 """

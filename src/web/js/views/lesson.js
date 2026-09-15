@@ -47,6 +47,7 @@
     concept: ["概念", "#eef2ff"], example: ["例子", "#ecfdf5"],
     formula: ["公式", "#fff7ed"], quote: ["材料原文", "#fdf4ff"], note: ["补充", "#f8fafc"],
     diagram: ["图示", "#f0f9ff"], chart: ["图表", "#fefce8"],
+    table: ["对比", "#f5f3ff"], takeaway: ["金句", "#fff1f2"],
   };
 
   const el = (tag, cls, html) => {
@@ -57,6 +58,11 @@
   };
   const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  /** 行内 Markdown 渲染（要点列表用）。MD.inline 不可用时退回纯文本转义，
+   *  保证任何加载顺序下都不会把未清洗的内容塞进 DOM。 */
+  const mdInline = (s) =>
+    (window.MD && typeof window.MD.inline === "function" ? window.MD.inline(s) : esc(s));
 
   // 字幕粒度：按句子切块朗读，每块最多这么多字。
   // 越小字幕越跟得紧，但语音停顿会变碎；90 字约等于 1~2 句，是实测较平衡的值。
@@ -776,9 +782,11 @@
       title: raw.title || "课件页",
       bullets,
       body: raw.body || "",
-      // 可视化页透传（后端契约：diagram/chart 仅在对应 kind 时存在）
+      // 可视化页透传（后端契约：diagram/chart/table/takeaway 仅在对应 kind 时存在）
       diagram: (raw.kind === "diagram" && raw.diagram) ? raw.diagram : null,
       chart: (raw.kind === "chart" && raw.chart) ? raw.chart : null,
+      table: (raw.kind === "table" && raw.table) ? raw.table : null,
+      takeaway: (raw.kind === "takeaway" && raw.takeaway) ? raw.takeaway : null,
     };
   }
 
@@ -927,9 +935,16 @@
         card.appendChild(vbox);
         window.Viz.render(vbox, sl);
       }
+      // P1 特色页：对比表格 / 金句卡（纯 HTML，由 Viz 渲染；结构非法则自动跳过，
+      // bullets 照常渲染，学生不会看到空白）
+      if (window.Viz && typeof window.Viz.renderExtras === "function") {
+        window.Viz.renderExtras(card, sl);
+      }
       if (sl.bullets && sl.bullets.length) {
         const ul = el("ul", "card-body");
-        sl.bullets.forEach((x) => ul.appendChild(el("li", null, esc(x))));
+        // 要点按**行内 Markdown** 渲染：提示词引导模型把关键术语/编号用加粗标出，
+        // 原先 esc() 纯文本会把 `**936**` 的星号原样显示给学生。
+        sl.bullets.forEach((x) => ul.appendChild(el("li", null, mdInline(x))));
         card.appendChild(ul);
       }
       if (sl.body) {

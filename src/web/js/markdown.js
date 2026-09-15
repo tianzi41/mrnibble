@@ -36,6 +36,15 @@
     return DOMPurify.sanitize(dirty, { ADD_ATTR: ["data-cite", "target"] });
   }
 
+  /** 渲染**行内** Markdown（用于要点列表这类单行文本）：剥掉外层 <p>。
+   *
+   *  要点里的 `**关键术语**` 需要真的变成加粗——提示词已引导模型这么做，
+   *  若用纯文本渲染会把星号原样显示出来。仍走 DOMPurify 清洗，产出不会成为注入点。
+   */
+  function inline(md) {
+    return render(md).replace(/^\s*<p>/i, "").replace(/<\/p>\s*$/i, "").trim();
+  }
+
   /** 用 KaTeX 渲染容器内未被 marked 处理的行内/块级公式（$...$ 与 $$...$$）。 */
   function math(el) {
     if (!window.katex || !el) return;
@@ -98,5 +107,5 @@
     }
   }
 
-  window.MD = { render, mount, mindmap, normalize };
+  window.MD = { render, mount, mindmap, normalize, inline };
 })();

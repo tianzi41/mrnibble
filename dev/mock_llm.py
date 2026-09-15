@@ -141,6 +141,63 @@ def _lecture_payload() -> str:
     }, ensure_ascii=False)
 
 
+def _p1_lecture_payload() -> str:
+    """P1 特色页契约测试包：对比表格（好/坏）+ 金句卡（超长）+ 加粗要点。
+
+    坏 table 的行单元格数与列数不齐 → 服务端应剥掉 table 字段、页面退化为要点页；
+    好 table 原样保留；takeaway 超长应被截断到 60 字。
+    """
+    long_takeaway = ("记住：这类问题的关键不是记住结论，而是先判断类型再选方法，"
+                     "因为不同的类型对应完全不同的处理路径，选错了方法再熟练也会做错，"
+                     "这是本讲唯一需要带走的判断习惯。")   # 明显 > 60 字
+    return json.dumps({
+        "summary": "本讲对照两种活动代码页设置，并给出收尾金句 [[c:1]]。",
+        "slides": [
+            {"id": "slide-1", "kind": "concept", "title": "两种编码设置", "bullets": [
+                "**936** 是简体中文 GBK 代码页", "**65001** 是 UTF-8 代码页",
+                "选错会导致乱码"], "body": "", "citation_refs": [1]},
+            {"id": "slide-2", "kind": "table", "title": "两种代码页对照", "bullets": [
+                "逐项对照", "结论见右列"],
+             "table": {"title": "936 与 65001 对照",
+                       "columns": ["项目", "936", "65001"],
+                       "rows": [["编码", "GBK", "UTF-8"], ["中文占用", "2 字节", "3 字节"]]},
+             "body": "", "citation_refs": [1]},
+            {"id": "slide-3", "kind": "table", "title": "列数不齐的坏表格", "bullets": [
+                "这页会被剥掉 table 字段"],
+             "table": {"title": "坏表格", "columns": ["甲", "乙", "丙"],
+                       "rows": [["只有两列", "少一列"]]},
+             "body": "", "citation_refs": [1]},
+            {"id": "slide-4", "kind": "takeaway", "title": "本讲金句", "bullets": [],
+             "takeaway": long_takeaway, "body": "", "citation_refs": [1]},
+            {"id": "slide-5", "kind": "takeaway", "title": "第二句金句（应被剥除）", "bullets": [],
+             "takeaway": "这是第二句金句，超出每讲一页的上限。", "body": "",
+             "citation_refs": [1]},
+        ],
+        "scripts": [
+            {"slide_id": "slide-1", "text": "这一页先建立坐标：我们讨论的是命令行里那个活动代码页。材料说切换代码页用 chcp 命令 [[c:1]]，所以先记住两个数字：936 和 65001。数字本身不难记，难的是知道它们在什么场景下用。记住这点，后面看对照表就轻松了。"},
+            {"slide_id": "slide-2", "text": "现在看这张对照表。请先看第一列，它告诉我们比较的维度有哪些；再看第二列和第三列，它们分别是两种设置下的表现。你会发现中文占用的字节数不同，这不是细节，而是判断乱码来源的直接依据 [[c:1]]。"},
+            {"slide_id": "slide-3", "text": "这一页我们换个角度：如果不做对照、只凭印象选，会发生什么。想象一下你在记事本里存了中文，换台机器打开就全是问号——那通常就是代码页不匹配。所以对照的意义在于把「凭感觉」换成「按维度比较」 [[c:1]]。"},
+            {"slide_id": "slide-4", "text": "最后留一句给你带走的话。课程里所有方法最终都会浓缩成一个判断习惯：遇到问题先分类，再选工具。这句话听起来简单，但真正难的是每次都做到。你可以在下一次遇到乱码时试着先问自己属于哪一类 [[c:1]]。"},
+            {"slide_id": "slide-5", "text": "这一页我们再补充一层理解：为什么反复强调先分类。因为分类之后，你面对的不再是一团模糊的现象，而是几个有名字的情况，每种情况都有对应做法。这样一来，经验才能被复用，而不是每次都从头猜 [[c:1]]。"},
+        ],
+        "cards": [
+            {"kind": "concept", "title": "活动代码页 [[c:1]]",
+             "body": "chcp 命令用于查看或切换当前活动代码页 [[c:1]]。"},
+            {"kind": "quote", "title": "材料原文 [[c:1]]",
+             "body": "代码页决定非 ASCII 字符按哪种字符集解释 [[c:1]]。"},
+            {"kind": "example", "title": "一个例子", "body": "同一份文本用不同代码页解释会得到不同结果。"},
+            {"kind": "note", "title": "易错提醒", "body": "只看字符数量判断编码类型并不可靠。"},
+        ],
+        "outline": ["两种代码页", "逐项对照", "收尾金句"],
+        "keypoints": [
+            {"term": "chcp", "desc": "切换活动代码页的命令 [[c:1]]"},
+            {"term": "65001", "desc": "UTF-8 的代码页编号 [[c:1]]"},
+        ],
+        "recap": "先分类，再选工具 [[c:1]]。",
+        "marks": [{"n": 1, "kind": "highlight", "text": "这是本讲所有判断的基础"}],
+    }, ensure_ascii=False)
+
+
 def _mirror_lecture() -> str:
     """**故意违规**的课堂内容包：讲稿就是课件文字原样念一遍。
 
@@ -355,6 +412,8 @@ def _pick(body: dict) -> str:
     if model == "mock-spy-lecture":
         _spy_dump(body)
         return _lecture_payload()
+    if model == "mock-lecture-p1":
+        return _p1_lecture_payload()
     if model == "mock-lecture-viz":
         return _viz_lecture_payload()
     if model == "mock-lecture-viz3":
@@ -466,6 +525,7 @@ MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-
                "mock-echo-context", "mock-echo-guided", "mock-good-guided", "mock-stall-guided",
                "mock-outline", "mock-lecture", "mock-practice", "mock-grade",
                "mock-summary", "mock-goals", "mock-spy-goals", "mock-outline-5", "mock-echo-flags",
+               "mock-lecture-p1",
                "mock-lecture-mirror", "mock-lecture-stubborn")
 
 

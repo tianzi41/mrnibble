@@ -184,6 +184,72 @@
     return "fallback";
   }
 
+  /** 课件特色页（P1）：对比表格 / 金句卡。纯 HTML，不用 vendor 库。
+   *
+   *  用 DOM API 逐节点构建（而非拼 innerHTML）——模型产出的内容一律走
+   *  textContent，天然防注入。结构非法时直接返回 ""（该页退化为普通要点页）。
+   *
+   *  @returns "table" | "takeaway" | ""
+   */
+  function renderExtras(host, slide) {
+    if (!host || !slide) return "";
+    if (slide.kind === "table" && slide.table
+        && Array.isArray(slide.table.columns) && Array.isArray(slide.table.rows)) {
+      const t = slide.table;
+      // 前端也兜一层结构校验：后端虽已规范化，但坏数据（行长度不齐）宁可整页
+      // 跳过（bullets 仍显示）也不要渲染出一张缺列的表格。
+      const need = t.columns.length;
+      if (need < 2 || !t.rows.length
+          || t.rows.some((r) => !Array.isArray(r) || r.length !== need)) {
+        return "";
+      }
+      const box = document.createElement("div");
+      box.className = "table-box";
+      if (t.title) {
+        const cap = document.createElement("div");
+        cap.className = "table-title";
+        cap.textContent = String(t.title);
+        box.appendChild(cap);
+      }
+      const table = document.createElement("table");
+      table.className = "viz-table";
+      const thead = document.createElement("thead");
+      const htr = document.createElement("tr");
+      t.columns.forEach((c) => {
+        const th = document.createElement("th");
+        th.textContent = String(c);
+        htr.appendChild(th);
+      });
+      thead.appendChild(htr);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      t.rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        (Array.isArray(row) ? row : []).forEach((cell) => {
+          const td = document.createElement("td");
+          td.textContent = String(cell);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      box.appendChild(table);
+      host.appendChild(box);
+      return "table";
+    }
+    if (slide.kind === "takeaway" && slide.takeaway) {
+      const box = document.createElement("div");
+      box.className = "takeaway-box";
+      box.textContent = String(slide.takeaway);
+      host.appendChild(box);
+      return "takeaway";
+    }
+    return "";
+  }
+
   // 暴露给 lesson.js 与测试 harness（window.Viz 命名空间）。
-  window.Viz = { render: renderVisual, renderMermaid: renderMermaid, renderChart: renderChart };
+  window.Viz = {
+    render: renderVisual, renderMermaid: renderMermaid,
+    renderChart: renderChart, renderExtras: renderExtras,
+  };
 })();

@@ -476,3 +476,21 @@ body.teaching-on #tab-body { padding-bottom: 132px; }
 .viz-fallback { color: var(--muted); font-size: 12px; padding: 6px 0; }
 .lesson-outline-card { margin-bottom: 10px; }
 .lesson-outline-card .markmap { height: 320px; }
+
+/* 课件 P1 特色页：对比表格（两个/多个方案的逐项对照） */
+.table-box { width: 100%; overflow-x: auto; padding: 6px 2px; }
+.table-title { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.viz-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.viz-table th, .viz-table td {
+  border: 1px solid var(--border); padding: 7px 10px;
+  text-align: left; vertical-align: top;
+}
+.viz-table th { background: var(--bg); font-weight: 700; }
+.viz-table tbody tr:nth-child(even) td { background: var(--bg); }
+
+/* 课件 P1 特色页：金句卡（整页一句结论/点评，讲末收尾） */
+.takeaway-box {
+  margin: 8px 0 2px; padding: 20px 22px; border-radius: 10px;
+  background: var(--primary-soft); color: var(--primary);
+  font-size: 17px; font-weight: 700; line-height: 1.7; text-align: center;
+}

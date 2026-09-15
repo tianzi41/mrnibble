@@ -148,6 +148,7 @@ __DEPTH__
 
 这一讲产出三类内容，读者与形态必须分开：
 - slides（课件页）：学生课堂上跟着看的。每页 = 一个短标题 + 最多 5 条要点（每条 ≤25 字）或一个例子/公式；禁止把整段讲解塞进 bullets 或 body；
+  bullets 里的**关键术语、编号、结论词用加粗标出**（Markdown 双星号，每页 ≤3 处），方便一眼抓重点；
 - scripts（讲师讲稿）：讲课时朗读的。每页一段口语化的讲解——解释、举例、衔接；禁止复述课件；
 - cards（讲义卡片）：学生课后通读的。每张一个主题，比课件页完整：要说清「为什么」，并指出常见误区。
 
@@ -160,8 +161,12 @@ __DEPTH__
 - quote：材料原句直引（必须带 [[c:N]]）；note：注意事项、易错点、衔接说明；
 - diagram：流程、步骤、因果、结构关系用图更清楚时；内容写入 diagram 字段（见下方【可视化页】）；
 - chart：材料里有能成图的数值对比时；数据写入 chart 字段。材料没有现成数字就不要硬造图表。
+- table：**两个或多个方案/编码/观点的逐项对照**优先用表格（该对比就该用表格，别硬画成图）；
+  内容写入 table 字段（见下方【可视化页与特色页】）；
+- takeaway：本讲最想让人记住的一句结论或教练点评；内容写入 takeaway 字段。
 
-【可视化页（可选，每讲最多 2 页，计入 slides 总页数）】
+【可视化页与特色页（可选；diagram/chart/table 三类合计每讲最多 2 页，计入 slides 总页数；
+  takeaway 是文字形态，不计入该上限，每讲最多 1 页）】
 - diagram 页：kind="diagram"，加字段 "diagram":{"lang":"mermaid","code":"..."}。
   code 必须以下列之一开头：flowchart TD、flowchart LR、sequenceDiagram、stateDiagram-v2、classDiagram；
   节点标签用简体中文、每个 ≤14 字，标签含括号等特殊字符时必须用双引号包住；
@@ -173,18 +178,24 @@ __DEPTH__
   categories 数量必须与每条 series 的 data 数量一致；pie 只给 1 条 series。
 - diagram/chart 页仍必须有 title 与 1~3 条 bullets（图旁要点，也是图渲染失败时学生看到的回退内容）；
   scripts 照常为该页写讲稿：先说这张图整体画了什么，再带着听众走关键节点，最后落到结论。
+- table 页：kind="table"，加字段
+  "table":{"title":"表题（可选）","columns":["列1","列2"],"rows":[["单元1","说明1"],["单元2","说明2"]]}。
+  只用于逐项对照（两方案/多编码/多观点的异同）；列数 2~5、数据行 ≤8、单元格 ≤40 字；
+  单元格只写短词或短语，不要整句；内容只能来自材料原文，禁止编造；
+- takeaway 页：kind="takeaway"，加字段 "takeaway":"一句 ≤60 字的结论或教练点评"。
+  通常放在最后做收尾金句；同样必须有 title；整讲最多 1 页。
 - 没有合适内容就一页可视化都不要硬加。
 
 输出 JSON：
 {"summary":"本讲一句话导览",
- "slides":[{"id":"slide-1","kind":"concept|example|formula|quote|note|diagram|chart","title":"课件页标题","bullets":["短要点1","短要点2"],"body":"可选补充短句，可含 [[c:N]]","citation_refs":[1]}],
+ "slides":[{"id":"slide-1","kind":"concept|example|formula|quote|note|diagram|chart|table|takeaway","title":"课件页标题","bullets":["短要点1","短要点2"],"body":"可选补充短句，可含 [[c:N]]","citation_refs":[1]}],
  "scripts":[{"slide_id":"slide-1","text":"讲师实际朗读的完整讲稿，可含 [[c:N]]。要解释课件、补充上下文和自然转场。"}],
  "cards":[{"kind":"concept|example|formula|quote|note","title":"讲义卡片标题","body":"讲义正文，可含 [[c:N]]"}],
  "outline":["要点1","要点2"],
  "keypoints":[{"term":"术语/公式","desc":"解释"}],
  "recap":"本讲回顾（3 句以内）",
  "marks":[{"n":1,"kind":"highlight","text":"这句为什么重要"}]}
- "diagram"/"chart" 是可选字段，仅 kind 为 diagram/chart 的页使用，格式见上方【可视化页】；
+"diagram"/"chart"/"table"/"takeaway" 都是**可选字段**，仅对应 kind 的页才出现，格式见上方【可视化页与特色页】；
 
 质量要求：
 1. 叙事结构：第 1 页做引入（承接上一讲的结尾，或点出本讲要解决的问题），最后一页做小结，中间由浅入深；
@@ -206,7 +217,8 @@ text 是写在旁边的一句旁注。没有把握就返回空数组，不要编
 - 每段讲稿读起来像老师说话吗？有没有哪段只是在念课件？
 - slides 每页是否一眼能看完（短标题 + 短要点）？
 - 引用编号是否都来自材料？
-- 可视化页是否 ≤2 页？chart 里的数字是否都来自材料？
+- 可视化页（diagram/chart/table）是否 ≤2 页？chart 里的数字、table 里的内容是否都来自材料？
+- 对比类内容（两方案/多编码/多观点）有没有用 table 而不是硬写成要点？takeaway 是不是只有一页？
 """ + _BASE_RULES
 
 # 「讲稿照念课件」被结构判定拦下后的定向重写提示词（只重写有问题的页）。
@@ -1373,16 +1385,37 @@ class CourseService:
                 if not self._valid_chart(sl.get("chart")):
                     sl.pop("chart", None)
                     sl["kind"] = "note"
-        # 页数上限：从后往前剥，保留前 2 页可视化
+            elif kind == "table":
+                if not self._valid_table(sl.get("table")):
+                    sl.pop("table", None)
+                    sl["kind"] = "note"
+                    logger.info("非法 table 页已退化为要点页",
+                                extra={"extra_fields": {"id": sl.get("id")}})
+            elif kind == "takeaway":
+                raw = sl.get("takeaway")
+                if not self._valid_takeaway(raw):
+                    sl.pop("takeaway", None)
+                    sl["kind"] = "note"
+                else:
+                    sl["takeaway"] = str(raw).strip()[:60]
+        # 页数上限：diagram/chart/table 合计 ≤2，从后往前剥（takeaway 是文字形态，
+        # 不计入该上限，单独限 1 页）
+        visual_kinds = ("diagram", "chart", "table")
         visual_idx = [i for i, sl in enumerate(slides)
-                      if isinstance(sl, dict) and sl.get("kind") in ("diagram", "chart")
-                      and (sl.get("diagram") or sl.get("chart"))]
+                      if isinstance(sl, dict) and sl.get("kind") in visual_kinds
+                      and any(sl.get(k) for k in visual_kinds)]
         for i in reversed(visual_idx[2:]):
             sl = slides[i]
-            sl.pop("diagram", None)
-            sl.pop("chart", None)
+            for k in visual_kinds:
+                sl.pop(k, None)
             sl["kind"] = "note"
             logger.info("可视化页超限已剥除", extra={"extra_fields": {"index": i}})
+        tk_idx = [i for i, sl in enumerate(slides)
+                  if isinstance(sl, dict) and sl.get("kind") == "takeaway" and sl.get("takeaway")]
+        for i in reversed(tk_idx[1:]):
+            slides[i].pop("takeaway", None)
+            slides[i]["kind"] = "note"
+            logger.info("takeaway 页超限已剥除", extra={"extra_fields": {"index": i}})
         return obj
 
     @classmethod
@@ -1445,6 +1478,42 @@ class CourseService:
             chart["unit"] = str(chart.get("unit") or "")[:20]
         return True
 
+    @staticmethod
+    def _valid_table(table: Any) -> bool:
+        """table 字段粗校验 + 原地规范化：2~5 列、1~8 行、单元格 ≤40 字。
+
+        合法时把列名与单元格统一截断写回，保证前端只面对干净数据；
+        非法（列数越界、行列不齐、全空）返回 False，调用方把该页退化为要点页。
+        """
+        if not isinstance(table, dict):
+            return False
+        cols = table.get("columns")
+        rows = table.get("rows")
+        if not isinstance(cols, list) or not (2 <= len(cols) <= 5):
+            return False
+        if not isinstance(rows, list) or not rows or len(rows) > 8:
+            return False
+        clean_cols = [str(c).strip()[:40] for c in cols]
+        if any(not c for c in clean_cols):
+            return False
+        clean_rows: list[list[str]] = []
+        for r in rows:
+            if not isinstance(r, list) or len(r) != len(clean_cols):
+                return False
+            clean_rows.append([str(cell).strip()[:40] for cell in r])
+        if not any(any(cell for cell in r) for r in clean_rows):
+            return False
+        table["columns"] = clean_cols
+        table["rows"] = clean_rows
+        if "title" in table:
+            table["title"] = str(table.get("title") or "")[:60]
+        return True
+
+    @staticmethod
+    def _valid_takeaway(value: Any) -> bool:
+        """takeaway 字段粗校验：必须是非空字符串（超长由调用方截断到 60 字）。"""
+        return isinstance(value, str) and bool(value.strip())
+
 
     @staticmethod
     def _clean_slides(raw: Any) -> list[dict[str, Any]]:
@@ -1468,7 +1537,8 @@ class CourseService:
                 sid = f"slide-{i}-{len(seen) + 1}"
             seen.add(sid)
             kind = str(item.get("kind") or "note").strip().lower()
-            if kind not in ("concept", "example", "formula", "quote", "note", "diagram", "chart"):
+            if kind not in ("concept", "example", "formula", "quote", "note",
+                            "diagram", "chart", "table", "takeaway"):
                 kind = "note"
             refs: list[int] = []
             for n in item.get("citation_refs") or []:
@@ -1492,6 +1562,10 @@ class CourseService:
                 slide["diagram"] = item["diagram"]
             elif kind == "chart" and isinstance(item.get("chart"), dict):
                 slide["chart"] = item["chart"]
+            elif kind == "table" and isinstance(item.get("table"), dict):
+                slide["table"] = item["table"]
+            elif kind == "takeaway" and isinstance(item.get("takeaway"), str):
+                slide["takeaway"] = item["takeaway"]
             slides.append(slide)
         return slides
 
@@ -1858,6 +1932,8 @@ class CourseService:
                 # §可视化契约：diagram/chart 原样透传（内容是 spec，不含 [[c:N]]）
                 **({"diagram": s["diagram"]} if isinstance(s.get("diagram"), dict) else {}),
                 **({"chart": s["chart"]} if isinstance(s.get("chart"), dict) else {}),
+                **({"table": s["table"]} if isinstance(s.get("table"), dict) else {}),
+                **({"takeaway": s["takeaway"]} if isinstance(s.get("takeaway"), str) else {}),
             }
             for i, s in enumerate((obj.get("slides") or []), start=1)
         ]
