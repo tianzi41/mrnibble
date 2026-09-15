@@ -118,6 +118,13 @@
           <label>单元数量</label>
           <select id="f-units"><option value="" selected>自动（按材料定）</option>${[2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n} 个单元</option>`).join("")}</select>
         </div>
+        <div class="field">
+          <label>实践环节</label>
+          <select id="f-hands">
+            <option value="1" selected>包含实操（可出真实操作类题目）</option>
+            <option value="0">纯理论（不出实操题，讲稿也不布置操作任务）</option>
+          </select>
+        </div>
       </div>
       <div class="row" style="justify-content:flex-end">
         <button class="btn" id="f-cancel">取消</button>
@@ -184,6 +191,7 @@
           level: document.getElementById("f-level").value,
           depth: document.getElementById("f-depth").value,
           unit_count: rawUnit ? parseInt(rawUnit, 10) : null,
+          hands_on: document.getElementById("f-hands").value === "1",
         });
         await pollOutline(r.course_id, r.job_id, host);
       } catch (e) {

@@ -127,10 +127,16 @@
         zone.appendChild(row);
       });
       if (!res) zone.appendChild(el("div", "hint", "点选答案后会立刻显示对错与解析。"));
-    } else if (q.type === "fill_in") {
+    } else if (q.type === "fill_in" || q.type === "hands_on") {
+      // 实操题（hands_on）与填空题共用「单行输入 + 归一化匹配」的作答形式，
+      // 区别只在题干上方的「🖐 实操题」徽章与操作指引文案。
+      if (q.type === "hands_on") {
+        zone.appendChild(el("div", "hands-on-badge", "🖐 实操题 · 请先按题干实际操作，再回填结果"));
+      }
       const inp = el("input", "fill-input");
       inp.type = "text";
-      inp.placeholder = "填入答案（不区分大小写与标点）";
+      inp.placeholder = q.type === "hands_on"
+        ? "把你实际操作看到的结果填进来" : "填入答案（不区分大小写与标点）";
       inp.value = S.answers[q.id] || "";
       inp.disabled = !!res;
       inp.oninput = () => { S.answers[q.id] = inp.value; };
@@ -138,7 +144,11 @@
         if (e.key === "Enter") { e.preventDefault(); checkOne(host, q); }
       };
       zone.appendChild(inp);
-      if (!res) zone.appendChild(el("div", "hint", "填好后点「确认作答」，会立刻显示对错与解析。"));
+      if (!res) {
+        zone.appendChild(el("div", "hint", q.type === "hands_on"
+          ? "做完后把结果填进来，点「确认作答」给你判定。"
+          : "填好后点「确认作答」，会立刻显示对错与解析。"));
+      }
     } else {
       const ta = el("textarea", "fill-input");
       ta.rows = 5;
@@ -203,7 +213,8 @@
   }
 
   function typeName(t) {
-    return { single: "单选题", boolean: "判断题", fill_in: "填空题", open: "开放题" }[t] || t;
+    return { single: "单选题", boolean: "判断题", fill_in: "填空题",
+             hands_on: "实操题", open: "开放题" }[t] || t;
   }
 
   async function submit(host) {

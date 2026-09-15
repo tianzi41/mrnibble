@@ -790,6 +790,75 @@ def main() -> int:
 
         _cleanup_courses(cid_d, cid_o, cid_v)
 
+        # ── H. hands_on 实操题与课程级「实践环节」开关 ──
+        print("\n[H] hands_on 实操题与课程级实践开关")
+
+        r = post("/api/courses", {"goal": "实操开关默认值", "document_ids": [doc_id],
+                                  "unit_count": 1})
+        cid_on = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        c_on = get(f"/api/courses/{cid_on}")["data"]
+        check("K1 课程默认带 hands_on（默认开启实操）",
+              c_on.get("hands_on") is True, str(c_on.get("hands_on")))
+
+        r = post("/api/courses", {"goal": "纯理论课程", "document_ids": [doc_id],
+                                  "unit_count": 1, "hands_on": False})
+        cid_off = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        c_off = get(f"/api/courses/{cid_off}")["data"]
+        check("K2 可显式关闭 hands_on（纯理论课）",
+              c_off.get("hands_on") is False, str(c_off.get("hands_on")))
+
+        les_on = [l for u in c_on["units"] for l in u["lessons"] if l["kind"] == "lecture"]
+        les_off = [l for u in c_off["units"] for l in u["lessons"] if l["kind"] == "lecture"]
+
+        set_model("mock-practice-hands")
+        r = post(f"/api/courses/lessons/{les_on[0]['id']}/practice", {"count": 5})
+        wait_job(r["data"]["job_id"])
+        qs_on = get(f"/api/courses/lessons/{les_on[0]['id']}/practice")["data"]["items"]
+        check("K3 开启实操的课程会出 hands_on 题",
+              any(q["type"] == "hands_on" for q in qs_on),
+              str([q["type"] for q in qs_on]))
+
+        r = post(f"/api/courses/lessons/{les_off[0]['id']}/practice", {"count": 5})
+        wait_job(r["data"]["job_id"])
+        qs_off = get(f"/api/courses/lessons/{les_off[0]['id']}/practice")["data"]["items"]
+        check("K4 关闭实操的课程不含 hands_on 题（提示词禁止 + 服务端兜底剥除）",
+              qs_off and not any(q["type"] == "hands_on" for q in qs_off),
+              str([q["type"] for q in qs_off]))
+
+        ho = next((q for q in qs_on if q["type"] == "hands_on"), None)
+        set_model("mock-grade")
+        r = post(f"/api/courses/lessons/{les_on[0]['id']}/grade", {"answers": [
+            {"question_id": (ho or {}).get("id"), "answer": "936"}]})
+        ok_res = next((x for x in r["data"]["results"] if x["type"] == "hands_on"), {})
+        r2 = post(f"/api/courses/lessons/{les_on[0]['id']}/grade", {"answers": [
+            {"question_id": (ho or {}).get("id"), "answer": "完全答不对的内容"}]})
+        bad_res = next((x for x in r2["data"]["results"] if x["type"] == "hands_on"), {})
+        check("K5 实操题复用可接受答案数组判分（936 对 / 乱填错）",
+              bool(ho) and ok_res.get("correct") is True and bad_res.get("correct") is False,
+              f"{ok_res.get('correct')} / {bad_res.get('correct')}")
+
+        # H6 纯理论课：讲义 prompt 必须禁止布置真实操作任务
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-lecture")
+        r = post(f"/api/courses/lessons/{les_off[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_txt = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "system")
+        check("K6 纯理论课的讲义 prompt 禁止布置操作任务",
+              "不得布置真实操作任务" in sys_txt, sys_txt[-180:])
+
+        # H7 课程列表也回显该字段（列表页/回退逻辑都依赖同一 _course_out）
+        cs = get("/api/courses")["data"]
+        items = cs.get("items", cs) if isinstance(cs, dict) else cs
+        hit = next((x for x in items if x.get("id") == cid_off), None)
+        check("K7 课程列表同样回显 hands_on",
+              bool(hit) and hit.get("hands_on") is False,
+              str(hit.get("hands_on") if hit else None))
+
+        _cleanup_courses(cid_on, cid_off)
+
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")
         with httpx.Client(trust_env=False) as cli:

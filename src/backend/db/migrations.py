@@ -24,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover - 仅类型标注
 __all__ = ["SCHEMA_VERSION", "run_migrations"]
 
 # 当前目标 schema 版本。新增 DDL 时 +1，并在此文件追加升级逻辑。
-SCHEMA_VERSION: int = 4
+SCHEMA_VERSION: int = 5
 
 
 def _get_version(db: "Database") -> int:
@@ -94,6 +94,16 @@ def _v4_courseware_split(db: "Database") -> None:
             db.execute(f"ALTER TABLE course_lessons ADD COLUMN {column} TEXT")
 
 
+def _v5_course_hands_on(db: "Database") -> None:
+    """v5：课程级「实践环节」开关（``courses.hands_on``）。
+
+    并非每门课都需要实操（文言文、理论类课程关掉即可）。默认 1 →
+    存量课程行为不变（可出 hands_on 题、讲稿可布置真实操作任务）。
+    """
+    if not _column_exists(db, "courses", "hands_on"):
+        db.execute("ALTER TABLE courses ADD COLUMN hands_on INTEGER NOT NULL DEFAULT 1")
+
+
 def run_migrations(db: "Database") -> int:
     """执行建库与迁移，返回迁移后的 schema 版本。
 
@@ -116,6 +126,8 @@ def run_migrations(db: "Database") -> int:
         _v3_course_p1(db)
     if current < 4:
         _v4_courseware_split(db)
+    if current < 5:
+        _v5_course_hands_on(db)
 
     # 3) 落版本与更新时间。
     if current != SCHEMA_VERSION:

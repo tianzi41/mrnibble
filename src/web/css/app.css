@@ -488,6 +488,13 @@ body.teaching-on #tab-body { padding-bottom: 132px; }
 .viz-table th { background: var(--bg); font-weight: 700; }
 .viz-table tbody tr:nth-child(even) td { background: var(--bg); }
 
+/* 实操题徽章（hands_on 题型） */
+.hands-on-badge {
+  display: inline-block; margin-bottom: 10px; padding: 5px 12px;
+  border-radius: 999px; background: var(--primary-soft); color: var(--primary);
+  font-size: 12px; font-weight: 700;
+}
+
 /* 课件 P1 特色页：金句卡（整页一句结论/点评，讲末收尾） */
 .takeaway-box {
   margin: 8px 0 2px; padding: 20px 22px; border-radius: 10px;

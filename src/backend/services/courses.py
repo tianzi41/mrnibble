@@ -249,6 +249,7 @@ _PRACTICE_PROMPT = """你是出题老师。请围绕这一讲出 __COUNT__ 道�
 {"items":[{"type":"single","stem":"题干","options":["A","B","C","D"],"answer":0,"explanation":"解析"},
           {"type":"boolean","stem":"判断题干","options":["正确","错误"],"answer":1,"explanation":"解析"},
           {"type":"fill_in","stem":"填空题（用 ____ 表示待填）","answer":["标准答案","同义答案"],"explanation":"解析"},
+          {"type":"hands_on","stem":"打开 CMD 输入 chcp 并回车，把你看到的活动代码页编号填进来","answer":["936","65001"],"explanation":"解析"},
           {"type":"open","stem":"开放题","answer":"参考答案","explanation":"评分要点"},
           {"type":"single","stem":"看图题：图中所示的结论是什么","options":["A","B","C","D"],"answer":0,
            "explanation":"解析","image":{"n":1}}]}
@@ -259,6 +260,9 @@ _PRACTICE_PROMPT = """你是出题老师。请围绕这一讲出 __COUNT__ 道�
 - 单选题 answer 是正确选项的**下标**（0 起）；判断题 options 固定 ["正确","错误"]，answer 为 0 或 1；
 - fill_in 的 answer 是**可接受答案数组**（可含同义写法）；
 - open 的 answer 是参考答案文本；
+- **回填式实操题（hands_on）**：题干写清「动手做什么、把什么结果填进来」（真的运行一条命令、
+  真的打开某个设置项看一眼），answer 是可接受的回填值数组（写法同 fill_in，含常见等价写法）。
+  最多 1 道，且**只在讲次内容确实涉及可真实操作的主题时**才出；纯理论内容不要硬造；
 - **图片题**：需要看图时加 "image":{"n":材料编号}，n 必须是你引用过的材料编号，
   系统会把材料对应页渲染成图；最多出 1 道图片题，没有合适的图就不要加 image 字段；
 - 每题都要有 explanation；全部题目必须来自本讲内容。
@@ -400,6 +404,20 @@ class CourseService:
         return cur.rowcount > 0
 
     @staticmethod
+    def _row_get(row: Any, key: str, default: Any = None) -> Any:
+        """安全读 sqlite3.Row（列不存在时返回默认值，兼容迁移前的旧库）。"""
+        try:
+            return row[key]
+        except (IndexError, KeyError, TypeError):
+            return default
+
+    @classmethod
+    def _course_hands_on(cls, cid: str) -> bool:
+        """该课程是否启用实践环节（缺列/查不到时按启用处理，保持旧行为）。"""
+        row = get_db().query_one("SELECT hands_on FROM courses WHERE id = ?", (cid,))
+        return bool(cls._row_get(row, "hands_on", 1)) if row is not None else True
+
+    @staticmethod
     def _progress(cid: str) -> dict[str, Any]:
         """计算课程进度：讲次完成数与当前应学的讲次。"""
         db = get_db()
@@ -457,6 +475,8 @@ class CourseService:
         except (TypeError, ValueError):
             raw_units = 0
         unit_count = raw_units if raw_units >= 1 else 0
+        # 课程级「实践环节」开关：并非每门课都需要实操（文言文/理论课关掉即可）。
+        hands_on = 1 if payload.get("hands_on", True) else 0
 
         db = get_db()
         cid = new_id()
@@ -464,11 +484,12 @@ class CourseService:
         # 标题先用「目标首句」，大纲生成后由模型给出的标题覆盖。
         title = self._draft_title(goal, document_ids)
         db.execute(
-            "INSERT INTO courses(id,title,goal,level,depth,unit_count,language,summary,"
-            "outline_json,status,error,created_at,updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO courses(id,title,goal,level,depth,unit_count,language,hands_on,"
+            "summary,outline_json,status,error,created_at,updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (cid, title, goal[:1000], level, depth, unit_count,
-             str(payload.get("language") or "zh"), None, None, "drafting", None, ts, ts),
+             str(payload.get("language") or "zh"), hands_on,
+             None, None, "drafting", None, ts, ts),
         )
         for did in document_ids:
             db.execute(
@@ -1268,6 +1289,10 @@ class CourseService:
                 _DEPTH_HINT["standard"],
             )
             depth_block = "；".join(x for x in (lesson_hint, volume_hint) if x)
+            if not self._course_hands_on(lesson["course_id"]):
+                # 课程级关闭实操：防止文科/理论课的讲稿里冒出「你现在打开终端试试」。
+                depth_block += ("；本课程为理论型课程，课件与讲稿**不得布置真实操作任务**"
+                                "（不要出现「打开终端/运行命令/动手试一下」这类指令）")
             prompt = (
                 _LECTURE_PROMPT
                 .replace("__DEPTH__", depth_block)
@@ -2050,6 +2075,7 @@ class CourseService:
                 raise AppError(1002, "没有可用材料", "来源文档没有可检索的文本内容")
 
             self._set_stage(job_id, "正在生成题目")
+            allow_hands_on = self._course_hands_on(lesson["course_id"])
             prompt = (
                 _PRACTICE_PROMPT
                 .replace("__COUNT__", str(count))
@@ -2057,6 +2083,8 @@ class CourseService:
                 .replace("__TITLE__", lesson["title"])
                 .replace("__OBJECTIVE__", lesson["objective"] or lesson["title"])
             )
+            if not allow_hands_on:
+                prompt += ('\n- 本课程**不包含**真实操作类题目：禁止输出 type 为 "hands_on" 的题。\n')
             messages = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": self._lesson_user(lesson, query, context)},
@@ -2067,7 +2095,8 @@ class CourseService:
                 raw = self._chat(messages, max_tokens=4096)
                 parsed = self._safe_json(raw)
                 if parsed is not None:
-                    validated = self._validate_practice(parsed, count)
+                    validated = self._validate_practice(
+                        parsed, count, allow_hands_on=allow_hands_on)
                     if validated:
                         items = validated
                         break
@@ -2098,8 +2127,13 @@ class CourseService:
             )
 
     @staticmethod
-    def _validate_practice(obj: dict[str, Any], count: int) -> list[dict[str, Any]]:
-        """校验并归一化题目列表；不合规的题直接丢弃。"""
+    def _validate_practice(obj: dict[str, Any], count: int,
+                           allow_hands_on: bool = True) -> list[dict[str, Any]]:
+        """校验并归一化题目列表；不合规的题直接丢弃。
+
+        ``allow_hands_on=False``（课程级开关关闭）时，**兜底剥除**模型仍输出的
+        hands_on 题——提示词已明确禁止，这里是模型不听话时的第二道防线。
+        """
         raw_items = obj.get("items") if isinstance(obj, dict) else obj
         if not isinstance(raw_items, list):
             return []
@@ -2161,6 +2195,24 @@ class CourseService:
                 if image:
                     item["image"] = image
                 out.append(item)
+
+            elif qtype == "hands_on":
+                # 回填式实操题：题干是真实操作指引，answer 是可接受的回填值数组。
+                # 判分完全复用 fill_in（_norm_text 归一化匹配），不新增判分链路。
+                if not allow_hands_on:
+                    continue
+                answer_raw = it.get("answer")
+                if isinstance(answer_raw, str):
+                    answers = [answer_raw]
+                elif isinstance(answer_raw, list):
+                    answers = [str(a) for a in answer_raw]
+                else:
+                    answers = [str(answer_raw or "")]
+                answers = [a.strip() for a in answers if str(a).strip()]
+                if not answers:
+                    continue
+                out.append({"type": "hands_on", "stem": stem, "answer": answers,
+                            "explanation": explanation})
 
             elif qtype == "open":
                 answer = str(it.get("answer") or "").strip()
@@ -2225,7 +2277,10 @@ class CourseService:
                         ensure_ascii=False,
                     )
 
-                if it["type"] == "fill_in":
+                if it["type"] in ("fill_in", "hands_on"):
+                    # 实操题与填空题共用「可接受答案数组」的落库形式；
+                    # 漏掉 hands_on 会落到下面的 else 被 str(list) 成字符串，
+                    # 判分时按字符遍历 → 必然判错（实测踩到）。
                     answer = json.dumps([_strip_marks(a, table) for a in it["answer"]],
                                         ensure_ascii=False)
                 elif it["type"] in ("single", "boolean"):
@@ -2437,7 +2492,8 @@ class CourseService:
                 "expected": label,
             }
 
-        if qtype == "fill_in":
+        if qtype in ("fill_in", "hands_on"):
+            # 实操题与填空题判分规则一致：可接受答案数组 + 归一化匹配。
             answers = [a for a in _json_loads(row["answer"], []) if str(a).strip()]
             given = _norm_text(str(raw_answer or ""))
             correct = bool(given) and any(_norm_text(a) == given for a in answers)
@@ -2726,6 +2782,8 @@ class CourseService:
             "depth": row["depth"],
             "depth_name": _DEPTH_NAME.get(row["depth"], row["depth"]),
             "unit_count": row["unit_count"],
+            # 旧库可能没有该列（迁移前创建的行），取不到时按「含实操」处理
+            "hands_on": bool(self._row_get(row, "hands_on", 1)),
             "summary": row["summary"],
             "status": row["status"],
             "error": row["error"],

@@ -179,6 +179,27 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                    f"first={hl.get('firstTitle') if hl else ''} hl={hl.get('hlTitle') if hl else ''}")
             _check("2.44 已完成的讲次不被高亮", bool(hl and hl.get("firstIsHl") is False), f"hl={hl}")
 
+            # ---- C 批：建课向导的课程级「实践环节」开关 ----
+            await ev("(function(){var b=document.getElementById('btn-new');"
+                     "if(b){b.click();return true;}return false;})()")
+            await _asyncio.sleep(1.0)
+            wh = await ev("""(function(){
+                var s=document.getElementById('f-hands');
+                return {exists:!!s,
+                        opts: s?Array.prototype.map.call(s.options,function(o){return o.textContent;}) : [],
+                        goal: !!document.getElementById('f-goal')};
+            })()""")
+            _check("2.45 建课向导含「实践环节」开关", bool(wh and wh.get("exists") and wh.get("goal")),
+                   f"wh={wh}")
+            _check("2.46 开关可区分「包含实操 / 纯理论」",
+                   bool(wh and len(wh.get("opts") or []) == 2
+                        and any("实操" in (o or "") for o in wh["opts"])
+                        and any("纯理论" in (o or "") for o in wh["opts"])),
+                   f"opts={wh.get('opts') if wh else None}")
+            # 取消向导，回到列表（避免 S.creating 残留影响后续断言）
+            await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
+            await _asyncio.sleep(0.6)
+
             # ---- 上课 / 暂停继续 / 回到课堂浮动入口 ----
             await ev("location.hash='#/lessons/%s'" % lesson_id)
             await _asyncio.sleep(3.0)
@@ -1127,6 +1148,27 @@ def main() -> int:
               (re.search(r'<button[^>]*id="q-next"[^>]*>', dom) or [""])[0]
               if re.search(r'<button[^>]*id="q-next"[^>]*>', dom) else "未找到按钮")
         check("2.27 给出未作答提示", "未作答时无法进入下一题" in dom)
+
+        # C 批：hands_on 回填式实操题的渲染（重新出题换成含 hands_on 的桩，
+        # 桩把 hands_on 放在第一题，无状态 dump 才能看到徽章）。
+        # 注意此处已在 with httpx.Client 块之外，必须另开 client。
+        with httpx.Client(trust_env=False, timeout=20) as c2:
+            c2.put(f"{BASE}/api/settings", json={"llm": {"model": "mock-practice-hands"}})
+            r = c2.post(f"{BASE}/api/courses/lessons/{lesson_id}/practice",
+                        json={"count": 5}).json()
+            for _ in range(160):
+                job = c2.get(f"{BASE}/api/courses/jobs/{r['data']['job_id']}").json()["data"]
+                if job["status"] in ("ready", "failed"):
+                    break
+                time.sleep(0.5)
+        hdom = dump(f"{BASE}/#/practice/{lesson_id}")
+        check("2.27a 实操题渲染「🖐 实操题」徽章",
+              "hands-on-badge" in hdom and "实操题" in hdom)
+        check("2.27b 实操题题干与回填提示就位",
+              "chcp" in hdom and "把你实际操作看到的结果填进来" in hdom)
+        check("2.27c 实操题用单行输入作答（fill-input）", "fill-input" in hdom)
+        with httpx.Client(trust_env=False, timeout=20) as c3:
+            c3.put(f"{BASE}/api/settings", json={"llm": {"model": "mock-practice"}})
 
         # 授课舞台：屏幕中下方字幕（暂停式互动检查点已按用户要求永久移除）
         dom_lesson = dump(f"{BASE}/#/lessons/{lesson_id}")

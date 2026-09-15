@@ -30,6 +30,9 @@ class CourseCreate(BaseModel):
     depth: str = Field(default="standard", description="brief|standard|detailed")
     unit_count: int | None = Field(default=None, ge=1, le=8, description="单元数量；不填 = 由系统按材料体量自动决定")
     language: str = Field(default="zh", description="课程语言")
+    hands_on: bool = Field(
+        default=True,
+        description="是否包含实践环节（真实操作类题目/讲稿操作任务）；纯理论课程可关闭")
 
 
 class GoalSuggest(BaseModel):

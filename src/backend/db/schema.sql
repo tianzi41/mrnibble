@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS courses (
   depth       TEXT NOT NULL DEFAULT 'standard',   -- brief|standard|detailed
   unit_count  INTEGER NOT NULL DEFAULT 3,
   language    TEXT NOT NULL DEFAULT 'zh',
+  hands_on    INTEGER NOT NULL DEFAULT 1,        -- 是否包含实操环节（0=纯理论课，不出 hands_on 题）
   summary     TEXT,
   outline_json TEXT,                              -- 生成/编辑后的完整大纲快照
   status      TEXT NOT NULL DEFAULT 'drafting',   -- drafting|ready|failed
@@ -253,7 +254,7 @@ CREATE TABLE IF NOT EXISTS practice_questions (
   id            TEXT PRIMARY KEY,
   lesson_id     TEXT NOT NULL REFERENCES course_lessons(id) ON DELETE CASCADE,
   ordinal       INTEGER NOT NULL,
-  type          TEXT NOT NULL,                    -- single|boolean|fill_in|open
+  type          TEXT NOT NULL,                    -- single|boolean|fill_in|hands_on|open
   stem          TEXT NOT NULL,
   options       TEXT,                             -- JSON 数组（single/boolean）
   answer        TEXT NOT NULL,                    -- JSON：single/boolean=下标；fill_in=可接受答案数组；open=参考答案

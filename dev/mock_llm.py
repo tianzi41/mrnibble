@@ -454,6 +454,24 @@ def _pick(body: dict) -> str:
              "options": ["极限的定义", "洛必达法则的适用前提", "连续性", "导数运算法则"],
              "answer": 1, "explanation": "见材料对应页 [[c:2]]", "image": {"n": 2}},
         ]}, ensure_ascii=False)
+    if model == "mock-practice-hands":
+        # 含 1 道回填式实操题（hands_on）：课程开关**开启**时保留、可判分；
+        # 课程开关**关闭**时应在 _validate_practice 被兜底剥除（提示词已禁止，
+        # 这里验证的是模型不听话时的第二道防线）。
+        return json.dumps({"items": [
+            # hands_on 放第一题：练习页一次只显示一题（无状态 dump 只能看到第 1 题），
+            # 放到首位才能让「实操题徽章」的端到端断言看到它。
+            {"type": "hands_on",
+             "stem": "打开 CMD 输入 chcp 并回车，把你看到的活动代码页编号填进来",
+             "answer": ["936", "65001"], "explanation": "材料提到 936 与 65001 [[c:1]]"},
+            {"type": "single", "stem": "chcp 命令的作用是 [[c:1]]",
+             "options": ["切换活动代码页", "复制文件", "查看磁盘", "结束进程"],
+             "answer": 0, "explanation": "材料说明 chcp 用于切换活动代码页 [[c:1]]"},
+            {"type": "fill_in", "stem": "UTF-8 对应的代码页编号是 ____",
+             "answer": ["65001"], "explanation": "见材料 [[c:1]]"},
+            {"type": "boolean", "stem": "代码页决定非 ASCII 字符的解释方式 [[c:1]]",
+             "options": ["正确", "错误"], "answer": 0, "explanation": "材料原文 [[c:1]]"},
+        ]}, ensure_ascii=False)
     if model == "mock-grade":
         return json.dumps({"correct": True, "score": 0.8,
                            "feedback": "答出了核心要点，建议补充「先验证类型」这一步。"},
@@ -525,7 +543,7 @@ MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-
                "mock-echo-context", "mock-echo-guided", "mock-good-guided", "mock-stall-guided",
                "mock-outline", "mock-lecture", "mock-practice", "mock-grade",
                "mock-summary", "mock-goals", "mock-spy-goals", "mock-outline-5", "mock-echo-flags",
-               "mock-lecture-p1",
+               "mock-lecture-p1", "mock-practice-hands",
                "mock-lecture-mirror", "mock-lecture-stubborn")
 
 
