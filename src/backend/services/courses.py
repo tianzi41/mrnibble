@@ -163,12 +163,20 @@ def _norm_desc(raw: Any, kind: str) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
 
+    def scalar(v: Any) -> str:
+        """只接受标量（str/int/float），dict/list/None 一律空串——防 repr 原文混进 desc。"""
+        if isinstance(v, str):
+            return v.strip()
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return str(v).strip()
+        return ""
+
     def strs(v: Any, limit: int, width: int) -> list[str]:
         if not isinstance(v, list):
             return []
         out: list[str] = []
         for x in v[:limit]:
-            s = str(x or "").strip()
+            s = scalar(x)
             if s:
                 out.append(s[:width])
         return out
@@ -178,7 +186,7 @@ def _norm_desc(raw: Any, kind: str) -> dict[str, Any] | None:
             "exercise_focus": strs(raw.get("exercise_focus"), 3, 30),
             "expected_mistakes": strs(raw.get("expected_mistakes"), 3, 30),
         }
-        flow = str(raw.get("exercise_flow") or "").strip()[:60]
+        flow = scalar(raw.get("exercise_flow"))[:60]
         if flow:
             d["exercise_flow"] = flow
     else:
@@ -190,11 +198,11 @@ def _norm_desc(raw: Any, kind: str) -> dict[str, Any] | None:
         }
         tr = raw.get("transition")
         if isinstance(tr, dict):
-            t = {k: str(tr.get(k) or "").strip()[:25] for k in ("prev", "next", "avoid")}
+            t = {k: scalar(tr.get(k))[:25] for k in ("prev", "next", "avoid")}
             t = {k: v for k, v in t.items() if v}
             if t:
                 d["transition"] = t
-        vis = str(raw.get("visual") or "").strip()[:40]
+        vis = scalar(raw.get("visual"))[:40]
         if vis and vis != "无":
             d["visual"] = vis
     return {k: v for k, v in d.items() if v} or None
@@ -1006,30 +1014,46 @@ class CourseService:
             fixes = parsed.get("fixes")
             if not isinstance(fixes, list):
                 return obj
-            applied = 0
+            applied = skipped = 0
             for f in fixes:
                 if not isinstance(f, dict):
                     continue
-                try:
-                    ui, li = int(f.get("unit")), int(f.get("lesson"))
-                except (TypeError, ValueError):
+                ui, li = f.get("unit"), f.get("lesson")
+                # 严格整数（bool 也是 int 子类，要排除）：float 2.5 静默截成 2 会修错讲
+                if not isinstance(ui, int) or isinstance(ui, bool) \
+                        or not isinstance(li, int) or isinstance(li, bool):
+                    skipped += 1
                     continue
                 if not (1 <= ui <= len(obj["units"])):
+                    skipped += 1
                     continue
                 lessons = obj["units"][ui - 1]["lessons"]
                 if not (1 <= li <= len(lessons)):
+                    skipped += 1
                     continue
                 nd = _norm_desc(f.get("desc"), str(lessons[li - 1]["kind"]))
-                if nd:
-                    lessons[li - 1]["desc"] = nd
-                    applied += 1
+                if not nd:
+                    skipped += 1
+                    continue
+                # 按字段 merge：模型在 fix 里漏写的字段保留原值（整包替换会抹字段）
+                old = lessons[li - 1].get("desc")
+                if isinstance(old, dict):
+                    merged = dict(old)
+                    merged.update(nd)
+                    nd = merged
+                lessons[li - 1]["desc"] = nd
+                applied += 1
             if applied:
                 logger.info(
-                    "大纲对齐校验修正 %d 讲", applied,
+                    "大纲对齐校验修正 %d 讲（跳过非法 fix %d 条）", applied, skipped,
                     extra={"extra_fields": {"type": "outline_align"}},
                 )
             return obj
-        except Exception:  # noqa: BLE001 - 非阻塞防线
+        except Exception as exc:  # noqa: BLE001 - 非阻塞防线（但留痕备查）
+            logger.warning(
+                "大纲对齐校验失败，已静默跳过：%s", type(exc).__name__,
+                extra={"extra_fields": {"type": "outline_align"}},
+            )
             return obj
 
     def _persist_outline(
@@ -3162,40 +3186,45 @@ class CourseService:
             return ""
         if not isinstance(d, dict) or not d:
             return ""
-        lines = ["【本讲教学设计】（大纲阶段已规划，本讲必须遵守：", ]
+        # 第二道防线：按讲次类型只渲染对应字段组——即使库里 desc 被污染
+        # （lecture 行混入 exercise 字段，或 align 修复写错 kind），也不会串。
+        is_practice = str(lesson.get("kind") or "lecture") == "practice"
         rules: list[str] = []
-        if d.get("knowledge_points"):
+        if not is_practice and d.get("knowledge_points"):
             rules.append("知识点只讲边界清单内的内容")
-        if (d.get("transition") or {}).get("avoid"):
+        if not is_practice and (d.get("transition") or {}).get("avoid"):
             rules.append("avoid 点名的部分留给相邻讲次")
-        if rules:
-            lines[0] = "【本讲教学设计】（大纲阶段已规划，本讲必须遵守：" + "；".join(rules) + "）"
-        if d.get("outcomes"):
-            lines.append("学习目标：" + "；".join(d["outcomes"]))
-        if d.get("knowledge_points"):
-            lines.append("知识点边界：" + "；".join(d["knowledge_points"]))
-        if d.get("concepts"):
-            lines.append("术语口径（全课程统一译名）：" + "、".join(d["concepts"]))
-        if d.get("operations"):
-            lines.append("涉及操作：" + "；".join(d["operations"]))
-        tr = d.get("transition") or {}
-        seg = []
-        if tr.get("prev"):
-            seg.append("承接——" + tr["prev"])
-        if tr.get("next"):
-            seg.append("引向——" + tr["next"])
-        if tr.get("avoid"):
-            seg.append("避免展开——" + tr["avoid"])
-        if seg:
-            lines.append("讲间衔接：" + "；".join(seg))
-        if d.get("visual") and d["visual"] != "无":
-            lines.append("可视化提示：" + d["visual"])
-        if d.get("exercise_focus"):
-            lines.append("考察点（指向哪几讲的内容）：" + "；".join(d["exercise_focus"]))
-        if d.get("expected_mistakes"):
-            lines.append("学生易错点（供设计干扰项）：" + "；".join(d["expected_mistakes"]))
-        if d.get("exercise_flow"):
-            lines.append("题型安排：" + d["exercise_flow"])
+        head = ("【本讲教学设计】（大纲阶段已规划，本讲必须遵守：" + "；".join(rules) + "）"
+                if rules else "【本讲教学设计】（大纲阶段已规划）")
+        lines = [head]
+        if not is_practice:
+            if d.get("outcomes"):
+                lines.append("学习目标：" + "；".join(d["outcomes"]))
+            if d.get("knowledge_points"):
+                lines.append("知识点边界：" + "；".join(d["knowledge_points"]))
+            if d.get("concepts"):
+                lines.append("术语口径（全课程统一译名）：" + "、".join(d["concepts"]))
+            if d.get("operations"):
+                lines.append("涉及操作：" + "；".join(d["operations"]))
+            tr = d.get("transition") or {}
+            seg = []
+            if tr.get("prev"):
+                seg.append("承接——" + tr["prev"])
+            if tr.get("next"):
+                seg.append("引向——" + tr["next"])
+            if tr.get("avoid"):
+                seg.append("避免展开——" + tr["avoid"])
+            if seg:
+                lines.append("讲间衔接：" + "；".join(seg))
+            if d.get("visual") and d["visual"] != "无":
+                lines.append("可视化提示：" + d["visual"])
+        else:
+            if d.get("exercise_focus"):
+                lines.append("考察点（指向哪几讲的内容）：" + "；".join(d["exercise_focus"]))
+            if d.get("expected_mistakes"):
+                lines.append("学生易错点（供设计干扰项）：" + "；".join(d["expected_mistakes"]))
+            if d.get("exercise_flow"):
+                lines.append("题型安排：" + d["exercise_flow"])
         if len(lines) == 1:
             return ""
         return "\n".join(lines) + "\n"
