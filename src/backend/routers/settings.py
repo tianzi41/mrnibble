@@ -39,6 +39,24 @@ def test_settings(payload: SettingsTestRequest) -> dict[str, Any]:
     return ok(service.test(payload.target))
 
 
+@router.get("/settings/embed/status", summary="本地 bge 语义模型就绪状态")
+def embed_status() -> dict[str, Any]:
+    """设置页展示「bge 模型是否已下载」与当前本地引擎。"""
+    from ..services.embedder import get_embedder
+
+    service = get_settings_service()
+    cfg = service.get_public().get("embed", {})
+    emb = get_embedder()
+    bge = emb._get_bge({   # noqa: SLF001 - 路由层读取就绪状态，复用门面解析逻辑
+        "local_dir": (cfg or {}).get("local_dir") or "models/embed/bge-small-zh-v1.5",
+    })
+    return ok({
+        "local_engine": (cfg or {}).get("local_engine") or "hash",
+        "bge_available": bool(bge),
+        "bge_dir": str(bge.dir) if bge else "",
+    })
+
+
 @router.get("/settings/ollama/models", summary="列出本机 Ollama 模型")
 def list_ollama_models() -> dict[str, Any]:
     """调用 Ollama ``/api/tags`` 返回模型名列表。"""

@@ -3418,6 +3418,8 @@ class CourseService:
             "title": row["title"],
             "objective": row["objective"],
             "depth": row["depth"],
+            # 大纲阶段生成的「本讲教学设计」（旧课程为 None）；大纲预览界面展示用
+            "desc": _json_loads(_row_get(row, "desc_json"), None),
             "status": row["status"],
             "board": board,
             "slides": slides,

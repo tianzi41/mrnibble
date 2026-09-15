@@ -125,11 +125,17 @@
   function prime(text, opts) {
     try {
       opts = opts || {};
-      const detailed = !!opts.detailed;
+      // ⚠️ 切块规则必须与 speak() **逐字一致**（detailed 由 chunkChars 推导，
+      // 不让调用方传——曾经 prime 恒用 splitChunks、speak 字幕模式用
+      // splitBySentence，缓存永远不命中，页间冷启动合成就是「段落间停 2 秒」）。
       const hardMax = _engine === "system" ? 1200 : (_engine === "melo" ? 120 : 1200);
+      const detailed = Number(opts.chunkChars) > 0;
       const chunkMax = detailed ? Math.min(Number(opts.chunkChars), hardMax) : hardMax;
-      const capped = String(text || "").slice(0, Math.max(40, hardMax));
-      const pieces = splitChunks(capped, chunkMax);   // 与 speak 非详细模式同一切块规则，保证缓存命中
+      // 预热总量上限：melo 是 CPU 合成，预热太多会抢正在播放页的合成资源；
+      // splitBySentence 贪心顺序切分对前缀稳定，前 N 字的切块结果与全文一致。
+      const capTotal = _engine === "melo" ? 1200 : 4000;
+      const capped = String(text || "").slice(0, capTotal);
+      const pieces = detailed ? splitBySentence(capped, chunkMax) : splitChunks(capped, chunkMax);
       const fetchOne = _engine === "cloud"
         ? requestCloud
         : (t) => requestLocal(t).then((b) => ({ blob: b, mime: "audio/wav" }));

@@ -19,7 +19,7 @@
 import os
 import sys
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 # spec 相对路径以 spec 文件所在目录为基准，这里统一换算到项目根。
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
@@ -44,6 +44,13 @@ hiddenimports += collect_submodules("jieba")
 
 # sherpa-onnx 的原生 DLL 由 PyInstaller 自动收集；这里补充其子模块。
 hiddenimports += collect_submodules("sherpa_onnx")
+
+# 本地语义嵌入（embed.local_engine=bge 时启用；默认关闭但依赖随包，保证开了就能用）：
+# onnxruntime 的子模块 + 原生 DLL；tokenizers 是 Rust 扩展（.pyd 也要收）。
+hiddenimports += collect_submodules("onnxruntime")
+binaries += collect_dynamic_libs("onnxruntime")
+hiddenimports += collect_submodules("tokenizers")
+binaries += collect_dynamic_libs("tokenizers")
 
 # 关键：routers/__init__.py 用 importlib 动态加载各子路由，PyInstaller 静态分析
 # 看不到这些依赖，必须显式全部收集，否则打包后 chat/memory/generation/export/

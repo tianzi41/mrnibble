@@ -1070,6 +1070,14 @@ def main() -> int:
               sys_z2[sys_z2.find("【本讲教学设计"):][:120] if "【本讲教学设计" in sys_z2
               else "提示词中未找到教学设计块")
 
+        # Z5 desc 展示到大纲预览：课程详情 API 的讲次输出带 desc 字段
+        det_y = get(f"/api/courses/{cid_y1}")["data"]
+        _l0 = det_y["units"][0]["lessons"][0]
+        check("Z5 课程详情 API 输出讲次 desc（大纲预览展示用）",
+              isinstance(_l0.get("desc"), dict)
+              and bool(_l0["desc"].get("knowledge_points")),
+              json.dumps(_l0.get("desc"), ensure_ascii=False)[:100])
+
         # Z3 大纲对齐校验真的发起了：同一次出纲里 spy 应同时落盘
         # 大纲调用与「课程审校」对齐校验调用（JSONL 两行）
         SPY.unlink(missing_ok=True)

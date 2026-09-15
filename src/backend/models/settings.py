@@ -44,6 +44,9 @@ class EmbedSettings(BaseModel):
     base_url: str | None = None
     model: str | None = None
     api_key: str | None = None
+    # 本地引擎：hash（默认，零下载）| bge（语义模型，需先运行 download_bge_model.py）
+    local_engine: Literal["hash", "bge"] | None = Field(default=None)
+    local_dir: str | None = Field(default=None, description="本地 bge 模型目录")
 
 
 class TTSSettings(BaseModel):

@@ -259,13 +259,37 @@
       <div class="hint">时间取决于模型速度，通常十几秒到一分钟。</div></div>`;
   }
 
+  /** 讲次教学设计 desc → 折叠展示块（只读；无 desc 返回空串）。 */
+  function descHtml(d) {
+    if (!d || typeof d !== "object") return "";
+    const rows = [];
+    if (d.outcomes) rows.push(`学习目标：${esc(d.outcomes.join("；"))}`);
+    if (d.knowledge_points) rows.push(`知识点边界：${esc(d.knowledge_points.join("；"))}`);
+    if (d.concepts) rows.push(`术语口径：${esc(d.concepts.join("、"))}`);
+    if (d.operations) rows.push(`涉及操作：${esc(d.operations.join("；"))}`);
+    const tr = d.transition || {};
+    const seg = [];
+    if (tr.prev) seg.push(`承接 ${esc(tr.prev)}`);
+    if (tr.next) seg.push(`引向 ${esc(tr.next)}`);
+    if (tr.avoid) seg.push(`避免展开 ${esc(tr.avoid)}`);
+    if (seg.length) rows.push(`讲间衔接：${seg.join("；")}`);
+    if (d.visual && d.visual !== "无") rows.push(`可视化提示：${esc(d.visual)}`);
+    if (d.exercise_focus) rows.push(`考察点：${esc(d.exercise_focus.join("；"))}`);
+    if (d.expected_mistakes) rows.push(`学生易错点：${esc(d.expected_mistakes.join("；"))}`);
+    if (d.exercise_flow) rows.push(`题型安排：${esc(d.exercise_flow)}`);
+    if (!rows.length) return "";
+    return `<details class="lesson-desc"><summary>教学设计（AI 按此备课）</summary>
+      <div class="hint" style="margin:6px 0 0">${rows.map((r) => `<div>· ${r}</div>`).join("")}</div></details>`;
+  }
+
   /** 结构确认：可改标题/目标、删除讲次，确认后进入课程。 */
   function confirmOutline(host, courseId) {
     const c = S.course;
     const draft = JSON.parse(JSON.stringify(c.units ? { title: c.title, units: c.units } : { units: [] }));
     draft.units = draft.units.map((u) => ({
       title: u.title, summary: u.summary,
-      lessons: u.lessons.map((l) => ({ title: l.title, objective: l.objective, kind: l.kind })),
+      // desc：大纲阶段生成的「本讲教学设计」，只读展示（改标题/目标不会重算它）
+      lessons: u.lessons.map((l) => ({ title: l.title, objective: l.objective, kind: l.kind, desc: l.desc || null })),
     }));
 
     // 已有讲次 id 说明这门课已经落库过 → 本次是「编辑结构」而不是首次确认。
@@ -319,6 +343,8 @@
           x.onclick = () => { u.lessons.splice(li, 1); paint(); };
           row.appendChild(t); row.appendChild(o); row.appendChild(x);
           box.appendChild(row);
+          const dd = descHtml(l.desc);
+          if (dd) box.insertAdjacentHTML("beforeend", dd);
         });
         const add = el("button", "btn small", "＋ 讲次");
         add.onclick = () => {

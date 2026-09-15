@@ -66,11 +66,15 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("llm.temperature", "0.7", False, "float"),
     SettingSpec("llm.max_tokens", "2048", False, "int"),
     SettingSpec("llm.enable_thinking", "false", False, "bool"),
-    SettingSpec("llm.enable_thinking", "false", False, "bool"),
     SettingSpec("embed.provider", "auto", False, "str"),
     SettingSpec("embed.base_url", "", False, "str"),
     SettingSpec("embed.model", "", False, "str"),
     SettingSpec("embed.api_key", "", True, "str"),
+    # 本地嵌入引擎：hash=字符 n-gram 哈希（零下载，默认）；bge=本地 bge-small-zh
+    # 语义模型（ONNX INT8 约 24MB，scripts/download_bge_model.py 下载；模型不完整
+    # 时自动回退 hash——开关即「语义检索默认关」的用户决策落地）。
+    SettingSpec("embed.local_engine", "hash", False, "str"),
+    SettingSpec("embed.local_dir", "models/embed/bge-small-zh-v1.5", False, "str"),
     SettingSpec("tts.enabled", "false", False, "bool"),
     SettingSpec("tts.mode", "off", False, "str"),
     SettingSpec("tts.base_url", "", False, "str"),

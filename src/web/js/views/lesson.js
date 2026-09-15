@@ -1032,7 +1032,12 @@
     sub.onclick = S.voicePaused ? () => {
       S.voicePaused = false;
       Voice.resume();
-      renderHead();
+      // 只重画动作按钮（▶/⏸ 标签），**不能调 renderHead()**——它会重建
+      // #lesson-head（含一个空的 #tab-body 占位），把课件区整个清空，
+      // 要等本页讲完 nextSlide() 里 renderTabBody() 才恢复 —— 这正是
+      // 「点字幕恢复后课件消失约 30 秒」的根因（顶部 ▶ 按钮只调
+      // renderStage()，所以一直正常）。
+      renderActions();
       renderStage();
     } : null;
     sub.style.cursor = S.voicePaused ? "pointer" : "";
@@ -1287,6 +1292,29 @@
     return `第 ${ui + 1} 单元 · 第 ${li + 1} 课 / 本单元共 ${lessons.length} 课`;
   }
 
+  /** 讲次教学设计 desc → 折叠展示块（与课程结构页同一格式；无 desc 返回空串）。 */
+  function descHtml(d) {
+    if (!d || typeof d !== "object") return "";
+    const rows = [];
+    if (d.outcomes) rows.push(`学习目标：${esc(d.outcomes.join("；"))}`);
+    if (d.knowledge_points) rows.push(`知识点边界：${esc(d.knowledge_points.join("；"))}`);
+    if (d.concepts) rows.push(`术语口径：${esc(d.concepts.join("、"))}`);
+    if (d.operations) rows.push(`涉及操作：${esc(d.operations.join("；"))}`);
+    const tr = d.transition || {};
+    const seg = [];
+    if (tr.prev) seg.push(`承接 ${esc(tr.prev)}`);
+    if (tr.next) seg.push(`引向 ${esc(tr.next)}`);
+    if (tr.avoid) seg.push(`避免展开 ${esc(tr.avoid)}`);
+    if (seg.length) rows.push(`讲间衔接：${seg.join("；")}`);
+    if (d.visual && d.visual !== "无") rows.push(`可视化提示：${esc(d.visual)}`);
+    if (d.exercise_focus) rows.push(`考察点：${esc(d.exercise_focus.join("；"))}`);
+    if (d.expected_mistakes) rows.push(`学生易错点：${esc(d.expected_mistakes.join("；"))}`);
+    if (d.exercise_flow) rows.push(`题型安排：${esc(d.exercise_flow)}`);
+    if (!rows.length) return "";
+    return `<details class="lesson-desc"><summary>教学设计（AI 按此备课）</summary>
+      <div class="hint" style="margin:6px 0 0">${rows.map((r) => `<div>· ${r}</div>`).join("")}</div></details>`;
+  }
+
   function renderHead() {
     const l = S.lesson;
     const box = document.getElementById("lesson-head");
@@ -1302,6 +1330,7 @@
       </div>
       <div class="tabs" id="lesson-tabs"></div>
       <div class="hint">${esc(l.objective || "")}</div>
+      ${descHtml(l.desc)}
       <div id="tab-body"></div>`;
     renderActions();
   }

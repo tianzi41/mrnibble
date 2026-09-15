@@ -74,6 +74,16 @@
           <div class="field"><label>模型名</label><input type="text" id="em-model" value="${cfg.embed.model}" placeholder="text-embedding-3-small"></div>
         </div>
         <div class="row">
+          <div class="field" style="max-width:220px"><label>本地引擎（默认 hash；bge = 本地语义模型）</label>
+            <select id="em-local-engine">
+              <option value="hash" ${cfg.embed.local_engine !== "bge" ? "selected" : ""}>hash — 字符哈希（零下载，默认）</option>
+              <option value="bge" ${cfg.embed.local_engine === "bge" ? "selected" : ""}>bge — 语义模型（约 24MB，默认关闭）</option>
+            </select>
+            <div class="hint" id="em-bge-status" style="margin-top:4px"></div>
+          </div>
+          <div class="field"><label>本地模型目录（相对随包 models/ 或绝对路径）</label><input type="text" id="em-local-dir" value="${cfg.embed.local_dir || "models/embed/bge-small-zh-v1.5"}"></div>
+        </div>
+        <div class="row">
           <button class="btn small" id="em-models">拉取可用模型</button>
           <div id="em-model-list" class="hint"></div>
         </div>
@@ -210,7 +220,13 @@
         document.getElementById("em-model").focus();
         return Toast("云端嵌入必须填写模型名（如 BAAI/bge-m3）", true);
       }
-      const patch = { embed: { provider: provider, base_url: base, model: model } };
+      const patch = {
+        embed: {
+          provider: provider, base_url: base, model: model,
+          local_engine: val("em-local-engine") || "hash",
+          local_dir: val("em-local-dir") || "",
+        },
+      };
       const key = val("em-key");
       if (key) patch.embed.api_key = key;
       await Api.put("/api/settings", patch);
@@ -220,6 +236,16 @@
         Toast("嵌入配置已保存");
       }
     };
+
+    // bge 模型就绪状态（只读展示；下载用 scripts/download_bge_model.py）
+    Api.get("/api/settings/embed/status").then((st) => {
+      const el2 = document.getElementById("em-bge-status");
+      if (el2 && st) {
+        el2.textContent = st.bge_available
+          ? "✅ bge 模型已就绪（" + (st.bge_dir || "") + "）"
+          : "bge 模型未下载：运行 scripts/download_bge_model.py（约 24MB）；未就绪时自动回退 hash，不影响使用";
+      }
+    }).catch(() => { /* 状态拿不到就不显示 */ });
 
     document.getElementById("tts-mode").onchange = (e) => updateTTSVis(e.target.value);
     updateTTSVis(cfg.tts.mode);
