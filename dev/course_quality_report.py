@@ -73,6 +73,16 @@ def collect_runs() -> list[dict]:
     return runs
 
 
+# 前 3 次运行属于「优化前」：图示是软引导（"用图更清楚时"）、篇幅档下限 8~10/10~12/12~16、
+# 每单元讲次数写死 2~4。第 4 次起是「图示硬约束 + 服务端补图兜底 + 页数下限收紧 +
+# 单元讲次数弹性」之后。用它把「改前 / 改后」分开统计。
+OPT_BOUNDARY = 3
+
+
+def _avg(xs: list) -> float:
+    return sum(xs) / len(xs) if xs else 0.0
+
+
 def cjk(s: str) -> int:
     return len(re.sub(r"\s+", "", str(s or "")))
 
@@ -137,14 +147,55 @@ def build(data: dict) -> str:
         A("")
         diag_vals = [r["diagram"] for r in runs]
         if len(set(diag_vals)) > 1:
-            A(f"**结论：图示产出不稳定。** 各次运行产出的图示页数为 {diag_vals} —— "
+            A(f"**结论：图示产出仍有波动。** 各次运行产出的图示页数为 {diag_vals} —— "
               f"同一材料同一提示词下，模型有时一页图都不画（{min(diag_vals)} 页），"
-              f"有时画出 {max(diag_vals)} 页。**这是当前课件可视化的最大问题**："
-              f"不是「画得不好」，而是「画不画全看运气」。")
+              f"有时画出 {max(diag_vals)} 页。这就是「硬约束 + 服务端补图兜底」要解决的问题："
+              f"不是「画得不好」，而是「画不画看运气」。")
             A("")
         if any(r["compiler_fail"] for r in runs):
             A("同时可确认：**一旦模型真的产出图示，Archify 校验链路就在工作** —— "
               "未通过的 IR 会被拦下并带诊断重写（见第三节「图示校验回执」）。")
+            A("")
+
+    # ── 0b. 优化前后对照 ────────────────────────────────────
+    if len(runs) > OPT_BOUNDARY:
+        before, after = runs[:OPT_BOUNDARY], runs[OPT_BOUNDARY:]
+        A(f"## 〇之二、优化效果对照（前 {len(before)} 次 = 优化前 ／ 后 {len(after)} 次 = 优化后）")
+        A("")
+        A("优化内容：图示从「软引导」改**硬约束**、加**服务端补图兜底**、"
+          "篇幅档页数下限收紧（10/12/14）、单元讲次数改为**按内容体量弹性**（原写死 2~4）。")
+        A("")
+
+        def _side(rs: list[dict]) -> dict:
+            pages = [p for r in rs for p in r["pages"]]
+            les = sum(r["lessons"] for r in rs) or 1
+            return {
+                "讲次样本": les,
+                "平均页数/讲": round(_avg(pages), 1),
+                "最少页数": min(pages) if pages else 0,
+                # 计数类一律按「每讲」归一化：两组样本量不同（18 vs 5），
+                # 直接比原始条数会得出反向结论。
+                "diagram 页/讲": round(sum(r["diagram"] for r in rs) / les, 2),
+                "有图的讲占比": f"{sum(r['diagram'] for r in rs) / les * 100:.0f}%",
+                "table 页/讲": round(sum(r["table"] for r in rs) / les, 2),
+                "chart 页/讲": round(sum(r["chart"] for r in rs) / les, 2),
+                "引用条数/讲": round(sum(sum(r["citations"]) for r in rs) / les, 1),
+            }
+
+        b, a = _side(before), _side(after)
+        A("| 指标 | 优化前 | 优化后 |")
+        A("|---|---|---|")
+        for k in b:
+            name = f"**{k}**" if k == "有图的讲占比" else k
+            A(f"| {name} | {b[k]} | {a[k]} |")
+        A("")
+        if a["平均页数/讲"] > b["平均页数/讲"]:
+            A(f"→ **每讲平均页数 {b['平均页数/讲']} → {a['平均页数/讲']}**"
+              f"（最少 {b['最少页数']} → {a['最少页数']} 页）。")
+            A("")
+        if a["有图的讲占比"] != b["有图的讲占比"]:
+            A(f"→ **有图示的讲占比 {b['有图的讲占比']} → {a['有图的讲占比']}**"
+              f"（按讲次计数；注意「有图」只统计 diagram，表格与金句不计入）。")
             A("")
 
     # ── 1. 大纲 ─────────────────────────────────────────────
@@ -417,31 +468,34 @@ def build(data: dict) -> str:
     A("")
     issues: list[str] = []
 
-    # 7.1 页数 vs 篇幅档要求（standard = 10~12 页）
+    # 7.1 页数 vs 篇幅档要求（standard = 12~14 页，下限 12）
     if L:
         pages = [x["slides_n"] for x in L]
-        under = [x for x in L if x["slides_n"] < 10]
+        under = [x for x in L if x["slides_n"] < 12]
         if under:
             issues.append(
-                f"**页数未达篇幅档下限**：standard 档要求 10~12 页，实测平均 "
-                f"{sum(pages)/len(pages):.1f} 页，{len(under)}/{len(L)} 讲少于 10 页"
-                f"（最少 {min(pages)} 页：{under[0]['title']}）")
+                f"**页数仍略低于篇幅档下限**：standard 档下限 12 页，实测平均 "
+                f"{sum(pages)/len(pages):.1f} 页（逐讲 {pages}），{len(under)}/{len(L)} 讲少于 12 页"
+                f"（最少 {min(pages)} 页）。相比优化前（平均 7.8~8.5 页、最少 5 页）已大幅接近，"
+                f"但还没完全达标——可考虑把下限再往上抬一档，或把「页数下限」写进输出前的自查清单")
+        else:
+            issues.append(f"页数达标：平均 {sum(pages)/len(pages):.1f} 页，全部 ≥12 页")
 
     # 7.2 图示覆盖率
     if L:
         with_diag = [x for x in L if any(p["viz"] == "diagram" for p in (x.get("viz_pages") or []))]
+        cover = len(with_diag) / len(L)
         runs2 = collect_runs()
         diag_vals = [r["diagram"] for r in runs2]
+        head = (f"**图示覆盖率 {len(with_diag)}/{len(L)}（{cover*100:.0f}%）**"
+                if cover >= 0.6 else
+                f"**图示覆盖率仍偏低：{len(with_diag)}/{len(L)}（{cover*100:.0f}%）**")
         issues.append(
-            f"**图示产出不稳定（首要问题）**：本轮 {len(with_diag)}/{len(L)} 讲含 diagram 页；"
-            f"跨 {len(runs2)} 次运行分别是 {diag_vals} 页 —— 同一材料同一提示词，"
-            f"模型有时一页图都不画。材料里其实有明确的可画内容"
-            f"（代码页翻译出错的过程、.bat→cmd→文件 的调用链、三种替代方案流程、"
-            f"GBK 与 UTF-8 的对照关系），**不是材料没问题，是提示词对「要不要画图」引导太软**："
-            f"现在写的是「内容更适合用图时就用」，模型可以正当地选择不画。"
-            f"**建议**：① 把约束改为「每讲至少 1 页可视化（材料含流程/对照/状态变化时），"
-            f"最多 2 页」；② 加服务端兜底——讲义落库后若整讲无可视化页、"
-            f"且材料里存在可用对照/流程内容，触发一次「补图」重写。")
+            f"{head}；跨 {len(runs2)} 次运行分别是 {diag_vals} 页。"
+            f"本轮之后已有「提示词硬约束 + 服务端补图兜底」两道防线，"
+            f"但**模型采样本身仍有随机性**，单轮达标不代表稳定 —— 需继续多轮抽样观察。"
+            f"材料里确实有可画内容（代码页翻译出错的过程、.bat→cmd→文件 的调用链、"
+            f"三种替代方案流程、GBK 与 UTF-8 的对照关系）。")
 
     # 7.3 表格同质化
     tabs = [p for x in L for p in (x.get("viz_pages") or []) if p["viz"] == "table"]
