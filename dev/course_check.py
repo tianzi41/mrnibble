@@ -929,6 +929,96 @@ def main() -> int:
 
         _cleanup_courses(cid_x)
 
+        # ── Y. 图示硬约束 + 补图兜底 + 篇幅下限 + 单元讲次数弹性 ──
+        print("\n[Y] 图示硬约束与补图兜底")
+
+        # Y0 补图兜底是**按材料内容**决定要不要触发的：
+        # 主测试材料（极限/洛必达）措辞里没有「步骤/对照/状态/层级」这类结构信号，
+        # 对它不补图才是正确行为（见 diagram_ir_check 6.2/6.3）。所以这里另配一份
+        # 明确含流程与对照的材料，用来验证「该补的时候真的会补」。
+        with httpx.Client(trust_env=False) as _cli:
+            _md = (
+                "# 编码问题排查流程与做法对照\n\n"
+                "## 排查步骤\n\n"
+                "第一步：确认文件保存的编码类型。第二步：检查命令行当前的活动代码页。"
+                "第三步：对比两者是否一致，不一致就会出现乱码。这个顺序不能颠倒。\n\n"
+                "## 两种做法对照\n\n"
+                "直接双击 .bat 的做法不安全；改为拖拽传参的做法安全。"
+                "两种做法的区别在于是否需要命令行解析中文，输入内容与输出内容是否一致。\n\n"
+                "## 状态切换\n\n"
+                "当代码页在不匹配的状态之间切换时，中文字节会被错误转换并变成乱码。\n\n"
+                "## 结构层级\n\n"
+                "从文件编码到控制台代码页再到字体，属于三个不同的层级，"
+                "任何一层不匹配都会出错，所以要按顺序逐层排查。\n"
+            ).encode("utf-8")
+            _r = _cli.post(f"{BACKEND}/api/documents/upload",
+                           files={"files": ("编码排查流程与对照.md", _md, "text/markdown")},
+                           timeout=60).json()
+            doc_vis = _r["data"]["documents"][0]["id"]
+            _st = ""
+            for _ in range(80):
+                _st = _cli.get(f"{BACKEND}/api/documents/{doc_vis}", timeout=10
+                               ).json()["data"]["document"]["status"]
+                if _st in ("ready", "failed"):
+                    break
+                time.sleep(0.5)
+        check("Y0 可视化材料上传并解析完成", _st == "ready", _st)
+
+        # Y1 大纲提示词实况：讲次数改由内容体量决定
+        # （旧版写死「每个单元 2~4 个讲次」，模型为了凑数会把一讲的内容拆薄 → 每讲仅 7~10 页）
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-outline")
+        r = post("/api/courses", {"goal": "提示词实况核对", "document_ids": [doc_vis],
+                                  "unit_count": 2, "depth": "standard"})
+        cid_y1 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_outline = " ".join(str(m.get("content") or "") for m in spy
+                               if m.get("role") == "system")
+        check("Y1 大纲提示词：讲次数由内容体量决定（不再写死 2~4）",
+              "由该单元的内容体量决定" in sys_outline
+              and "每个单元 2~4 个讲次" not in sys_outline
+              and "严禁为了凑数量" in sys_outline,
+              sys_outline[sys_outline.find("每个单元的讲次数"):][:120] or "未找到该规则")
+
+        # Y2 讲义提示词实况：图示硬要求 + 页数下限
+        lessons_y1 = [l for u in (get(f"/api/courses/{cid_y1}")["data"]["units"] or [])
+                      for l in u["lessons"] if l.get("kind") == "lecture"]
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-lecture")
+        r = post(f"/api/courses/lessons/{lessons_y1[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_lec = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "system")
+        check("Y2 讲义提示词：图示硬要求 + 篇幅下限（standard=少于 12 页不合格）",
+              "至少安排 1 页 diagram" in sys_lec
+              and "本讲若涉及" in sys_lec
+              and "少于 12 页即不合格" in sys_lec,
+              "缺硬要求" if "至少安排 1 页 diagram" not in sys_lec
+              else ("缺页数下限" if "少于 12 页即不合格" not in sys_lec else ""))
+
+        # Y3–Y6 补图兜底：整讲无可视化 → 服务端自动补 1 页
+        set_model("mock-lecture-plain")
+        r = post(f"/api/courses/lessons/{lessons_y1[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        det = get(f"/api/courses/lessons/{lessons_y1[0]['id']}")["data"]
+        ysl = det.get("slides") or []
+        ysc = det.get("scripts") or []
+        viz = [x for x in ysl if x.get("diagram") or x.get("chart") or x.get("table")]
+        check("Y3 整讲无可视化时服务端自动补 1 页", len(viz) == 1,
+              f"页数={len(ysl)} 可视化={len(viz)} kinds={[x.get('kind') for x in ysl]}")
+        check("Y4 补的图走了 Archify 校验链（是编译后的 SVG，不是裸 IR）",
+              bool(viz) and str((viz[0].get("diagram") or {}).get("svg") or ""
+                                ).lstrip().startswith("<svg"),
+              json.dumps((viz[0].get("diagram") or {}), ensure_ascii=False)[:160] if viz else "无")
+        check("Y5 补图后课件页与讲稿仍一一对应", len(ysl) == len(ysc) and len(ysl) == 4,
+              f"slides={len(ysl)} scripts={len(ysc)}（原 3 页 + 补 1 页 = 4）")
+        check("Y6 补图页插在小结之前（不是直接追加到末尾）",
+              bool(viz) and bool(ysl) and ysl[-1].get("id") != viz[0].get("id"),
+              f"末尾={ysl[-1].get('id') if ysl else None} 补图={viz[0].get('id') if viz else None}")
+
+        _cleanup_courses(cid_y1)
+
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")
         with httpx.Client(trust_env=False) as cli:

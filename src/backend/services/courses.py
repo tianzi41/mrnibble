@@ -94,7 +94,9 @@ _OUTLINE_PROMPT = """你是课程设计师。请依据用户的学习目标与�
 结构要求：
 - 课程标题：一句话点明主题，具体到方法或领域，不空泛；
 - __UNITS_RULE__；
+- __LESSONS_RULE__；
 - 每个单元最后一个讲次固定为 practice（随堂练习），objective 写「检验本单元各讲目标是否达成」；其余为 lecture；
+  **练习也计入讲次数**（例如「2 讲」= 1 讲正文 + 1 讲练习）；
 - 讲次顺序由浅入深；同一单元内讲次的 depth 大体递进；
 - 去重：每个讲次聚焦一个学习目标，不同讲次的 objective 不得相近或重复。
 
@@ -123,6 +125,7 @@ _OUTLINE_PROMPT = """你是课程设计师。请依据用户的学习目标与�
 - 是否有任意两个讲次的 objective 说的其实是同一件事？
 - objective 里有没有「了解/熟悉/掌握」？
 - 材料的主要章节是否都有讲次覆盖？
+- 每个单元的讲次数是否**由内容体量决定**？有没有把一讲就能讲完的内容硬拆成两讲凑数？
 """ + _BASE_RULES
 
 # 学习目标推荐（创建向导里的「帮我推荐」按钮）。
@@ -160,15 +163,20 @@ __DEPTH__
 课件页类型（kind）使用时机：
 - concept：核心概念或结论；example：例子/例题；formula：公式/表达式（附适用条件）；
 - quote：材料原句直引（必须带 [[c:N]]）；note：注意事项、易错点、衔接说明；
-- diagram：流程、调用关系、数据流向、状态变化、组件分层用**图**更清楚时；
+- diagram：**硬要求** —— 本讲内容只要涉及「有先后顺序的步骤 / 谁调用谁 / 数据流向 /
+  状态或阶段变化 / 组件分层」中的任意一种，就**必须**至少安排 1 页 diagram；
+  只有确实一种都不涉及（纯名词解释、纯心态建议之类）才允许不出图。
   按内容选图型，结构写进 diagram 字段（见下方【可视化页与特色页】，**只写结构化 IR，不写图形语法**）；
 - chart：材料里有能成图的数值对比时；数据写入 chart 字段。材料没有现成数字就不要硬造图表。
 - table：**两个或多个方案/编码/观点的逐项对照**优先用表格（该对比就该用表格，别硬画成图）；
   内容写入 table 字段（见下方【可视化页与特色页】）；
 - takeaway：本讲最想让人记住的一句结论或教练点评；内容写入 takeaway 字段。
 
-【可视化页与特色页（可选；diagram/chart/table 三类合计每讲最多 2 页，计入 slides 总页数；
-  takeaway 是文字形态，不计入该上限，每讲最多 1 页）】
+【可视化页与特色页（diagram/chart/table 三类合计每讲最多 2 页，计入 slides 总页数；
+  takeaway 是文字形态，不计入该上限，每讲最多 1 页。
+  **下限要求（硬要求）**：本讲若涉及「流程 / 调用关系 / 数据流向 / 状态变化 / 组件分层」之一
+  → 必须 ≥1 页 diagram；若出现「两/多种方案或做法的逐项对照」→ 必须 ≥1 页 table。
+  两者都出现时合计仍不超过 2 页，此时优先 diagram）】
 __DIAGRAM_SPEC__
 - chart 页：kind="chart"，加字段
   "chart":{"type":"bar|line|pie","title":"图表标题","unit":"数值单位（可选）","categories":["类目1","类目2"],"series":[{"name":"系列名","data":[12,30]}]}。
@@ -188,7 +196,8 @@ __DIAGRAM_SPEC__
   单元格只写短词或短语，不要整句；内容只能来自材料原文，禁止编造；
 - takeaway 页：kind="takeaway"，加字段 "takeaway":"一句 ≤60 字的结论或教练点评"。
   通常放在最后做收尾金句；同样必须有 title；整讲最多 1 页。
-- 没有合适内容就一页可视化都不要硬加。
+- 上面两条「必须」的情形都没出现时，才允许整讲没有可视化页；
+  **不要为了凑数硬造图，也不要编造表格里的数据**。
 
 输出 JSON：
 {"summary":"本讲一句话导览",
@@ -223,6 +232,9 @@ text 是写在旁边的一句旁注。没有把握就返回空数组，不要编
 - slides 每页是否一眼能看完（短标题 + 短要点）？
 - 引用编号是否都来自材料？
 - 可视化页（diagram/chart/table）是否 ≤2 页？chart 里的数字、table 里的内容是否都来自材料？
+- 本讲是否涉及流程/调用/数据流向/状态变化/分层？若涉及，有没有安排 diagram 页（**硬要求**）？
+- 本讲出现两/多种做法的对照了吗？若出现，有没有用 table（**硬要求**）？
+- 本讲页数有没有达到【深度与篇幅】写的下限？不够就补页，**不是**把每页写长。
 - 对比类内容（两方案/多编码/多观点）有没有用 table 而不是硬写成要点？takeaway 是不是只有一页？
 - diagram 页的图型选对了吗（有先后顺序用 workflow、谁调用谁用 sequence、数据流向用 dataflow、
   状态变化用 lifecycle、组件分层用 architecture）？
@@ -297,6 +309,42 @@ __IR__
 不要输出 JSON 以外的任何文字。
 """
 
+_VISUAL_ADD_PROMPT = """你是课件补图编辑。这一讲的课件页**没有任何可视化内容**，
+但材料里确实出现了「流程 / 调用 / 数据流向 / 状态变化 / 分层 / 对照」这类结构——
+所以这一讲应该有图或表，只是上一轮漏了。
+
+讲次：__TITLE__
+目标：__OBJECTIVE__
+
+【现有课件页】
+__SLIDES__
+
+【材料片段】
+__CONTEXT__
+
+请**新增 1 页**可视化页（插在小结之前），二选一，哪个更贴合材料就用哪个：
+- kind="diagram"：材料里有先后步骤 / 谁调用谁 / 数据流向 / 状态变化 / 组件分层。
+  优先画材料里最核心的那条流程或状态变化；
+- kind="table"：材料里有两/多种做法的逐项对照（参数、编码、方案、误区对照）。
+
+要求：
+1. 该页必须有 title 与 1~3 条 bullets（图旁要点，也是渲染失败时学生看到的回退内容）；
+2. **所有实体、名称、数值都必须来自上方【材料片段】**，不许编造；
+3. 同时给出这一页的讲稿 script：≥120 字、口语化、**要真的在讲这张图**
+   （先说这张图整体在画什么，再带着听众走一遍关键路径，最后落到结论），不要念图上的字；
+4. 引用材料仍用 [[c:N]]。
+
+__DIAGRAM_SPEC__
+
+只输出 JSON：
+{"slide":{"kind":"diagram|table","title":"页面标题","bullets":["要点1","要点2"],
+          "diagram":{"ir":{...}}},
+ "script":"该页讲稿"}
+（diagram 页给 diagram 字段；table 页改为给
+ "table":{"title":"表题","columns":["列1","列2"],"rows":[["单元1","说明1"]]}）
+不要输出 JSON 以外的任何文字。
+"""
+
 _GRADE_PROMPT = """你是阅卷老师。请为学生的开放题作答评分。
 
 题目：__STEM__
@@ -309,10 +357,34 @@ _GRADE_PROMPT = """你是阅卷老师。请为学生的开放题作答评分。
 """
 
 _DEPTH_HINT = {
-    "brief": "篇幅档·概览：slides 8~10 页，每页要点 ≤4 条；scripts 每段 80~150 字；cards 5~7 张；只讲最核心结论，例子最多 1 个。",
-    "standard": "篇幅档·标准：slides 10~12 页，每页要点 ≤5 条；scripts 每段 150~300 字；cards 6~8 张，其中 1 张写易错点。",
-    "detailed": "篇幅档·深入：slides 12~16 页，每页要点 ≤6 条；scripts 每段 300~500 字；cards 8~12 张，含推导细节与对比。",
+    "brief": "篇幅档·概览：slides 10~12 页（**少于 10 页即不合格，必须补足页数**），每页要点 ≤4 条；scripts 每段 80~150 字；cards 5~7 张；只讲最核心结论，例子最多 1 个。",
+    "standard": "篇幅档·标准：slides 12~14 页（**少于 12 页即不合格，必须补足页数**），每页要点 ≤5 条；scripts 每段 150~300 字；cards 6~8 张，其中 1 张写易错点。",
+    "detailed": "篇幅档·深入：slides 14~18 页（**少于 14 页即不合格，必须补足页数**），每页要点 ≤6 条；scripts 每段 300~500 字；cards 8~12 张，含推导细节与对比。",
 }
+
+# 「这一讲的材料里有没有适合画图/做表的结构」——补图兜底的前置条件。
+# 只在材料确实出现结构信号时才触发补图，避免对纯叙述性材料硬造图表。
+_VISUAL_SIGNALS = (
+    "步骤", "流程", "顺序", "调用", "传参", "传递", "输入", "输出",
+    "状态", "阶段", "切换", "变成", "转换",
+    "对照", "对比", "相比", "区别", "差异", "不同",
+    "两种", "三种", "几种", "分类", "类型", "层级", "结构",
+)
+# 至少命中这么多个不同信号才算「材料有可用对照内容」。
+_MATERIAL_VISUAL_MIN = 3
+
+
+def _material_looks_visual(context: str) -> bool:
+    """材料片段是否含「流程 / 调用 / 状态 / 分层 / 对照」这类可视觉化结构。
+
+    用于讲义生成后的补图兜底：整讲没有任何可视化页、且材料确实有这类结构时，
+    才值得多花一次模型调用去补一张图。纯叙述性材料不触发。
+    """
+    t = str(context or "")
+    if len(t) < 120:
+        return False
+    return sum(1 for w in _VISUAL_SIGNALS if w in t) >= _MATERIAL_VISUAL_MIN
+
 
 # 讲次认知层级（course_lessons.depth：establish/define/derive/apply）
 # 旧版缺失：讲次 depth 查 _DEPTH_HINT（brief/standard/detailed）永远 miss，恒为 standard。
@@ -682,11 +754,23 @@ class CourseService:
             self._set_stage(job_id, "正在构建课程结构")
 
             # 单元数：0 = 自动（由模型按材料体量决定），>0 = 固定个数。
-            units_rule = (
-                f"单元数固定为 {unit_count} 个，每个单元 2~4 个讲次" if unit_count
-                else "单元数量由你根据材料体量与学习目标自行决定（通常 2~5 个），每个单元 2~4 个讲次"
+            # 每单元讲次数**不固定**：内容少可以只 2 讲，内容多可以 6 讲。
+            # 旧版写死「2~4 个讲次」，模型会为了凑数把一讲能讲完的内容拆薄（实测每讲仅 7~10 页）。
+            lessons_rule = (
+                "每个单元的讲次数由该单元的内容体量决定，**不固定**："
+                "内容少可以只排 2 讲（1 讲正文 + 1 讲练习），内容多可以排到 6 讲；"
+                "**严禁为了凑数量把一讲就能讲完的内容拆成两讲** —— "
+                "宁可单元讲次少、每讲内容饱满"
             )
-            prompt = _OUTLINE_PROMPT.replace("__UNITS_RULE__", units_rule) + (
+            units_rule = (
+                f"单元数固定为 {unit_count} 个，{lessons_rule}" if unit_count
+                else f"单元数量由你根据材料体量与学习目标自行决定（通常 2~5 个），{lessons_rule}"
+            )
+            prompt = (
+                _OUTLINE_PROMPT
+                .replace("__UNITS_RULE__", units_rule)
+                .replace("__LESSONS_RULE__", lessons_rule)
+            ) + (
                 f"\n补充要求：学习者当前水平为「{_LEVEL_NAME.get(level, level)}」，"
                 f"内容深度要求「{_DEPTH_NAME.get(depth, depth)}」。"
             )
@@ -1358,6 +1442,11 @@ class CourseService:
                 # 这条用文本相似度做结构判定，不依赖模型自觉。
                 obj = self._repair_mirrored_scripts(obj, job_id)
 
+            # §补图兜底：整讲一页可视化都没有、但材料有可视觉化结构 → 补一页
+            # （必须在编译之前：补出来的页要一起走校验/重写/退化链路）
+            obj = self._ensure_visuals(
+                obj, job_id, context, lesson["title"], lesson["objective"] or lesson["title"]
+            )
             # §Archify 管线：先把 diagram 页的 IR 编译成 SVG
             # （校验 → 带回执定向重写一次 → 仍失败则退化为要点页），再走统一的净化与限页。
             obj = self._compile_diagrams(obj, job_id)
@@ -1489,6 +1578,100 @@ class CourseService:
         if isinstance(svg, str) and svg.lstrip().startswith("<svg"):
             return True
         return cls._valid_mermaid(diagram)
+
+    def _ensure_visuals(self, obj: dict[str, Any], job_id: str, context: str,
+                        title: str, objective: str) -> dict[str, Any]:
+        """补图兜底：整讲没有可视化页、但材料确实有可视觉化结构时，补一页。
+
+        为什么需要它：提示词里的「用图/用表」无论写得多硬，模型都可能整讲不画
+        （实测同一材料连跑三次，图示页数 2 / 0 / 1 —— 画不画全看运气）。
+        所以除了提示词约束，再加一道**服务端兜底**：
+        讲义落库前检查一次，该有图却没有 → 让模型只补这一页。
+        补出来的页同样会走 `_compile_diagrams` 的校验/重写/退化链路，不会放过坏图。
+        """
+        slides = obj.get("slides")
+        if not isinstance(slides, list) or not slides:
+            return obj
+        has_visual = any(
+            isinstance(sl, dict)
+            and (sl.get("diagram") or sl.get("chart") or sl.get("table"))
+            for sl in slides
+        )
+        if has_visual:
+            return obj
+        if not _material_looks_visual(context):
+            logger.info("整讲无可视化页，但材料也没有可视觉化结构，不补图",
+                        extra={"extra_fields": {"slides": len(slides)}})
+            return obj
+        brief = "\n".join(
+            f"- {(sl.get('title') or '')}｜" + "；".join((sl.get("bullets") or [])[:3])
+            for sl in slides[:12] if isinstance(sl, dict)
+        )
+        try:
+            self._set_stage(job_id, "本讲缺少图示，正在补一张图")
+            prompt = (
+                _VISUAL_ADD_PROMPT
+                .replace("__TITLE__", title)
+                .replace("__OBJECTIVE__", objective)
+                .replace("__SLIDES__", brief[:2500])
+                .replace("__CONTEXT__", str(context or "")[:6000])
+                .replace("__DIAGRAM_SPEC__", diagram_mod.prompt_spec())
+            )
+            raw = self._chat(
+                [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "请只补这一页可视化，输出 JSON。"},
+                ],
+                max_tokens=2000,
+            )
+            parsed = self._safe_json(raw) or {}
+            cand = parsed.get("slide") if isinstance(parsed, dict) else None
+            if not isinstance(cand, dict):
+                return obj
+            kind = str(cand.get("kind") or "").strip().lower()
+            title = str(cand.get("title") or "").strip()
+            bullets = [str(x).strip()[:60] for x in (cand.get("bullets") or []) if str(x).strip()][:3]
+            if kind not in ("diagram", "table") or not title or not bullets:
+                logger.info("补图结果不合规，跳过", extra={"extra_fields": {"kind": kind}})
+                return obj
+            new_slide: dict[str, Any] = {
+                "id": "slide-visual-added",
+                "kind": kind,
+                "title": title[:120],
+                "bullets": bullets,
+                "body": "",
+                "citation_refs": [],
+            }
+            if kind == "diagram":
+                dg = cand.get("diagram")
+                ir = dg.get("ir") if isinstance(dg, dict) else None
+                if not isinstance(ir, dict):
+                    logger.info("补图未给出可用 IR，跳过")
+                    return obj
+                new_slide["diagram"] = {"ir": ir}
+            else:
+                tb = cand.get("table")
+                if not isinstance(tb, dict) or not self._valid_table(tb):
+                    logger.info("补图表格不合法，跳过")
+                    return obj
+                new_slide["table"] = tb
+            # 插在小结之前（没有小结就追加到末尾），并同步插入讲稿保持逐页对应
+            idx = len(slides) - 1 if len(slides) >= 3 else len(slides)
+            slides.insert(idx, new_slide)
+            scripts = obj.get("scripts")
+            text = str(parsed.get("script") or "").strip()
+            # 引用编号从讲稿里真实提取（不要凭猜，也不要从 marks 抄）
+            new_slide["citation_refs"] = sorted(
+                {int(x) for x in re.findall(r"\[\[c:(\d+)\]\]", text)}
+            )
+            if isinstance(scripts, list) and text:
+                scripts.insert(min(idx, len(scripts)),
+                               {"slide_id": new_slide["id"], "text": text[:2000]})
+            logger.info("已补 1 页可视化", extra={"extra_fields": {
+                "kind": kind, "index": idx, "slides": len(slides)}})
+        except Exception as exc:  # noqa: BLE001 - 补图失败不能影响整讲
+            logger.warning("补图失败", extra={"extra_fields": {"type": type(exc).__name__}})
+        return obj
 
     def _compile_diagrams(self, obj: dict[str, Any], job_id: str) -> dict[str, Any]:
         """把 diagram 页的 IR 编译成 SVG —— Archify 的四段结构。

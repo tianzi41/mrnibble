@@ -176,6 +176,34 @@ def main() -> int:
           and "_valid_diagram" in courses_src
           and "return cls._valid_mermaid(diagram)" in courses_src)
 
+    # ── [6] 补图兜底的前置判定 + 提示词硬约束（与校验器同源）──
+    print("\n[6] 补图兜底判定与提示词硬约束")
+    sys.path.insert(0, str(ROOT / "src"))
+    from backend.services.courses import (          # noqa: PLC0415
+        _DEPTH_HINT, _LECTURE_PROMPT, _OUTLINE_PROMPT, _material_looks_visual,
+    )
+
+    positive = ("第一步先判断文件编码，第二步再解析内容，顺序不能颠倒；"
+                "两种编码方式在处理中文路径时差异明显，层级结构也不一样。") * 3
+    negative = ("写作最重要的是保持耐心与好奇心。多读多写，时间久了自然会有进步，"
+                "不要指望一蹴而就，也别总和别人比较。") * 3
+    check("6.1 材料含流程/对照结构 → 判定可补图", _material_looks_visual(positive) is True)
+    check("6.2 纯叙述材料 → 不补图（不硬造图表）", _material_looks_visual(negative) is False)
+    check("6.3 材料过短 → 不补图",
+          _material_looks_visual("步骤 流程 顺序 对照 区别 结构") is False)
+    check("6.4 讲义提示词含图示硬要求",
+          "至少安排 1 页 diagram" in _LECTURE_PROMPT
+          and "**硬要求**" in _LECTURE_PROMPT
+          and "若出现「两/多种方案或做法的逐项对照」→ 必须 ≥1 页 table" in _LECTURE_PROMPT)
+    check("6.5 篇幅档页数下限已收紧且写明「不合格」",
+          "少于 10 页即不合格" in _DEPTH_HINT["brief"]
+          and "少于 12 页即不合格" in _DEPTH_HINT["standard"]
+          and "少于 14 页即不合格" in _DEPTH_HINT["detailed"])
+    check("6.6 大纲提示词把讲次数交给内容体量决定",
+          "__LESSONS_RULE__" in _OUTLINE_PROMPT
+          and "每个单元 2~4 个讲次" not in _OUTLINE_PROMPT
+          and "练习也计入讲次数" in _OUTLINE_PROMPT)
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

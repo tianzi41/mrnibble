@@ -232,6 +232,43 @@ def _ir_lecture_payload(ir: dict) -> str:
     return json.dumps(base, ensure_ascii=False)
 
 
+def _plain_lecture_payload() -> str:
+    """**完全没有可视化页**的合格讲义 —— 用来验证「补图兜底」。
+
+    与 `_lecture_payload` 的区别只在于用途：这个桩专门喂给「整讲无 diagram/chart/table」
+    的场景，服务端应检测到「材料有可视觉化结构却没有图」并自动补 1 页。
+    """
+    return _lecture_payload()
+
+
+def _visual_add_payload() -> str:
+    """补图兜底请求的响应：只返回**新增的那一页** + 该页讲稿。"""
+    return json.dumps({
+        "slide": {
+            "kind": "diagram",
+            "title": "解题前的检查流程",
+            "bullets": ["先判类型", "再选方法"],
+            "diagram": {"ir": {
+                "schema_version": 1,
+                "diagram_type": "workflow",
+                "meta": {"title": "解题前的检查流程", "preset": "classic"},
+                "lanes": [{"id": "l1", "label": "检查"}],
+                "nodes": [
+                    {"id": "check", "type": "frontend", "label": "先判断类型", "lane": "l1"},
+                    {"id": "apply", "type": "backend", "label": "再使用法则", "lane": "l1"},
+                ],
+                "edges": [{"id": "e1", "from": "check", "to": "apply", "label": "满足前提"}],
+            }},
+        },
+        "script": (
+            "这一页把使用法则前的检查动作串成一条流程。拿到题目先做第一步——判断类型，"
+            "也就是看它到底是不是零比零型或无穷比无穷型 [[c:1]]。只有这一步通过了，"
+            "才会走到第二步去使用法则；如果类型不对，这条流程根本走不下去，"
+            "硬套法则只会把题做错 [[c:1]]。所以两步的顺序不能颠倒，先验证再动手。"
+        ),
+    }, ensure_ascii=False)
+
+
 def _mirror_lecture() -> str:
     """**故意违规**的课堂内容包：讲稿就是课件文字原样念一遍。
 
@@ -374,6 +411,15 @@ def _outline_dirty(kind: str) -> str:
 def _pick(body: dict) -> str:
     """按 model 名路由到对应行为，返回回复文本。"""
     model = str(body.get("model") or "")
+    # 「补图」是服务端在讲义缺图时**另发起的一次调用**，模型名与讲义相同，
+    # 只能按提示词特征识别（提示词首句是「你是课件补图编辑」）。
+    _systems = " ".join(
+        str(m.get("content") or "")
+        for m in (body.get("messages") or [])
+        if m.get("role") == "system"
+    )
+    if "补图编辑" in _systems:
+        return _visual_add_payload()
     if model == "mock-normal":
         return _quote_block()
     if model == "mock-stall-guided":
@@ -448,6 +494,9 @@ def _pick(body: dict) -> str:
         return _lecture_payload()
     if model == "mock-lecture-p1":
         return _p1_lecture_payload()
+    if model == "mock-lecture-plain":
+        # 整讲无可视化 → 触发服务端补图兜底
+        return _plain_lecture_payload()
     if model in ("mock-lecture-ir", "mock-lecture-ir-bad", "mock-lecture-ir-stubborn"):
         asked_rewrite = "课堂图示编辑" in "\n".join(
             str(m.get("content") or "") for m in (body.get("messages") or []))
@@ -589,7 +638,7 @@ MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-
                "mock-echo-context", "mock-echo-guided", "mock-good-guided", "mock-stall-guided",
                "mock-outline", "mock-lecture", "mock-practice", "mock-grade",
                "mock-summary", "mock-goals", "mock-spy-goals", "mock-outline-5", "mock-echo-flags",
-               "mock-lecture-p1", "mock-practice-hands",
+               "mock-lecture-p1", "mock-lecture-plain", "mock-practice-hands",
                "mock-lecture-ir", "mock-lecture-ir-bad", "mock-lecture-ir-stubborn",
                "mock-lecture-mirror", "mock-lecture-stubborn")
 
