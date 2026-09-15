@@ -518,7 +518,12 @@ def _box_w(label: str, sublabel: str, tag: str) -> float:
 
 
 def _topo_columns(nodes: list[dict[str, Any]], rels: list[dict[str, Any]]) -> list[list[dict]]:
-    """无分组信息时按「入度为 0 先排」的确定性分层（同层按声明顺序）。"""
+    """无分组信息时按「入度为 0 先排」的确定性分层（同层按声明顺序）。
+
+    ⚠️ 用 BFS 首达分层，**不能**改成「不断放宽层号」的写法：
+    模型可以产出带环的图（校验器不拒绝环，环是合法语义，比如「重试」），
+    放宽写法在环上层号无限增长 → 死循环（实测踩到：workflow 单 lane 进来这里挂死）。
+    """
     ids = [str(n["id"]) for n in nodes]
     indeg = {i: 0 for i in ids}
     outs: dict[str, list[str]] = {i: [] for i in ids}
@@ -527,17 +532,18 @@ def _topo_columns(nodes: list[dict[str, Any]], rels: list[dict[str, Any]]) -> li
         if a in indeg and b in indeg:
             indeg[b] += 1
             outs[a].append(b)
-    layer: dict[str, int] = {}
     frontier = [i for i in ids if indeg[i] == 0] or ids[:1]
-    for i in frontier:
-        layer[i] = 0
+    layer = {i: 0 for i in frontier}
     queue = list(frontier)
+    seen = set(frontier)
     while queue:
         cur = queue.pop(0)
         for nxt in outs.get(cur, []):
-            layer[nxt] = max(layer.get(nxt, 0), layer[cur] + 1)
-            if nxt not in queue:
-                queue.append(nxt)
+            if nxt in seen:
+                continue                      # 环免疫：每个节点只入队一次
+            seen.add(nxt)
+            layer[nxt] = layer[cur] + 1
+            queue.append(nxt)
     for i in ids:
         layer.setdefault(i, 0)
     max_layer = max(layer.values()) if layer else 0
@@ -567,6 +573,11 @@ def _group_columns(ir: dict[str, Any], spec: dict[str, Any]) -> list[tuple[str, 
             rest = [n for n in nodes if str(n["id"]) not in used]
             if rest:
                 out.append(("", rest))
+            # 只分出一个组 = 分组没有提供任何信息（模型常声明单个 lane 把整条
+            # 流程装进去）→ 沿一列纵向堆叠，右侧大片留白。退回拓扑分层，
+            # 让 A→B→C 链横向铺开用满宽度。
+            if len(out) == 1 and len(nodes) >= 2:
+                return [("", c) for c in _topo_columns(nodes, rels)]
             return out
     if spec["group_by"] == "type":
         order = NODE_TYPES
@@ -575,6 +586,9 @@ def _group_columns(ir: dict[str, Any], spec: dict[str, Any]) -> list[tuple[str, 
             members = [n for n in nodes if str(n.get("type") or "backend") == t]
             if members:
                 out.append((t, members))
+        if len(out) == 1 and len(nodes) >= 2:
+            # 同理：全部组件同属一个类型时，按拓扑分层横向铺开
+            return [("", c) for c in _topo_columns(nodes, rels)]
         return out
     return [("", c) for c in _topo_columns(nodes, rels)]
 

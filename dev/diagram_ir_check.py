@@ -7,6 +7,7 @@
 
 跑法：``PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe dev/diagram_ir_check.py``
 """
+import json
 import re
 import sys
 from pathlib import Path
@@ -203,6 +204,26 @@ def main() -> int:
           "__LESSONS_RULE__" in _OUTLINE_PROMPT
           and "每个单元 2~4 个讲次" not in _OUTLINE_PROMPT
           and "练习也计入讲次数" in _OUTLINE_PROMPT)
+
+    # 6.7 带环 workflow：校验器不拒绝环（环是合法语义，如「重试」），
+    #     但分层算法曾是「不断放宽层号」的写法，在环上层号无限增长 → 死循环。
+    #     （实测踩到：单 lane 工作流被路由进拓扑分层后挂死，进程无输出直接被杀。）
+    cyclic_ir = {
+        "schema_version": 1, "diagram_type": "workflow",
+        "meta": {"title": "重试循环", "preset": "classic"},
+        "nodes": [{"id": "run", "type": "backend", "label": "执行命令"},
+                  {"id": "chk", "type": "frontend", "label": "检查输出"},
+                  {"id": "retry", "type": "backend", "label": "重试"}],
+        "edges": [{"id": "e1", "from": "run", "to": "chk"},
+                  {"id": "e2", "from": "chk", "to": "retry", "variant": "dashed"},
+                  {"id": "e3", "from": "retry", "to": "run", "variant": "dashed"}],
+    }
+    csvg, crec = D.compile_ir(cyclic_ir)
+    check("6.7 带环 workflow 能编译（分层算法对环免疫，不再死循环）",
+          bool(csvg) and crec["ok"] is True and "zf-node" in csvg,
+          json.dumps(crec, ensure_ascii=False)[:160])
+    csvg2, _ = D.compile_ir(cyclic_ir)
+    check("6.8 带环图同样逐字节确定", csvg == csvg2)
 
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")

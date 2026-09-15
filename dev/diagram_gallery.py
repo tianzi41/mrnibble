@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))      # --recompile 需要 import backend.services.diagram
 DEFAULT_OUT = ROOT.parent / "archify图示样例.html"
 
 CSS = """
@@ -88,7 +89,7 @@ def _card(title: str, sub: str, tags: list[str], svg: str, meta: list[str],
 </div>"""
 
 
-def collect(db: Path, label: str) -> list[dict]:
+def collect(db: Path, label: str, recompile: bool = False) -> list[dict]:
     """从库里取出所有已编译的图示页。"""
     out: list[dict] = []
     try:
@@ -108,11 +109,22 @@ def collect(db: Path, label: str) -> list[dict]:
             continue
         for sl in slides:
             dg = (sl or {}).get("diagram") or {}
-            if not isinstance(dg, dict) or not dg.get("svg"):
+            if not isinstance(dg, dict):
+                continue
+            ir = dg.get("ir") or {}
+            svg = dg.get("svg")
+            # --recompile：用**当前编译器**重画历史 IR（验证布局改进用）；
+            # 旧 Mermaid 形态没有 IR，保持原样跳过。
+            if recompile and ir:
+                from backend.services import diagram as _D  # noqa: PLC0415
+                svg, _rec = _D.compile_ir(ir)
+                if not svg:
+                    continue
+            if not svg:
                 continue
             out.append({"source": label, "lesson": lesson_title,
-                        "slide": sl.get("title") or "", "svg": dg["svg"],
-                        "ir": dg.get("ir") or {}, "type": dg.get("diagram_type") or "",
+                        "slide": sl.get("title") or "", "svg": svg,
+                        "ir": ir, "type": dg.get("diagram_type") or "",
                         "preset": dg.get("preset") or "classic",
                         "bullets": sl.get("bullets") or []})
     conn.close()
@@ -143,14 +155,14 @@ def collect_rejected() -> list[dict]:
     return out
 
 
-def build(out_path: Path) -> int:
+def build(out_path: Path, recompile: bool = False) -> int:
     items: list[dict] = []
     # 历次评测的隔离库（真实模型跑出来的产物）
     for d in sorted((ROOT / ".tmp").glob("e2e24-*/data/zhiban.db")):
-        items += collect(d, d.parent.parent.name)
+        items += collect(d, d.parent.parent.name, recompile=recompile)
     # 当前交付库（用户自己的课）
     for d in sorted(ROOT.glob("dist*/知伴/data/zhiban.db")):
-        items += collect(d, d.parent.parent.name + "（你的库）")
+        items += collect(d, d.parent.parent.name + "（你的库）", recompile=recompile)
 
     rejected = collect_rejected()
 
@@ -238,8 +250,10 @@ def build(out_path: Path) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description="导出 Archify 图示样例画廊")
     ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--recompile", action="store_true",
+                    help="用当前编译器重画历史 IR（验证布局改进）")
     args = ap.parse_args()
-    return build(Path(args.out))
+    return build(Path(args.out), recompile=args.recompile)
 
 
 if __name__ == "__main__":
