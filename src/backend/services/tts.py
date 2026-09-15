@@ -48,18 +48,6 @@ _MAX_LOCAL_CHARS = 300
 # 本地合成默认语速。
 _DEFAULT_SPEED = 1.0
 
-# 日志里合成文本的预览长度（单用户本地软件，记录原文便于实时对照进度/排障；
-# 超长段落截断，换行压成空格，避免一行日志炸开）。
-_LOG_PREVIEW_CHARS = 120
-
-
-def _preview(text: str, limit: int = _LOG_PREVIEW_CHARS) -> str:
-    """合成文本 → 单行日志预览（换行压空格 + 截断）。"""
-    flat = " ".join((text or "").split())
-    if len(flat) <= limit:
-        return flat
-    return flat[:limit] + f"…（共 {len(flat)} 字）"
-
 
 class TTSService:
     """TTS 状态与云端合成代理（进程级单例）。"""
@@ -193,8 +181,8 @@ class TTSService:
 
         tts = self._load_local()
         started = time.perf_counter()
-        logger.info("TTS 合成中（本地）：%s", _preview(text),
-                    extra={"extra_fields": {"chars": len(text), "text": _preview(text)}})
+        logger.info("TTS 合成中（本地）",
+                    extra={"extra_fields": {"chars": len(text)}})
         try:
             audio = tts.generate(text, sid=int(speaker or 0), speed=speed)
         except Exception as exc:
@@ -213,10 +201,10 @@ class TTSService:
             wf.setsampwidth(2)
             wf.setframerate(int(audio.sample_rate))
             wf.writeframes(pcm.tobytes())
-        logger.info("本地 TTS 合成完成（%s ms）：%s",
-                    int((time.perf_counter() - started) * 1000), _preview(text),
+        logger.info("本地 TTS 合成完成（%s ms）",
+                    int((time.perf_counter() - started) * 1000),
                     extra={"extra_fields": {"ms": int((time.perf_counter() - started) * 1000),
-                                            "chars": len(text), "text": _preview(text)}})
+                                            "chars": len(text)}})
         return buf.getvalue(), int(audio.sample_rate)
 
     # ── 云端合成 ────────────────────────────────────────
@@ -274,10 +262,9 @@ class TTSService:
                          "provider": provider_key(base_url), "max_chars": max_chars})
 
         started = time.perf_counter()
-        logger.info("TTS 合成中（云端，%s 字，音色 %s）：%s",
-                    len(text), voice_sent, _preview(text),
-                    extra={"extra_fields": {"chars": len(text), "voice": voice_sent,
-                                            "text": _preview(text)}})
+        logger.info("TTS 合成中（云端，%s 字，音色 %s）",
+                    len(text), voice_sent,
+                    extra={"extra_fields": {"chars": len(text), "voice": voice_sent}})
         try:
             with make_client(url, timeout=httpx.Timeout(connect=_CONNECT_TIMEOUT, read=_READ_TIMEOUT,
                                       write=30.0, pool=10.0)) as client:
@@ -299,11 +286,10 @@ class TTSService:
         data = resp.content
         if not data:
             raise AppError(4003, "语音合成返回空内容")
-        logger.info("TTS 合成完成（%s ms，%s 字节）：%s",
-                    int((time.perf_counter() - started) * 1000), len(data), _preview(text),
+        logger.info("TTS 合成完成（%s ms，%s 字节）",
+                    int((time.perf_counter() - started) * 1000), len(data),
                     extra={"extra_fields": {"ms": int((time.perf_counter() - started) * 1000),
-                                            "bytes": len(data), "chars": len(text),
-                                            "text": _preview(text)}})
+                                            "bytes": len(data), "chars": len(text)}})
         return data, content_type
 
 

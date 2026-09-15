@@ -1443,11 +1443,24 @@
     }
   }
 
+  /** 上课确认弹窗期间预热第一讲开头的几段：把「开播第一段合成」藏进用户
+   *  读弹窗的时间里——流水线只保证段间不断流，开播第一段仍是冷启动，
+   *  对慢的第三方语音 API 尤其有感。只预热前 360 字（约 4 段）控住云端成本。 */
+  function primeFirstSlide() {
+    try {
+      const first = buildSlides()[0];
+      if (first) {
+        Voice.prime(scriptTextForSlide(first, 0), { chunkChars: SUB_CHARS, maxChars: 360 });
+      }
+    } catch (e) { /* 预热失败不影响上课 */ }
+  }
+
   /* ── 上课确认弹窗 ─────────────────────── */
   /** 弹「准备好了吗？→ 开始上课」窗口；点「开始上课」后自动朗读讲义。 */
   function showReadyModal() {
     if (S.readyShown) return;
     S.readyShown = true;
+    primeFirstSlide();
     const mask = el("div", "modal-mask");
     const box = el("div", "modal-box");
     box.innerHTML = `

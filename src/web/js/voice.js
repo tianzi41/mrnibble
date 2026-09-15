@@ -136,7 +136,10 @@
       const chunkMax = detailed ? Math.min(Number(opts.chunkChars), hardMax) : hardMax;
       // 预热总量上限：melo 是 CPU 合成，预热太多会抢正在播放页的合成资源；
       // splitBySentence 贪心顺序切分对前缀稳定，前 N 字的切块结果与全文一致。
-      const capTotal = _engine === "melo" ? 1200 : 4000;
+      // opts.maxChars 允许调用方再收紧（上课确认弹窗期只预热开头几段，控云端成本）。
+      const capTotal = Number(opts.maxChars) > 0
+        ? Number(opts.maxChars)
+        : (_engine === "melo" ? 1200 : 4000);
       const capped = String(text || "").slice(0, capTotal);
       const pieces = detailed ? splitBySentence(capped, chunkMax) : splitChunks(capped, chunkMax);
       const fetchOne = _engine === "cloud"
