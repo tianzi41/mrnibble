@@ -1164,6 +1164,72 @@ def main() -> int:
               f"{slides_before} → {slides_after}")
 
         _cleanup_courses(cid_z6)
+
+        # Z7 编辑结构后的 desc 归属：desc 必须跟着讲次**对象**走，不能跟着位置走。
+        # 场景＝用户实测：在「编辑课程结构」里删掉第 1 讲、末尾再加 2 讲。
+        # 后端按 (unit, ordinal) 序号位置复用讲次行 —— 前端若不把 desc 一起提交，
+        # 第 2 讲就会继承第 1 讲的 desc（静默错位：讲义会按错误的边界生成）。
+        set_model("mock-outline-5")
+        r = post("/api/courses", {"goal": "编辑结构后 desc 归属", "document_ids": [doc_id],
+                                  "unit_count": 5, "depth": "standard"})
+        cid_z7 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        r = post(f"/api/courses/{cid_z7}/desc:rebuild")
+        wait_job(r["data"]["job_id"])
+
+        def _z7_payload(data: dict) -> list:
+            """模拟前端确认页提交：每个讲次**带着自己的** desc/depth。"""
+            out = []
+            for u in data["units"]:
+                out.append({
+                    "title": u["title"], "summary": u.get("summary") or "",
+                    "lessons": [{"title": l["title"], "objective": l["objective"],
+                                 "kind": l["kind"], "depth": l["depth"],
+                                 "desc": l.get("desc")} for l in u["lessons"]],
+                })
+            return out
+
+        d7 = get(f"/api/courses/{cid_z7}")["data"]
+        orig = list(d7["units"][0]["lessons"])
+        units7 = _z7_payload(d7)
+        units7[0]["lessons"] = units7[0]["lessons"][1:]        # 删掉第 1 讲
+        units7[0]["lessons"] += [                               # 末尾加 2 讲
+            {"title": "新增讲次甲", "objective": "能说明甲", "kind": "lecture",
+             "depth": "standard", "desc": None},
+            {"title": "新增讲次乙", "objective": "能说明乙", "kind": "lecture",
+             "depth": "standard", "desc": None},
+        ]
+        post(f"/api/courses/{cid_z7}/outline:confirm", {"title": d7["title"], "units": units7})
+        after = get(f"/api/courses/{cid_z7}")["data"]["units"][0]["lessons"]
+        # 补写桩把讲次标题写进 outcomes（「能说明「<标题>」的要点」）→ 可用它判定 desc 归属
+        lect7 = [l for l in after if l["kind"] == "lecture" and l.get("desc")]
+        mismatched = [l["title"] for l in lect7
+                      if l["title"][:14] not in " ".join(l["desc"].get("outcomes") or [])]
+        check("Z7a 编辑结构后保留讲次的 desc 仍指向自己（未错位到相邻讲）",
+              bool(lect7) and not mismatched, f"错位={mismatched}")
+        leaked = [l["title"] for l in after if l.get("desc") and
+                  orig[0]["title"][:14] in " ".join(l["desc"].get("outcomes") or [])]
+        check("Z7b 被删讲次的 desc 没有残留到别的讲次上", not leaked, f"残留={leaked}")
+        added7 = [l for l in after if l["title"].startswith("新增讲次")]
+        check("Z7c 新增的讲次 desc 为空（等用户补写，不继承别人的）",
+              len(added7) == 2 and all(not l.get("desc") for l in added7),
+              f"新增={len(added7)} 有 desc={sum(1 for l in added7 if l.get('desc'))}")
+        check("Z7d 讲次数 = 原 -1 +2",
+              len(after) == len(orig) - 1 + 2, f"{len(orig)} → {len(after)}")
+
+        # Z7e 证伪 + 兼容性：payload 里**没有** desc 键时后端不动旧值（兼容老前端）。
+        # 这恰恰说明「前端必须带 desc」——后端按序号位置复用行，缺 desc 就留下错位的旧值。
+        units8 = _z7_payload(get(f"/api/courses/{cid_z7}")["data"])
+        for u in units8:
+            for l in u["lessons"]:
+                l.pop("desc", None)
+        post(f"/api/courses/{cid_z7}/outline:confirm", {"title": d7["title"], "units": units8})
+        keep = get(f"/api/courses/{cid_z7}")["data"]["units"][0]["lessons"]
+        before_n = sum(1 for l in after if l.get("desc"))
+        check("Z7e 不带 desc 键时后端保留旧值（兼容老前端；亦为错位的来源）",
+              sum(1 for l in keep if l.get("desc")) == before_n,
+              f"前={before_n} 后={sum(1 for l in keep if l.get('desc'))}")
+        _cleanup_courses(cid_z7)
         _cleanup_courses(cid_y1)
 
         # ── I. 删除 ────────────────────────────────────

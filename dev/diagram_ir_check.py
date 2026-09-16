@@ -238,6 +238,18 @@ def main() -> int:
                                         "expected_mistakes", "exercise_flow"))
           and "__DESC_SPEC__" in _DESC_FILL_PROMPT)
 
+    # 6.11/6.12 编辑结构必须把 desc **原样带回**。
+    # `confirm_outline` 按 (unit, ordinal) 序号位置复用讲次行 —— 前端提交时若丢掉 desc，
+    # 被删讲次之后的每一讲都会继承前一讲的 desc（静默错位，会错误约束讲义内容）。
+    web_src = (ROOT / "src" / "web" / "js" / "views" / "courses.js").read_text(encoding="utf-8")
+    _ok_at = web_src.find('getElementById("o-ok")')     # 提交处理函数（不是 HTML 里的按钮定义）
+    ok_seg = web_src[_ok_at:_ok_at + 2500] if _ok_at >= 0 else ""
+    check("6.11 前端「确认结构」提交时带 desc（防编辑结构后 desc 错位）",
+          "desc: l.desc || null" in ok_seg, f"提交段定位={_ok_at}")
+    check("6.12 后端 confirm_outline 按「有无 desc 键」分支写/清 desc_json",
+          'elif "desc" in lesson:' in courses_src
+          and "desc_json=?" in courses_src)
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

@@ -288,8 +288,13 @@
     const draft = JSON.parse(JSON.stringify(c.units ? { title: c.title, units: c.units } : { units: [] }));
     draft.units = draft.units.map((u) => ({
       title: u.title, summary: u.summary,
-      // desc：大纲阶段生成的「本讲教学设计」，只读展示（改标题/目标不会重算它）
-      lessons: u.lessons.map((l) => ({ title: l.title, objective: l.objective, kind: l.kind, desc: l.desc || null })),
+      // desc / depth：大纲阶段生成的字段，**只读展示但必须原样带回**。
+      // desc 跟着讲次对象走 → 删一讲、加两讲之后，各讲的教学设计仍挂在自己身上
+      // （后端按序号位置复用行，若这里不带 desc 就会整体错位到别的讲次上）。
+      lessons: u.lessons.map((l) => ({
+        title: l.title, objective: l.objective, kind: l.kind,
+        depth: l.depth, desc: l.desc || null,
+      })),
     }));
 
     // 已有讲次 id 说明这门课已经落库过 → 本次是「编辑结构」而不是首次确认。
@@ -384,7 +389,11 @@
         .map((u) => ({
           title: u.title, summary: u.summary,
           lessons: u.lessons.map((l) => ({
-            title: l.title, objective: l.objective, kind: l.kind, depth: l.depth || "standard",
+            title: l.title, objective: l.objective, kind: l.kind,
+            // desc 必须带上：后端按**序号位置**复用讲次行，缺了它，被删讲次之后
+            // 的每一讲都会继承前一讲的 desc（静默错位）。depth 只在新增讲次时被后端采用。
+            depth: l.depth || "standard",
+            desc: l.desc || null,
           })),
         }));
       if (!units.length) return Toast("至少保留一个讲次", true);

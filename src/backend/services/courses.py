@@ -1357,13 +1357,28 @@ class CourseService:
                     )
                     objective = str(lesson.get("objective") or "").strip()[:300]
                     if l_row is None:
+                        l_desc = _norm_desc(lesson.get("desc"), kind)
                         db.execute(
                             "INSERT INTO course_lessons(id,course_id,unit_id,ordinal,"
                             "global_ordinal,kind,title,objective,depth,status,created_at,"
-                            "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                            "updated_at,desc_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (new_id(), cid, uid, l_idx, u_idx * 100 + l_idx, kind, l_title,
                              objective, str(lesson.get("depth") or "standard"), "pending",
-                             ts, ts),
+                             ts, ts, json.dumps(l_desc, ensure_ascii=False) if l_desc else None),
+                        )
+                    elif "desc" in lesson:
+                        # desc 必须跟着**讲次对象**走，不能跟着位置走：编辑结构（删一讲、加两讲）时
+                        # 前端会把每个讲次自己的 desc 一并提交；若沿用「按序号位置复用行」的做法，
+                        # 被删讲次之后的所有讲次都会**继承前一讲的 desc**（静默错位，比没有 desc 更糟
+                        # —— 它会作为「本讲教学设计」注入讲义提示词，把内容约束到错误的边界上）。
+                        # payload 里没有 desc 键 → 不动旧值（兼容老前端）；显式 null → 清空。
+                        l_desc = _norm_desc(lesson.get("desc"), kind)
+                        db.execute(
+                            "UPDATE course_lessons SET title=?, objective=?, kind=?,"
+                            " desc_json=?, updated_at=? WHERE id=?",
+                            (l_title, objective, kind,
+                             json.dumps(l_desc, ensure_ascii=False) if l_desc else None,
+                             ts, l_row["id"]),
                         )
                     else:
                         db.execute(
