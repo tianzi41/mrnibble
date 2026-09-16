@@ -24,6 +24,9 @@ import httpx
 from make_pdf import make_text_pdf
 
 ROOT = Path(__file__).resolve().parents[1]
+# P0 回归组直接 import backend（子进程的 PYTHONPATH 只在子树内有效，主进程要自己加）。
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
 DATA = ROOT / ".tmp" / "test-data-course"
 BACKEND = "http://127.0.0.1:8762"
@@ -1165,38 +1168,60 @@ def main() -> int:
 
         _cleanup_courses(cid_z6)
 
-        # Z7 编辑结构后的 desc 归属：desc 必须跟着讲次**对象**走，不能跟着位置走。
+# Z7 编辑结构后的内容归属：内容字段必须跟着讲次**对象**走，不能跟着位置走。
         # 场景＝用户实测：在「编辑课程结构」里删掉第 1 讲、末尾再加 2 讲。
-        # 后端按 (unit, ordinal) 序号位置复用讲次行 —— 前端若不把 desc 一起提交，
-        # 第 2 讲就会继承第 1 讲的 desc（静默错位：讲义会按错误的边界生成）。
+        # 新前端提交带讲次 id，后端按 id 复用行 → 被删讲次之后的内容错位问题根除。
         set_model("mock-outline-5")
-        r = post("/api/courses", {"goal": "编辑结构后 desc 归属", "document_ids": [doc_id],
+        r = post("/api/courses", {"goal": "编辑结构后内容归属", "document_ids": [doc_id],
                                   "unit_count": 5, "depth": "standard"})
         cid_z7 = r["data"]["course_id"]
         wait_job(r["data"]["job_id"])
         r = post(f"/api/courses/{cid_z7}/desc:rebuild")
         wait_job(r["data"]["job_id"])
 
-        def _z7_payload(data: dict) -> list:
-            """模拟前端确认页提交：每个讲次**带着自己的** desc/depth。"""
+        def _z7_payload(data: dict, with_id: bool = True) -> list:
+            """模拟前端确认页提交：
+            ``with_id=True`` 时带上讲次 id（新前端格式）；``False`` 模拟老客户端（无 id）。
+            每个讲次**带着自己的** desc/depth，**不动内容字段**。"""
             out = []
             for u in data["units"]:
-                out.append({
-                    "title": u["title"], "summary": u.get("summary") or "",
-                    "lessons": [{"title": l["title"], "objective": l["objective"],
-                                 "kind": l["kind"], "depth": l["depth"],
-                                 "desc": l.get("desc")} for l in u["lessons"]],
-                })
+                lessons = []
+                for l in u["lessons"]:
+                    item = {"title": l["title"], "objective": l["objective"],
+                            "kind": l["kind"], "depth": l["depth"],
+                            "desc": l.get("desc")}
+                    if with_id:
+                        item["id"] = l.get("id") or None
+                    lessons.append(item)
+                out.append({"title": u["title"], "summary": u.get("summary") or "",
+                            "lessons": lessons})
             return out
 
         d7 = get(f"/api/courses/{cid_z7}")["data"]
         orig = list(d7["units"][0]["lessons"])
-        units7 = _z7_payload(d7)
+        # 给**会保留**的讲次生成讲义，记录 slides 数，验证「内容跟着讲次走」。
+        # 注意：Z7 场景会删掉第 1 讲（orig[0]），所以 target 必须选原第 2 讲起的一个 lecture，
+        # 否则删完再查它 → 404（内容已随 id 删除，无法追踪归属）。
+        target7 = next((l for l in orig[1:] if l["kind"] == "lecture"), None)
+        check("Z7-0 目标讲次讲义已生成（有 slides 可追踪）",
+              target7 is not None, f"orig{len(orig)} 讲中无可用 lecture")
+        if target7 is None:
+            _cleanup_courses(cid_z7)
+            raise SystemExit("Z7 前置条件不满足：无可用 target lecture")
+        set_model("mock-spy-lecture")
+        r = post(f"/api/courses/lessons/{target7['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        target7_slides = len(
+            get(f"/api/courses/lessons/{target7['id']}")["data"].get("slides") or [])
+        check("Z7-1 目标讲次讲义已生成（有 slides 可追踪）",
+              target7_slides > 0, f"slides={target7_slides}")
+
+        units7 = _z7_payload(d7, with_id=True)
         units7[0]["lessons"] = units7[0]["lessons"][1:]        # 删掉第 1 讲
         units7[0]["lessons"] += [                               # 末尾加 2 讲
-            {"title": "新增讲次甲", "objective": "能说明甲", "kind": "lecture",
+            {"id": None, "title": "新增讲次甲", "objective": "能说明甲", "kind": "lecture",
              "depth": "standard", "desc": None},
-            {"title": "新增讲次乙", "objective": "能说明乙", "kind": "lecture",
+            {"id": None, "title": "新增讲次乙", "objective": "能说明乙", "kind": "lecture",
              "depth": "standard", "desc": None},
         ]
         post(f"/api/courses/{cid_z7}/outline:confirm", {"title": d7["title"], "units": units7})
@@ -1216,19 +1241,37 @@ def main() -> int:
               f"新增={len(added7)} 有 desc={sum(1 for l in added7 if l.get('desc'))}")
         check("Z7d 讲次数 = 原 -1 +2",
               len(after) == len(orig) - 1 + 2, f"{len(orig)} → {len(after)}")
+        # 核心：目标讲次（原第 2 讲，被删第 1 讲后上移一位）的标题与它有 slides 的
+        # 事实仍匹配 —— 讲义内容跟着它的 id 走了，不再按位置错位到新讲次。
+        tgt_after = next((l for l in after if l["id"] == target7["id"]), None)
+        tgt_slides_now = len(
+            get(f"/api/courses/lessons/{target7['id']}")["data"].get("slides") or [])
+        check("Z7 内容归属：目标讲次标题与有 slides 的事实仍匹配（内容跟着 id 走）",
+              tgt_after is not None
+              and tgt_after["title"] == target7["title"]
+              and tgt_slides_now == target7_slides,
+              f"目标={target7['title']} slides={tgt_slides_now}")
+        check("Z7 新增讲次 slides 为空（内容不继承被删讲次）",
+              all(len(get(f"/api/courses/lessons/{l['id']}")["data"].get("slides") or []) == 0
+                  for l in added7),
+              f"新增={[len(get(f'/api/courses/lessons/{l['id']}')['data'].get('slides') or []) for l in added7]}")
+        # 被删讲次（第 1 讲）的内容随之消失：其 id 已不存在于新结构中
+        check("Z7 被删讲次的讲义随之消失",
+              all(l["id"] != orig[0]["id"] for l in after)
+              and get(f"/api/courses/lessons/{orig[0]['id']}")["code"] == 1001,
+              f"被删讲次 id={orig[0]['id']}")
 
-        # Z7e 证伪 + 兼容性：payload 里**没有** desc 键时后端不动旧值（兼容老前端）。
-        # 这恰恰说明「前端必须带 desc」——后端按序号位置复用行，缺 desc 就留下错位的旧值。
-        units8 = _z7_payload(get(f"/api/courses/{cid_z7}")["data"])
-        for u in units8:
-            for l in u["lessons"]:
-                l.pop("desc", None)
+        # Z7e 兼容性：不带 id（模拟老客户端）→ 行为与旧版一致（按位置复用行）。
+        # desc 一并提交的情况下，位置复用仍能满足归属（因为顺序没变）。
+        set_model("mock-outline-5")
+        units8 = _z7_payload(get(f"/api/courses/{cid_z7}")["data"], with_id=False)
         post(f"/api/courses/{cid_z7}/outline:confirm", {"title": d7["title"], "units": units8})
         keep = get(f"/api/courses/{cid_z7}")["data"]["units"][0]["lessons"]
         before_n = sum(1 for l in after if l.get("desc"))
-        check("Z7e 不带 desc 键时后端保留旧值（兼容老前端；亦为错位的来源）",
-              sum(1 for l in keep if l.get("desc")) == before_n,
-              f"前={before_n} 后={sum(1 for l in keep if l.get('desc'))}")
+        check("Z7e 不带 id 提交：行为与旧版一致（按位置复用行）",
+              sum(1 for l in keep if l.get("desc")) == before_n
+              and [l["title"] for l in keep] == [l["title"] for l in units8[0]["lessons"]],
+              f"desc前={before_n} 后={sum(1 for l in keep if l.get('desc'))}")
         _cleanup_courses(cid_z7)
 
         # Z8 课型（学习意图）：主课型决定大纲结构 —— 取代原来「4 条能力目标单选」。
@@ -1295,6 +1338,116 @@ def main() -> int:
         check("Z8h 未上线/非法课型 id 被拒（不静默降级成别的课型）",
               r.get("code") == 1000, f"code={r.get('code')}")
         _cleanup_courses(cid_y1)
+
+        # ── P0 回归组 ─────────────────────────────────
+        # P0-2 补写 desc 的顺序校验：结构对但**顺序错** → 整体拒收（返回 0）。
+        # 校验发生在写库之前，可以直接构造，无需真实课程。
+        from backend.services.courses import CourseService  # noqa: E402
+        import sqlite3  # noqa: E402
+
+        _rows = [
+            {"id": "L-1", "kind": "lecture", "title": "第一讲", "objective": ""},
+            {"id": "L-2", "kind": "lecture", "title": "第二讲", "objective": ""},
+            {"id": "L-3", "kind": "practice", "title": "练习", "objective": ""},
+        ]
+        _exp = [{"lessons": [{"lesson": t} for t in ("第一讲", "第二讲", "练习")]}]
+        _ok_doc = {"units": [{"lessons": [
+            {"title": "第一讲", "desc": {"outcomes": ["能说明「第一讲」的要点"]}},
+            {"title": "第二讲", "desc": {"outcomes": ["能说明「第二讲」的要点"]}},
+            {"title": "练习", "desc": {"exercise_focus": ["考察"]}},
+        ]}]}
+        n_ok = CourseService._apply_desc_fill(_ok_doc, _rows, _exp)
+        check("P0-2a 顺序一致时按序写回（返回补写讲数）",
+              n_ok == 3, f"n={n_ok}")
+        _wrong_order_doc = {
+            "units": [{"lessons": [
+                {"title": "练习", "desc": {"exercise_focus": ["考察"]}},      # 顺序颠倒
+                {"title": "第一讲", "desc": {"outcomes": []}},
+                {"title": "第二讲", "desc": {"outcomes": []}},
+            ]}]}
+        n_bad = CourseService._apply_desc_fill(_wrong_order_doc, _rows, _exp)
+        check("P0-2b 顺序不符（颠倒）→ 整体拒收返回 0", n_bad == 0, f"n={n_bad}")
+        _missing_doc = {
+            "units": [{"lessons": [
+                {"title": "第一讲", "desc": {"outcomes": []}},
+                {"title": "练习", "desc": {"exercise_focus": []}},              # 缺第二讲
+            ]}]}
+        n_miss = CourseService._apply_desc_fill(_missing_doc, _rows, _exp)
+        check("P0-2c 数量不足（缺讲）→ 整体拒收返回 0", n_miss == 0, f"n={n_miss}")
+        _empty_doc = {}
+        n_empty = CourseService._apply_desc_fill(_empty_doc, _rows, _exp)
+        check("P0-2d 非法/空结构 → 整体拒收返回 0", n_empty == 0, f"n={n_empty}")
+
+        # P0-3 部分成功不算成功：mock-desc-partial 只补前 N-1 讲，
+        # 端到端验证 job 必须 failed 且错误信息可见（不能静默成功）。
+        set_model("mock-desc-partial")
+        r = post("/api/courses", {"goal": "P0-3 部分成功回归",
+                                  "document_ids": [doc_id],
+                                  "unit_count": 3, "depth": "standard"})
+        cid_p3 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        # 先确认课程里有 3 讲以上正文讲（desc 需要补写的目标）。
+        p3_lessons = [l.get("title") for l in get(f"/api/courses/{cid_p3}")["data"]["units"]
+                      for l in l.get("lessons") or []]
+        if len(p3_lessons) >= 2:
+            r = post(f"/api/courses/{cid_p3}/desc:rebuild")
+            j = wait_job(r["data"]["job_id"])
+            msg = str(j.get("error") or "")
+            check("P0-3 补写 desc 部分成功 → job 明确失败（信息可见）",
+                  j["status"] == "failed" and "只补上" in msg,
+                  f"status={j.get('status')} error={msg}")
+        else:
+            check("P0-3 补写 desc 部分成功 → job 明确失败（信息可见）",
+                  False, f"讲次数不足 2，无法构造部分成功场景: {len(p3_lessons)}")
+        _cleanup_courses(cid_p3)
+
+        # P0-4 并发防重入：直接往测试库插 running job 验证。
+        # - 15 分钟前的 running job（僵尸）→ 不挡；
+        # - 刚创建的 running job → 挡，返回 1005「任务冲突」。
+        import datetime as _dt  # noqa: E402
+        db4 = sqlite3.connect(str(DATA / "zhiban.db"))
+        db4.row_factory = sqlite3.Row
+        # 先建一门课，等它的大纲任务跑完（拿到稳定课程 id 与空闲状态）。
+        r = post("/api/courses", {"goal": "P0-4 并发防重入", "document_ids": [doc_id],
+                                  "intent": {"primary": "deep-read"}})
+        cid_p4 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])     # 等建课大纲完成
+
+        # (1) 往 **同一门课** 插一条 20 分钟前的 running outline（僵尸）→ 不挡。
+        zomb_id = f"job-zombie-{int(time.time())}"
+        old_ts = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(minutes=20)).isoformat()
+        with db4:
+            db4.execute(
+                "INSERT INTO course_jobs(id,course_id,lesson_id,kind,stage,status,error,"
+                "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (zomb_id, cid_p4, None, "outline", "僵尸", "running", None, old_ts, old_ts))
+        r = post(f"/api/courses/{cid_p4}/desc:rebuild")
+        check("P0-4a 同课 20 分钟前 running 任务不挡（僵尸豁免）",
+              r.get("code") == 0, f"code={r.get('code')} msg={r.get('message')}")
+        # 等 desc 任务跑完（避免它与下一步的同 kind 判断互相干扰），并清掉僵尸行。
+        if r.get("code") == 0:
+            wait_job(r["data"]["job_id"])
+        with db4:
+            db4.execute("UPDATE course_jobs SET status='failed' WHERE id=?", (zomb_id,))
+
+        # (b) 插一条「刚刚」创建的同 kind running job → 应立即被挡 1005。
+        cur_id = f"new-just{int(time.time())}"
+        ts_now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        with db4:
+            db4.execute(
+                "INSERT INTO course_jobs(id,course_id,lesson_id,kind,stage,status,error,"
+                "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (cur_id, cid_p4, None, "outline", "进行中", "running", None, ts_now, ts_now))
+        r4b = post(f"/api/courses/{cid_p4}/desc:rebuild")
+        check("P0-4b 同课同 kind 的 running 任务 → 防重入拒绝 1005",
+              r4b.get("code") == 1005, f"code={r4b.get('code')} msg={r4b.get('message')}")
+        check("P0-4c 被挡后原任务保持 running（未产生新任务/未被覆盖）",
+              get(f"/api/courses/jobs/{cur_id}")["data"]["status"] == "running",
+              f"status={get(f'/api/courses/jobs/{cur_id}')['data'].get('status')}")
+        with db4:
+            db4.execute("UPDATE course_jobs SET status='failed' WHERE id=?", (cur_id,))
+        db4.close()
+        _cleanup_courses(cid_p4)
 
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")

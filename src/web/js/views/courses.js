@@ -392,6 +392,7 @@
       // desc 跟着讲次对象走 → 删一讲、加两讲之后，各讲的教学设计仍挂在自己身上
       // （后端按序号位置复用行，若这里不带 desc 就会整体错位到别的讲次上）。
       lessons: u.lessons.map((l) => ({
+        id: l.id || null,
         title: l.title, objective: l.objective, kind: l.kind,
         depth: l.depth, desc: l.desc || null,
       })),
@@ -489,8 +490,11 @@
         .map((u) => ({
           title: u.title, summary: u.summary,
           lessons: u.lessons.map((l) => ({
+            // 讲次 id：编辑已有课程时回带，后端按 id 复用行（内容跟着讲次走）。
+            // 新建讲次没有 id → null → 后端按新增处理。
+            id: l.id || null,
             title: l.title, objective: l.objective, kind: l.kind,
-            // desc 必须带上：后端按**序号位置**复用讲次行，缺了它，被删讲次之后
+            // desc 必须带上：后端按讲次**对象**复用行，缺了它，被删讲次之后
             // 的每一讲都会继承前一讲的 desc（静默错位）。depth 只在新增讲次时被后端采用。
             depth: l.depth || "standard",
             desc: l.desc || null,

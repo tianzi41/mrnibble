@@ -27,13 +27,14 @@ import math
 import re
 import threading
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
 from ..db.connection import get_db
 from ..errors import AppError
 from ..utils.ids import new_id
-from ..utils.timeutil import now_iso
+from ..utils.timeutil import now_iso, parse_iso
 from . import diagram as diagram_mod
 from .citations import build_context, resolve_citations
 from .llm import LLMClient, extract_json_object
@@ -57,6 +58,9 @@ _MAX_RETRY = 1
 # 大纲默认单元数 / 每单元讲次数（模型输出不足时用于兜底）。
 _DEFAULT_UNITS = 3
 _DEFAULT_LESSONS = 3
+# 生成任务防重入：running 任务超过该时长（分钟）视为僵死（进程被杀等遗留），
+# 不再计入防重入 —— 否则用户会被永远挡住，只能靠重启进程解困。
+_JOB_REENTRY_STALE_MIN = 15
 
 # ── 「讲稿不许照念课件」的结构判定阈值 ──────────────────
 # 归一化后 difflib 相似度达到该值 → 判定为逐字复述课件。
@@ -123,13 +127,14 @@ __DESC_SPEC__
 - 严格按现有讲次的标题与 objective 推断该讲该讲什么，不要替它换主题；
 - 讲间边界要**落在实际结构上**：transition.prev 指向结构里排在它前面的那一讲，
   transition.next 指向排在它后面的那一讲（用标题指代即可）；
-- 练习讲的 exercise_focus 必须指向同一单元里**前面那些正文讲**的内容。
+- 练习讲的 exercise_focus 必须指向同一单元里**前面那些正文讲**的内容；
+- **title 必须原样回带输入的讲次标题，逐字一致**（不增删改字），便于服务端校验顺序。
 
 输出 JSON（单元与讲次顺序必须与输入完全一致，数量也必须一致）：
 {"units":[{"lessons":[
-  {"desc":{"outcomes":["..."],"knowledge_points":["..."],"concepts":["..."],"operations":["..."],
+  {"title":"原样回填输入里的讲次标题","desc":{"outcomes":["..."],"knowledge_points":["..."],"concepts":["..."],"operations":["..."],
            "transition":{"prev":"...","next":"...","avoid":"..."},"visual":"..."}},
-  {"desc":{"exercise_focus":["..."],"expected_mistakes":["..."],"exercise_flow":"..."}}]}]}
+  {"title":"原样回填输入里的讲次标题","desc":{"exercise_focus":["..."],"expected_mistakes":["..."],"exercise_flow":"..."}}]}]}
 
 输出前自查（只自查，不输出过程）：
 - 讲次数量与顺序是否与输入完全一致？
@@ -1221,11 +1226,13 @@ class CourseService:
                     + "\n\n【课程结构（必须原样保持：顺序与数量都不得变）】\n"
                     + json.dumps(struct, ensure_ascii=False)},
             ]
+            total = len(lesson_rows)
             filled = 0
             for _ in range(_MAX_RETRY + 1):
                 raw = self._chat(messages, max_tokens=4096)
-                filled = self._apply_desc_fill(self._safe_json(raw), lesson_rows)
-                if filled:
+                filled = self._apply_desc_fill(self._safe_json(raw), lesson_rows, struct)
+                # 只有**全部讲次都补上**才算成功；部分成功继续重试（已写入的保留）。
+                if filled == total:
                     break
                 messages += [
                     {"role": "assistant", "content": (raw or "")[:1200]},
@@ -1233,8 +1240,15 @@ class CourseService:
                         "上一次输出的单元/讲次数量或顺序与输入不一致，请严格按输入的"
                         "结构重新输出，只输出一个 JSON 对象。"},
                 ]
-            if not filled:
-                raise AppError(1004, "补写失败", "模型输出与课程结构对不上，请稍后重试")
+            if filled != total:
+                # 重试用尽仍不全：明确报失败，不能静默「部分成功即成功」。
+                # 已写入的 desc 保留（不回滚），但必须让用户知道没补全。
+                logger.warning("补写教学设计未补全", extra={"extra_fields": {
+                    "filled": filled, "total": total}})
+                self._fail_job(
+                    job_id, f"只补上 {filled}/{total} 讲，请重试"
+                )
+                return
             self._finish_job(job_id)
         except Exception as exc:  # noqa: BLE001 - 后台任务兜底
             logger.warning("补写教学设计失败",
@@ -1243,11 +1257,13 @@ class CourseService:
             self._fail_job(job_id, _err_text(exc))
 
     @staticmethod
-    def _apply_desc_fill(parsed: Any, lesson_rows: list[Any]) -> int:
+    def _apply_desc_fill(parsed: Any, lesson_rows: list[Any], expected: Any = None) -> int:
         """把补写的 desc 按顺序写回讲次；结构与输入不一致时**整体拒收**。
 
-        数量校验是硬要求：模型少写一讲，后面每讲的 desc 都会错位挂到别的讲上 ——
-        那比不写更糟（会被当成「本讲本该讲这些」注入讲义提示词）。
+        数量与顺序校验都是硬要求：模型少写一讲 / 把顺序打乱，后面每讲的 desc 都会
+        错位挂到别的讲上 —— 那比不写更糟（会被当成「本讲本该讲这些」注入讲义提示词）。
+        ``expected`` 为输入结构（单元顺序 + 每单元讲次标题序列），与模型返回的
+        ``units[].lessons[].title`` **逐项比对**；不一致 → 返回 0（整体拒收，上层重试）。
         """
         if not isinstance(parsed, dict) or not isinstance(parsed.get("units"), list):
             return 0
@@ -1262,6 +1278,36 @@ class CourseService:
                 extra={"extra_fields": {"got": len(flat), "want": len(lesson_rows)}},
             )
             return 0
+        # 顺序校验：模型必须把输入的讲次标题原样回带，逐项比对（错一处即整体拒收）。
+        if expected is not None:
+            exp_titles: list[str] = []
+            for u in expected:
+                if not isinstance(u, dict):
+                    return 0
+                ls = u.get("lessons") or []
+                if not isinstance(ls, list):
+                    return 0
+                for l in ls:
+                    # struct 里讲次标题字段是 ``lesson``（见 _run_desc_fill 的构造）；
+                    # 允许两种键名，兼容调用方。
+                    t = l.get("lesson") if isinstance(l, dict) else None
+                    if not t:
+                        t = l.get("title") if isinstance(l, dict) else None
+                    if not t:
+                        return 0
+                    exp_titles.append(str(t).strip())
+            got_titles = [str(x.get("title") or "").strip() for x in flat]
+            if len(got_titles) != len(exp_titles) or got_titles != exp_titles:
+                mismatch_at = next(
+                    (i for i, (a, b) in enumerate(zip(got_titles, exp_titles)) if a != b), None
+                )
+                logger.warning(
+                    "补写 desc 的讲次**顺序/标题**与输入不一致，已整体拒收",
+                    extra={"extra_fields": {
+                        "got_head": got_titles[:3], "want_head": exp_titles[:3],
+                        "mismatch_at": mismatch_at}},
+                )
+                return 0
         db = get_db()
         ts = now_iso()
         n = 0
@@ -1624,6 +1670,18 @@ class CourseService:
             raise AppError(1000, "课程结构不完整", "至少需要一个单元与一个讲次")
 
         ts = now_iso()
+        # 是否带讲次 id（新前端格式）。任一讲次带 id 即按 id 复用行。
+        # 整批都不带 id = 老客户端/旧测试 → 退回原「按 (unit_id, ordinal) 位置复用」，
+        # 保持逐字兼容（Z7e 兼容断言依赖「无 id → 行为与旧版一致」）。
+        has_ids = any(
+            isinstance(u, dict) and isinstance(u.get("lessons"), list)
+            and any(isinstance(lv, dict) and lv.get("id") for lv in u["lessons"])
+            for u in units
+        )
+        # 课程级 kept_ids：支持讲次**跨单元移动**（内容跟着讲次走）。
+        # 删除必须放在所有 UPDATE 之后、且按「course_id + id NOT IN」整课执行，
+        # 否则从单元 A 移动到单元 B 的讲次会被 A 的「单元内删除」误删（它此刻仍挂在 A 下）。
+        kept_ids: list[str] = []
         with db.transaction():
             for u_idx, unit in enumerate(units, start=1):
                 if not isinstance(unit, dict):
@@ -1634,6 +1692,7 @@ class CourseService:
                 lessons_raw = unit.get("lessons") or []
                 if not isinstance(lessons_raw, list):
                     continue
+                lessons_raw = list(lessons_raw)[:12]
                 # 优先沿用原单元（保留其下的讲次与已生成内容），不足时新建。
                 u_row = db.query_one(
                     "SELECT id FROM course_units WHERE course_id = ? AND ordinal = ?",
@@ -1654,7 +1713,7 @@ class CourseService:
                         (u_title, str(unit.get("summary") or "").strip()[:300], uid),
                     )
 
-                for l_idx, lesson in enumerate(lessons_raw[:12], start=1):
+                for l_idx, lesson in enumerate(lessons_raw, start=1):
                     if not isinstance(lesson, dict):
                         continue
                     l_title = str(lesson.get("title") or "").strip()[:120]
@@ -1663,18 +1722,44 @@ class CourseService:
                     kind = str(lesson.get("kind") or "lecture").strip().lower()
                     if kind not in ("lecture", "practice", "project"):
                         kind = "lecture"
-                    l_row = db.query_one(
-                        "SELECT id FROM course_lessons WHERE unit_id = ? AND ordinal = ?",
-                        (uid, l_idx),
-                    )
                     objective = str(lesson.get("objective") or "").strip()[:300]
+                    l_row = None
+                    if has_ids and lesson.get("id"):
+                        # 带 id 的新前端：按讲次 id 复用行（内容字段跟着讲次走，支持跨单元移动）。
+                        # 必须校验 course_id 归属，防跨课程 id 注入。
+                        l_row = db.query_one(
+                            "SELECT id FROM course_lessons WHERE id = ? AND course_id = ?",
+                            (str(lesson["id"]), cid),
+                        )
+                        if l_row is not None:
+                            kept_ids.append(str(lesson["id"]))
+                    if l_row is None and not (has_ids and lesson.get("id")):
+                        # 无 id（老前端）或该 id 不属于本课程 → 按位置复用 / 当新增处理。
+                        l_row = db.query_one(
+                            "SELECT id, course_id FROM course_lessons WHERE unit_id = ? AND ordinal = ?",
+                            (uid, l_idx),
+                        )
+                        if l_row is not None and has_ids:
+                            # 带 id 的 payload 里出现「无 id 或跨课程 id」的项：
+                            # 只有该行确属本课程才允许按位置复用（防御，正常前端不会走到）。
+                            l_own = db.query_one(
+                                "SELECT id FROM course_lessons WHERE id=? AND course_id=?",
+                                (l_row["id"], cid),
+                            )
+                            if l_own is not None:
+                                kept_ids.append(str(l_row["id"]))
                     if l_row is None:
+                        # 新增行：INSERT（沿用现有 INSERT 语句与 desc_json 处理）。
+                        # 新行 id 必须纳入课程级 kept_ids，否则事务末尾的
+                        # DELETE id NOT IN (kept_ids) 会把本轮新增的讲次一并删掉。
                         l_desc = _norm_desc(lesson.get("desc"), kind)
+                        lid = new_id()
+                        kept_ids.append(lid)
                         db.execute(
                             "INSERT INTO course_lessons(id,course_id,unit_id,ordinal,"
                             "global_ordinal,kind,title,objective,depth,status,created_at,"
                             "updated_at,desc_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (new_id(), cid, uid, l_idx, u_idx * 100 + l_idx, kind, l_title,
+                            (lid, cid, uid, l_idx, u_idx * 100 + l_idx, kind, l_title,
                              objective, str(lesson.get("depth") or "standard"), "pending",
                              ts, ts, json.dumps(l_desc, ensure_ascii=False) if l_desc else None),
                         )
@@ -1686,26 +1771,42 @@ class CourseService:
                         # payload 里没有 desc 键 → 不动旧值（兼容老前端）；显式 null → 清空。
                         l_desc = _norm_desc(lesson.get("desc"), kind)
                         db.execute(
-                            "UPDATE course_lessons SET title=?, objective=?, kind=?,"
-                            " desc_json=?, updated_at=? WHERE id=?",
-                            (l_title, objective, kind,
+                            "UPDATE course_lessons SET unit_id=?, ordinal=?, title=?, objective=?,"
+                            " kind=?, desc_json=?, updated_at=? WHERE id=?",
+                            (uid, l_idx, l_title, objective, kind,
                              json.dumps(l_desc, ensure_ascii=False) if l_desc else None,
                              ts, l_row["id"]),
                         )
                     else:
+                        # 覆盖结构字段（含 unit_id/ordinal：支持讲次跨单元移动，内容跟着讲次走），
+                        # 不动任何内容字段（board/slides/scripts/marks/citations/conversation_id/status）。
                         db.execute(
-                            "UPDATE course_lessons SET title=?, objective=?, kind=?, updated_at=?"
-                            " WHERE id=?",
-                            (l_title, objective, kind, ts, l_row["id"]),
+                            "UPDATE course_lessons SET unit_id=?, ordinal=?, title=?, objective=?,"
+                            " kind=?, updated_at=? WHERE id=?",
+                            (uid, l_idx, l_title, objective, kind, ts, l_row["id"]),
                         )
-                # 删除本单元多余的旧讲次
-                db.execute(
-                    "DELETE FROM course_lessons WHERE unit_id = ? AND ordinal > ?",
-                    (uid, min(len(lessons_raw), 12)),
-                )
+                # 老前端（整批无 id）：保留原「按位置删多余讲次」行为。
+                # 带 id 时**不在单元内删除** —— 用户删除/移动的讲次统一交给课程级删除
+                #（见事务末尾），否则跨单元移动的讲次会在旧单元被误删。
+                if not has_ids:
+                    db.execute(
+                        "DELETE FROM course_lessons WHERE unit_id = ? AND ordinal > ?",
+                        (uid, len(lessons_raw)),
+                    )
             # 删除多余的旧单元
             db.execute("DELETE FROM course_units WHERE course_id = ? AND ordinal > ?",
                        (cid, len(units)))
+            if has_ids:
+                # 课程级删除未保留的讲次：kept_ids 为空 = 本轮全删。
+                # 用 placeholders 安全拼接（id 来自新前端，逐项 bind）。
+                if kept_ids:
+                    ph = ",".join("?" for _ in kept_ids)
+                    db.execute(
+                        f"DELETE FROM course_lessons WHERE course_id = ? AND id NOT IN ({ph})",
+                        (cid, *kept_ids),
+                    )
+                else:
+                    db.execute("DELETE FROM course_lessons WHERE course_id = ?", (cid,))
             self._renumber(cid)
             db.execute(
                 "UPDATE courses SET title=?, status='ready', error=NULL, updated_at=? WHERE id=?",
@@ -3570,10 +3671,34 @@ class CourseService:
 
     @staticmethod
     def _new_job(course_id: str, lesson_id: str | None, kind: str, stage: str) -> str:
-        """创建任务记录，返回 ``job_id``。"""
+        """创建任务记录，返回 ``job_id``。
+
+        并发防重入（P0-4）：按 ``(course_id, kind, lesson_id)`` 粒度隔离。
+        - 讲义 / 练习是**讲次级**（lesson_id 非空，不同讲次可并行）；
+        - 大纲 / desc / 单元总结是**课程级**（lesson_id 为 NULL），同课同 kind 互斥。
+        - **僵尸豁免**：running 任务 ``updated_at`` 早于 ``_JOB_REENTRY_STALE_MIN`` 分钟
+          前视为僵死（进程被杀遗留），不计入防重入。
+        """
+        db = get_db()
+        # NULL 安全比较：COALESCE(lesson_id,'')=COALESCE(?,'')
+        running = db.query_one(
+            "SELECT id, updated_at FROM course_jobs"
+            " WHERE course_id = ? AND kind = ? AND status = 'running'"
+            " AND COALESCE(lesson_id,'') = COALESCE(?,'')"
+            " ORDER BY updated_at DESC LIMIT 1",
+            (course_id, kind, lesson_id),
+        )
+        if running is not None:
+            try:
+                updated = parse_iso(str(running["updated_at"]))
+                age_min = (datetime.now(timezone.utc) - updated).total_seconds() / 60.0
+            except Exception:  # noqa: BLE001 - 时间解析失败按「最新鲜」处理，宁可挡
+                age_min = 0.0
+            if age_min < _JOB_REENTRY_STALE_MIN:
+                raise AppError(1005, "上一个任务还在进行", "请等它完成后再试")
         jid = new_id()
         ts = now_iso()
-        get_db().execute(
+        db.execute(
             "INSERT INTO course_jobs(id,course_id,lesson_id,kind,stage,status,error,"
             "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (jid, course_id, lesson_id, kind, stage, "running", None, ts, ts),

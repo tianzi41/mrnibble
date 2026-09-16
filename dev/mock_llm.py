@@ -446,10 +446,12 @@ def _outline_dirty(kind: str) -> str:
     return json.dumps(obj, ensure_ascii=False)
 
 
-def _desc_fill_payload(user_text: str) -> str:
-    """按输入结构回填讲次 desc（数量与顺序必须与输入一致）。
+def _desc_fill_payload(user_text: str, partial: bool = False) -> str:
+    """按输入结构回填讲次 desc（数量与顺序必须与输入一致，且回带 title）。
 
     与真实模型一样，从 user 消息里的【课程结构】JSON 推断要补几讲、哪几讲是练习讲。
+    ``partial=True``：最后一讲只回带 title、不带 desc —— 模拟「模型只补上前 N-1 讲」
+    （验证服务端「部分成功 → 明确报失败」，而不是静默成功）。
     """
     struct: list = []
     idx = user_text.find("【课程结构")
@@ -461,19 +463,29 @@ def _desc_fill_payload(user_text: str) -> str:
                 struct = json.loads(seg[p:].strip())
             except Exception:  # noqa: BLE001 - 解析不到就当空结构
                 struct = []
+    flat: list = []
+    for u in struct:
+        for l in (u.get("lessons") or []):
+            flat.append(l)
+    drop_last = partial and bool(flat)
     units: list = []
     for u in struct:
         ls: list = []
         for l in (u.get("lessons") or []):
+            title = str(l.get("lesson") or "")
+            if drop_last and l is flat[-1]:
+                # 只回带 title，不带 desc（服务端 _norm_desc(None) → 跳过该讲）
+                ls.append({"title": title})
+                continue
             if str(l.get("kind")) == "practice":
-                ls.append({"desc": {
+                ls.append({"title": title, "desc": {
                     "exercise_focus": ["考察本单元正文讲的概念"],
                     "expected_mistakes": ["把相近概念混为一谈"],
                     "exercise_flow": "3 道判断 → 2 道改错 → 1 道综合"}})
             else:
-                title = str(l.get("lesson") or "")[:14]
-                ls.append({"desc": {
-                    "outcomes": [f"能说明「{title}」的要点"],
+                short = title[:14]
+                ls.append({"title": title, "desc": {
+                    "outcomes": [f"能说明「{short}」的要点"],
                     "knowledge_points": ["核心定义", "适用条件"],
                     "concepts": ["极限"],
                     "operations": ["按定义判断"],
@@ -525,7 +537,10 @@ def _pick(body: dict) -> str:
             for m in (body.get("messages") or [])
             if m.get("role") == "user"
         )
-        return _desc_fill_payload(_users)
+        # mock-desc-partial：只补上前 N-1 讲（最后一讲缺 desc）—— 验证「部分成功
+        # → 明确报失败」；默认桩完整补全。
+        partial = model == "mock-desc-partial"
+        return _desc_fill_payload(_users, partial=partial)
     # 「课型推荐」与「按课型写目标」同样是另发的调用，按提示词特征识别。
     if "你是课程顾问" in _systems:
         _spy_dump(body)
@@ -753,7 +768,7 @@ MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-
                "mock-summary", "mock-goals", "mock-spy-goals", "mock-outline-5", "mock-echo-flags",
                "mock-lecture-p1", "mock-lecture-plain", "mock-practice-hands",
                "mock-lecture-ir", "mock-lecture-ir-bad", "mock-lecture-ir-stubborn",
-               "mock-lecture-mirror", "mock-lecture-stubborn")
+               "mock-lecture-mirror", "mock-lecture-stubborn", "mock-desc-partial")
 
 
 @app.get("/v1/models")
