@@ -138,8 +138,171 @@ __DESC_SPEC__
 - 同一个术语在所有讲次的 concepts 里是否用了同一个译名？
 """ + _BASE_RULES
 
+# ── 课型（学习意图）库 —— **单一来源** ─────────────────────
+# 用户要控制的是「想要什么形态的课」，而不是让 AI 替他写一串能力目标。
+# 课型同时是**结构模板**：决定单元怎么切、讲次按什么顺序走 ——
+# 所以提示词里的推进顺序直接取这里的 flow（与 desc 规范同样的「一份定义」原则）。
+#
+# live=False 是**数据结构预留**：上线只需改成 True，前端经接口自动出现，
+# 不需要改前端代码、也不需要数据迁移。
+_INTENT_TYPES: tuple[dict[str, Any], ...] = (
+    # ── 已上线：通用 5 种 ──────────────────────────────
+    {"id": "overview", "live": True, "group": "general", "name": "了解脉络型",
+     "fit": "只求大概了解：背景、人物、事件脉络、主旨",
+     "pace": "轻量通识，1 课时以内",
+     "flow": ["导入与目标", "作者/出处/时代背景", "通读正音", "事件脉络图或结构图",
+              "人物性格卡", "主旨与启示", "小结与简单练习"],
+     "assist": "脉络图/结构图与人物关系梳理"},
+    {"id": "deep-read", "live": True, "group": "general", "name": "由浅入深精读型",
+     "fit": "先了解大概，再逐字逐句学习（常规教学主流）",
+     "pace": "最像学校常规课件，2~3 课时",
+     "flow": ["整体概览", "背景与人物", "初读正音断句",
+              "逐段逐句精讲：原文 · 重点字词 · 翻译 · 特殊句式 · 内容作用",
+              "段意与结构", "主旨与写法", "总结", "检测"],
+     "assist": "逐字逐句的字词与翻译讲法"},
+    {"id": "exam", "live": True, "group": "general", "name": "考点应试型",
+     "fit": "要提分、要复习：重点字词、翻译、断句、内容理解",
+     "pace": "目标明确，适合考前复习",
+     "flow": ["考情分析", "重点实词虚词", "通假字 / 古今异义 / 词类活用",
+              "特殊句式", "翻译训练", "断句技巧", "文意理解题", "真题演练", "错题总结"],
+     "assist": "考点密度与练习量"},
+    {"id": "inquiry", "live": True, "group": "general", "name": "主题探究型",
+     "fit": "不想只翻译，要讨论、探究、展示",
+     "pace": "适合公开课与素养课",
+     "flow": ["抛出核心问题", "背景铺垫", "文本细读找证据", "分组探究",
+              "辩论或汇报", "主旨升华", "写作迁移", "总结"],
+     "assist": "问题链与讨论/探究环节"},
+    {"id": "project", "live": True, "group": "general", "name": "任务驱动型",
+     "fit": "要以成果收尾：讲稿、海报、讲解视频、演示程序",
+     "pace": "参与度高，适合拓展课与跨学科",
+     "flow": ["真实情境任务", "拆解子任务", "材料阅读与资料搜集", "成果制作",
+              "展示与评价", "总结反思"],
+     "assist": "实操与成果产出环节"},
+    # ── 预留（live=False）：把 live 改成 True 即上线 ──────
+    {"id": "recite", "live": False, "group": "subject-zh", "name": "诵读涵泳型",
+     "fit": "诗词、美文、经典：重语感、节奏、情感、背诵",
+     "pace": "适合诗词与经典散文",
+     "flow": ["初读正音", "节奏停顿", "范读/跟读", "字词疏通", "画面与意象",
+              "情感变化", "手法赏析", "背诵默写", "总结"],
+     "assist": "节奏、范读与背诵环节"},
+    {"id": "character", "live": False, "group": "subject-zh", "name": "人物形象探究型",
+     "fit": "史传、传记、记人叙事：重点分析人物性格与评价",
+     "pace": "适合史传类文本",
+     "flow": ["人物档案", "生平时间轴", "典型事件", "细节描写", "性格多面性",
+              "作者评价", "历史影响", "启示与迁移", "总结"],
+     "assist": "人物细节与性格分析"},
+    {"id": "culture", "live": False, "group": "subject-zh", "name": "文化专题型",
+     "fit": "想讲礼制、官职、地理、典故、民俗",
+     "pace": "适合文化信息密集的文本",
+     "flow": ["文化导入", "关键文化点", "文本印证", "背景拓展", "古今对比",
+              "文化意义", "总结"],
+     "assist": "文化常识与古今对照"},
+    {"id": "contrast", "live": False, "group": "general", "name": "对比阅读型",
+     "fit": "两篇或多篇材料一起讲：求同、比异",
+     "pace": "适合单元复习与群文阅读",
+     "flow": ["选文组合", "求同", "比异", "人物/主旨/手法比较", "背景比较",
+              "迁移写作", "总结"],
+     "assist": "对照表与差异分析"},
+    {"id": "micro", "live": False, "group": "general", "name": "微课型",
+     "fit": "时间短、课前自学或课后复习",
+     "pace": "每页信息少、节奏快，5~15 分钟",
+     "flow": ["课前任务单", "微课讲重点", "当堂检测", "课后拓展"],
+     "assist": "压缩篇幅、突出单点"},
+)
+
+
+def intent_catalog() -> list[dict[str, Any]]:
+    """已上线的课型清单（前端经接口取，避免前后端各写一份而漂移）。"""
+    return [dict(t) for t in _INTENT_TYPES if t["live"]]
+
+
+def intent_by_id(iid: str | None) -> dict[str, Any] | None:
+    """按 id 取课型（只认已上线的；给 ``None``/未知 id 返回 ``None``）。"""
+    if not iid:
+        return None
+    for t in _INTENT_TYPES:
+        if t["id"] == iid and t["live"]:
+            return t
+    return None
+
+
+def _intent_out(raw: Any) -> dict[str, Any] | None:
+    """课型 → 对外输出（**带上名称**，前端就不必再查一次课型库）。"""
+    try:
+        obj = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:  # noqa: BLE001 - 脏数据按无课型处理
+        return None
+    if not isinstance(obj, dict) or not obj.get("primary"):
+        return None
+    p = intent_by_id(str(obj.get("primary")))
+    if p is None:
+        return None
+    a = intent_by_id(str(obj.get("assist") or ""))
+    return {
+        "primary": p["id"],
+        "primary_name": p["name"],
+        "assist": a["id"] if a else None,
+        "assist_name": a["name"] if a else None,
+        "note": str(obj.get("note") or "") or None,
+    }
+
+
+def _intent_spec(primary_id: str | None, assist_id: str | None, note: str = "") -> str:
+    """课型 → 提示词块（大纲阶段的结构约束）。无有效主课型时返回空串（旧课程不受影响）。"""
+    p = intent_by_id(primary_id)
+    if p is None:
+        return ""
+    lines = [
+        "【本次课型（用户明确选定：决定单元如何划分、讲次按什么顺序走）】",
+        f"主课型：{p['name']} —— {p['fit']}",
+        "按它推进：" + " → ".join(str(x) for x in p["flow"]),
+    ]
+    a = intent_by_id(assist_id)
+    if a is not None and a["id"] != p["id"]:
+        lines.append(f"辅助课型：{a['name']}（在满足主课型结构的前提下，额外加强：{a['assist']}）")
+    if note:
+        lines.append("用户补充：" + note)
+    lines.append(
+        "要求：单元划分与讲次顺序要**贴着上面的推进顺序**（可按材料实际增删环节，"
+        "但顺序与侧重不得反着来）；材料明显不支撑某个环节时跳过它、**不要硬造**；"
+        "课型只决定「顺序与侧重」，具体知识点仍然只能来自材料。"
+    )
+    return "\n".join(lines)
+
+
+# 课型推荐（创建向导「分析材料」）：按材料判断最合适的课型。
+_INTENT_PICK_PROMPT = """你是课程顾问。用户选好了学习材料，请判断这些材料更适合哪种课型。
+
+可选课型（**只能**从这里选 id）：
+__INTENT_LIST__
+
+判断依据是材料的体裁与内容：技术文档/教程偏「由浅入深精读型」或「任务驱动型」；
+文言文原文与注释偏「由浅入深精读型」；只讲背景梗概的偏「了解脉络型」；
+要备考做题的偏「考点应试型」；有可讨论话题的偏「主题探究型」。
+
+输出 JSON：
+{"primary":"主课型id","reason":"为什么适合（≤30 字，指出材料里像的地方）","alternatives":["备选id1","备选id2"]}
+只输出这一个 JSON 对象，不要输出 JSON 以外的任何文字（包括解释与代码块标记）。
+"""
+
+# 按课型写「目的句」（取代原来的「4 条能力目标」）。
+_GOAL_FROM_INTENT_PROMPT = """你是学习规划师。用户已经选定了材料与想要的课型，请为这门课写**一句**学习目标。
+
+要求：
+- 只写**一句话**（40~80 字），写成「我想要的目的是什么」，不是能力清单；
+- 用目的口吻，例：「读懂《孔雀东南飞》全文，能顺畅翻译并说清故事与人物关系，顺带掌握常见实词虚词」；
+- **禁止**罗列「能…能…能…」的多条目标 —— 那些是一门课该产出的成果，不是用户的目的；
+- 要体现所选课型的侧重（课型信息见用户消息中【本次课型】）；
+- 只依据材料真实覆盖的内容，不要编造材料里没有的主题。
+
+输出 JSON：{"goal":"一句话"}
+只输出这一个 JSON 对象，不要输出 JSON 以外的任何文字（包括解释与代码块标记）。
+"""
+
 _OUTLINE_PROMPT = """你是课程设计师。请依据用户的学习目标与材料，设计一门「能学完」的课程大纲。
 学习者水平与深度要求见用户消息中的【课程信息】。
+
+__INTENT_SPEC__
 
 结构要求：
 - 课程标题：一句话点明主题，具体到方法或领域，不空泛；
@@ -689,9 +852,33 @@ class CourseService:
         if not document_ids:
             raise AppError(1002, "没有可用材料", "请先上传并解析完成至少一份文档")
 
+        # 课型（主课型必选、辅助课型可选且最多一个）：既是结构模板，也是目标兜底的依据。
+        # 兼容策略：**没传 intent** → 不注入课型、行为与旧版逐字一致（老客户端/旧测试）；
+        # **传了但 id 非法** → 报错（说明客户端状态错了，不能静默降级成一个别的课型）。
+        raw_intent = payload.get("intent") if isinstance(payload.get("intent"), dict) else None
+        intent_obj: dict[str, Any] | None = None
+        if raw_intent is not None:
+            primary = intent_by_id(str(raw_intent.get("primary") or ""))
+            if primary is None:
+                raise AppError(1000, "课型无效", "请重新选择课型后再生成大纲")
+            assist = intent_by_id(str(raw_intent.get("assist") or ""))
+            if assist is not None and assist["id"] == primary["id"]:
+                assist = None                # 辅助课型不能与主课型相同
+            intent_obj = {
+                "primary": primary["id"],
+                "assist": assist["id"] if assist else None,
+                "note": str(raw_intent.get("note") or "").strip()[:300],
+            }
+
         goal = str(payload.get("goal") or "").strip()
+        if not goal and intent_obj is not None:
+            # 用户把目标一键清空时按课型兜底：目标可以留空，
+            # 但检索查询与提示词里的「目的」需要一个非空文本。
+            p = intent_by_id(str(intent_obj["primary"]))
+            if p is not None:
+                goal = f"按「{p['name']}」的方式学这门课：{p['fit']}"
         if not goal:
-            raise AppError(1000, "请填写学习目标", "用一句话说明「学完想做到什么」")
+            raise AppError(1000, "请填写学习目标", "用一句话说明「学完想做什么」")
 
         level = str(payload.get("level") or "beginner")
         if level not in LEVELS:
@@ -715,11 +902,12 @@ class CourseService:
         title = self._draft_title(goal, document_ids)
         db.execute(
             "INSERT INTO courses(id,title,goal,level,depth,unit_count,language,hands_on,"
-            "summary,outline_json,status,error,created_at,updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "summary,outline_json,status,error,created_at,updated_at,intent_json)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (cid, title, goal[:1000], level, depth, unit_count,
              str(payload.get("language") or "zh"), hands_on,
-             None, None, "drafting", None, ts, ts),
+             None, None, "drafting", None, ts, ts,
+             json.dumps(intent_obj, ensure_ascii=False) if intent_obj else None),
         )
         for did in document_ids:
             db.execute(
@@ -846,6 +1034,113 @@ class CourseService:
         except Exception:  # noqa: BLE001 - 来源仅用于展示，取不到不影响推荐
             sources = []
         return {"goals": goals, "sources": sources}
+
+    # ── 课型推荐 / 按课型写目标（创建向导）───────────────
+    def _material_context(self, document_ids: Sequence[str]) -> tuple[str, list[str]]:
+        """材料全貌 → (提示词上下文, 来源材料标题)。
+
+        与 `suggest_goals` 同源：喂**整份材料的概览**而不是按 query 抽片段 ——
+        判断课型、写目标都该看材料的体裁与结构，按空泛 query 检索只会拿到近乎空白的
+        上下文，让模型凭训练语料幻觉（曾经的「勾文言文却推荐出大模型目标」即此因）。
+        """
+        ids = [d for d in (document_ids or []) if d]
+        if not ids:
+            ids = self._ready_document_ids()
+        if not ids:
+            raise AppError(1002, "没有可用材料", "请先上传并解析完成至少一份文档")
+        hits, outline = get_retrieval_service().material_overview(ids, chunks_per_doc=6)
+        if not hits:
+            raise AppError(1002, "没有可用材料", "来源文档没有可检索的文本内容")
+        context, _ = build_context(hits, outline=outline)
+        sources: list[str] = []
+        db = get_db()
+        for did in ids:
+            row = db.query_one("SELECT title FROM documents WHERE id = ?", (did,))
+            if not row:
+                continue
+            title = str(row["title"] if isinstance(row, dict) else row[0]).strip()
+            if title and title not in sources:
+                sources.append(title)
+        return context, sources
+
+    def recommend_intents(self, document_ids: Sequence[str]) -> dict[str, Any]:
+        """按材料推荐**课型**（1 主 + 最多 2 备选），供创建向导预选。
+
+        推荐只是辅助：模型失败时退回「由浅入深精读型」+ 两个通用备选，绝不报错，
+        否则用户会被挡在创建流程外（与 `suggest_goals` 同样的兜底原则）。
+        """
+        llm = LLMClient.get_instance()
+        llm.ensure_configured()
+        context, sources = self._material_context(document_ids)
+
+        live = intent_catalog()
+        listing = "\n".join(f"- {t['id']}：{t['name']} —— {t['fit']}" for t in live)
+        prompt = _INTENT_PICK_PROMPT.replace("__INTENT_LIST__", listing)
+
+        primary, reason, alts = "deep-read", "", []
+        try:
+            raw = self._chat(
+                [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": f"【学习材料概览】\n{context}"},
+                ],
+                max_tokens=600,
+            )
+            obj = self._safe_json(raw)
+            if isinstance(obj, dict):
+                p = intent_by_id(str(obj.get("primary") or ""))
+                if p is not None:
+                    primary = p["id"]
+                    reason = str(obj.get("reason") or "").strip()[:60]
+                    for a in (obj.get("alternatives") or [])[:3]:
+                        aid = str(a or "")
+                        if intent_by_id(aid) and aid != primary and aid not in alts:
+                            alts.append(aid)
+        except Exception as exc:  # noqa: BLE001 - 推荐失败不该挡住创建
+            logger.warning("课型推荐失败，已用默认课型",
+                           extra={"extra_fields": {"type": type(exc).__name__}})
+        alts = alts[:2]
+        if not alts:
+            alts = [t["id"] for t in live if t["id"] != primary][:2]
+        return {"primary": primary, "reason": reason, "alternatives": alts, "sources": sources}
+
+    def goal_from_intent(
+        self,
+        document_ids: Sequence[str],
+        primary: str,
+        assist: str | None = None,
+        note: str = "",
+    ) -> dict[str, Any]:
+        """按「材料 + 课型」写一句**目的句**（取代原来那 4 条能力清单）。
+
+        用户可改、可一键清空；清空后由 `create_course` 按课型兜底。
+        """
+        llm = LLMClient.get_instance()
+        llm.ensure_configured()
+        p = intent_by_id(primary)
+        if p is None:
+            raise AppError(1000, "课型无效", "请重新选择课型")
+        context, sources = self._material_context(document_ids)
+        spec = _intent_spec(p["id"], assist, note)
+        user = f"{spec}\n\n【学习材料概览】\n{context}" if spec else f"【学习材料概览】\n{context}"
+        goal = ""
+        try:
+            raw = self._chat(
+                [
+                    {"role": "system", "content": _GOAL_FROM_INTENT_PROMPT},
+                    {"role": "user", "content": user},
+                ],
+                max_tokens=400,
+            )
+            obj = self._safe_json(raw)
+            if isinstance(obj, dict):
+                goal = str(obj.get("goal") or "").strip()
+        except Exception as exc:  # noqa: BLE001 - 失败走确定性兜底，按钮永远有结果
+            logger.warning("按课型生成目标失败，已用兜底句",
+                           extra={"extra_fields": {"type": type(exc).__name__}})
+        if not goal:
+            goal = f"按「{p['name']}」的方式学这门课：{p['fit']}"
+        return {"goal": goal[:300], "sources": sources}
 
     # ── 旧课程：补写讲次教学设计 desc ────────────────────
     def rebuild_desc(self, cid: str) -> dict[str, Any]:
@@ -1031,11 +1326,28 @@ class CourseService:
                 f"单元数固定为 {unit_count} 个，{lessons_rule}" if unit_count
                 else f"单元数量由你根据材料体量与学习目标自行决定（通常 2~5 个），{lessons_rule}"
             )
+            # 课型（用户选定）：它决定单元切法与讲次顺序，是大纲阶段最硬的结构约束。
+            # 旧课程没有 intent_json（列缺失或为 NULL）→ _intent_spec 返回空串，
+            # 提示词与旧版逐字一致。
+            try:
+                i_row = db.query_one("SELECT intent_json FROM courses WHERE id = ?", (cid,))
+                i_obj = json.loads((i_row["intent_json"] if i_row else None) or "{}")
+                if not isinstance(i_obj, dict):
+                    i_obj = {}
+            except Exception:  # noqa: BLE001 - 脏数据/旧库按「无课型」处理
+                i_obj = {}
+            intent_spec = _intent_spec(
+                str(i_obj.get("primary") or ""),
+                str(i_obj.get("assist") or "") or None,
+                str(i_obj.get("note") or "")[:300],
+            )
+
             prompt = (
                 _OUTLINE_PROMPT
                 .replace("__UNITS_RULE__", units_rule)
                 .replace("__LESSONS_RULE__", lessons_rule)
                 .replace("__DESC_SPEC__", _DESC_SPEC)
+                .replace("__INTENT_SPEC__", intent_spec)
             ) + (
                 f"\n补充要求：学习者当前水平为「{_LEVEL_NAME.get(level, level)}」，"
                 f"内容深度要求「{_DEPTH_NAME.get(depth, depth)}」。"
@@ -3510,6 +3822,8 @@ class CourseService:
             "unit_count": row["unit_count"],
             # 旧库可能没有该列（迁移前创建的行），取不到时按「含实操」处理
             "hands_on": bool(self._row_get(row, "hands_on", 1)),
+            # 课型（主/辅，含名称）：旧课程为 None → 前端不显示课型行
+            "intent": _intent_out(self._row_get(row, "intent_json")),
             "summary": row["summary"],
             "status": row["status"],
             "error": row["error"],

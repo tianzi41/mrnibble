@@ -221,6 +221,40 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                         and any("实操" in (o or "") for o in wh["opts"])
                         and any("纯理论" in (o or "") for o in wh["opts"])),
                    f"opts={wh.get('opts') if wh else None}")
+
+            # ---- 课型（学习意图）卡片：主课型必选、辅助课型收在高级选项里 ----
+            it = await ev("""(function(){
+                var cards=Array.from(document.querySelectorAll('.intent-card'));
+                var adv=document.querySelector('details.adv');
+                var as=document.getElementById('f-assist');
+                var clr=document.getElementById('f-clear-goal');
+                var goal=document.getElementById('f-goal');
+                return {cards:cards.length,
+                        names:cards.map(function(c){var b=c.querySelector('b');return b?b.textContent:'';}),
+                        onCount:cards.filter(function(c){return c.classList.contains('on');}).length,
+                        advExists:!!adv, advOpen: adv?adv.open:null,
+                        assistOpts: as?as.options.length:0,
+                        clearBtn: !!clr, goalExists: !!goal};
+            })()""")
+            _check("2.77 建课向导含课型卡（≥5 张，来自后端课型库）",
+                   bool(it and it.get("cards", 0) >= 5 and it.get("goalExists")
+                        and "由浅入深精读型" in (it.get("names") or [])
+                        and "考点应试型" in (it.get("names") or [])),
+                   f"cards={it.get('cards') if it else None} names={it.get('names') if it else None}")
+            _check("2.78 高级选项默认收起，内含辅助课型下拉（1 空项 + 5 课型）",
+                   bool(it and it.get("advExists") and it.get("advOpen") is False
+                        and it.get("assistOpts", 0) == 6),
+                   f"advOpen={it.get('advOpen') if it else None} "
+                   f"opts={it.get('assistOpts') if it else None}")
+            # 交互：选课型后卡片高亮；「清空」真的清掉目标（留空由后端按课型兜底）
+            await ev("var c=document.querySelector('.intent-card');if(c)c.click();")
+            await _asyncio.sleep(2.5)      # 等按课型写目标的调用回来，再验证清空
+            on_after = await ev("document.querySelectorAll('.intent-card.on').length")
+            _check("2.79 点课型卡后该卡进入选中态", on_after == 1, f"on={on_after}")
+            await ev("var b=document.getElementById('f-clear-goal');if(b)b.click();")
+            await _asyncio.sleep(0.4)
+            gv = await ev("(document.getElementById('f-goal')||{}).value")
+            _check("2.80 「清空」按钮真的清掉目标（允许留空）", gv == "", f"value={gv!r}")
             # 取消向导，回到列表（避免 S.creating 残留影响后续断言）
             await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
             await _asyncio.sleep(0.6)
@@ -955,7 +989,8 @@ def main() -> int:
         print("\n[1.8] 课程创建向导")
         dom = dump(f"{BASE}/#/courses?new=1")
         check("1.8a 向导页无渲染异常", 'data-view-error' not in dom, dom[:200])
-        check("1.8b 有目标建议按钮", "帮我推荐" in dom)
+        check("1.8b 有课型区（「分析材料并预选」按钮 + 课型卡容器）",
+              "分析材料并预选" in dom and "intent-cards" in dom)
         check("1.8c 有自动单元数选项", "自动" in dom and "按材料定" in dom)
 
         print("\n[2] 造一门课并检查课程页 / 课堂页 / 练习页")

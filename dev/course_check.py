@@ -1230,6 +1230,70 @@ def main() -> int:
               sum(1 for l in keep if l.get("desc")) == before_n,
               f"前={before_n} 后={sum(1 for l in keep if l.get('desc'))}")
         _cleanup_courses(cid_z7)
+
+        # Z8 课型（学习意图）：主课型决定大纲结构 —— 取代原来「4 条能力目标单选」。
+        # 用户的原始反馈：那 4 条其实是**同一门课的 4 个侧面**，做成单选本身就别扭；
+        # 而「想要什么形态的课」才是用户真正要表达的东西。
+        cat = get("/api/courses/intents")["data"]["items"]
+        ids_live = [t["id"] for t in cat]
+        check("Z8a 课型接口只返回已上线项（通用 5 种），不含 live=False 的预留项",
+              ids_live == ["overview", "deep-read", "exam", "inquiry", "project"],
+              f"got={ids_live}")
+
+        set_model("mock-normal")
+        d8 = post("/api/courses/suggest-intents", {"document_ids": [doc_id]})["data"]
+        check("Z8b 按材料推荐课型：首选与备选都必须是已上线 id，且备选不含首选",
+              d8.get("primary") in ids_live and bool(d8.get("alternatives"))
+              and all(a in ids_live and a != d8["primary"] for a in d8["alternatives"]),
+              f"{d8}")
+
+        g8 = str(post("/api/courses/suggest-goal", {
+            "document_ids": [doc_id], "primary": d8["primary"]})["data"].get("goal") or "")
+        check("Z8c 按课型写的是「一句目的」，不是「能…能…能…」的能力清单",
+              bool(g8) and g8.count("能") <= 1, f"goal={g8[:60]}")
+
+        # Z8d 建课带课型、goal 故意留空 → 后端按课型兜底；详情回带课型名
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-outline")
+        r = post("/api/courses", {
+            "goal": "", "document_ids": [doc_id], "unit_count": 5, "depth": "standard",
+            "intent": {"primary": "deep-read", "assist": "exam", "note": "学生初三"}})
+        cid_z8 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        c8 = get(f"/api/courses/{cid_z8}")["data"]
+        it8 = c8.get("intent") or {}
+        check("Z8d 目标留空时按课型兜底（课程 goal 非空）",
+              bool(str(c8.get("goal") or "").strip()), f"goal={c8.get('goal')}")
+        check("Z8e 课程详情回带课型（主/辅名称 + 补充都带上）",
+              it8.get("primary_name") == "由浅入深精读型"
+              and it8.get("assist_name") == "考点应试型" and it8.get("note") == "学生初三",
+              f"intent={it8}")
+        spy8 = " ".join(str(m.get("content") or "") for m in _read_spy()
+                        if m.get("role") == "system")
+        check("Z8f 出纲提示词含课型推进顺序 + 辅助课型加强项 + 用户补充",
+              "【本次课型" in spy8 and "整体概览 → 背景与人物" in spy8
+              and "辅助课型：考点应试型" in spy8 and "学生初三" in spy8,
+              f"含课型块={'【本次课型' in spy8}")
+        _cleanup_courses(cid_z8)
+
+        # Z8g 兼容：不传 intent（旧客户端）→ 提示词里没有课型块，行为与旧版一致
+        SPY.unlink(missing_ok=True)
+        r = post("/api/courses", {"goal": "无课型兼容检查", "document_ids": [doc_id],
+                                  "unit_count": 5, "depth": "standard"})
+        cid_z8b = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        spy8b = " ".join(str(m.get("content") or "") for m in _read_spy()
+                         if m.get("role") == "system")
+        check("Z8g 不带 intent 时不注入课型块（旧客户端行为不变）",
+              bool(spy8b) and "【本次课型" not in spy8b,
+              f"含课型块={'【本次课型' in spy8b}")
+        _cleanup_courses(cid_z8b)
+
+        # Z8h 非法/未上线课型 id → 明确报错；**不**静默换成一个别的课型
+        r = post("/api/courses", {"goal": "非法课型", "document_ids": [doc_id],
+                                  "intent": {"primary": "recite"}})     # recite 是预留项
+        check("Z8h 未上线/非法课型 id 被拒（不静默降级成别的课型）",
+              r.get("code") == 1000, f"code={r.get('code')}")
         _cleanup_courses(cid_y1)
 
         # ── I. 删除 ────────────────────────────────────

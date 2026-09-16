@@ -517,3 +517,20 @@ body.teaching-on #tab-body { padding-bottom: 132px; }
 /* 课程详情页：折叠块挂在讲次行**下方**（讲次行是 flex，不能塞进去） */
 .lesson-desc-row { margin: 0 0 6px 10px; }
 .lesson-desc-row .lesson-desc { margin-top: 0; }
+
+/* ── 课型（学习意图）卡片 + 高级选项 ─────────────── */
+.intent-cards { display: flex; flex-wrap: wrap; gap: 8px; }
+.intent-card {
+  flex: 1 1 200px; max-width: 260px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px;
+  background: var(--panel); color: var(--text); font: inherit;
+}
+.intent-card:hover { border-color: var(--primary); }
+.intent-card.on { border-color: var(--primary); background: var(--primary-soft); }
+.intent-card b { display: block; font-size: 13px; font-weight: 500; margin-bottom: 3px; }
+.intent-card .fit { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.intent-card .pace { font-size: 11px; color: var(--muted); margin-top: 4px; }
+details.adv { margin: 12px 0 4px; }
+details.adv > summary { cursor: pointer; font-size: 13px; color: var(--muted); user-select: none; }
+details.adv > summary:hover { color: var(--text); }
+details.adv > .field { margin-top: 10px; }

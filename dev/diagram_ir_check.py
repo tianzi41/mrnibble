@@ -250,6 +250,26 @@ def main() -> int:
           'elif "desc" in lesson:' in courses_src
           and "desc_json=?" in courses_src)
 
+    # 6.13/6.14 课型库同源（2026-09-16）：课型是「一份定义」——
+    # 提示词里的结构推进顺序直接取它的 flow，前端经接口取同一份。三处各写一份必然漂移
+    # （desc 规范整段丢失过一次，就是没有断言盯着的后果）。
+    from backend.services.courses import (          # noqa: PLC0415
+        _INTENT_TYPES, _intent_spec, intent_by_id, intent_catalog,
+    )
+    live = [t["id"] for t in intent_catalog()]
+    reserved = [t["id"] for t in _INTENT_TYPES if not t["live"]]
+    check("6.13 课型库：已上线 5 种 + 预留项只由 live 标记控制（上线无需改前端）",
+          live == ["overview", "deep-read", "exam", "inquiry", "project"]
+          and len(reserved) >= 3 and "recite" in reserved and "contrast" in reserved,
+          f"live={live} reserved={reserved}")
+    dr = intent_by_id("deep-read")
+    spec = _intent_spec("deep-read", "exam", "学生初三")
+    check("6.14 课型块直接取该课型的 flow（单一来源）+ 大纲提示词留了占位",
+          bool(dr) and dr["flow"][0] in spec and dr["flow"][-1] in spec
+          and "辅助课型" in spec and "学生初三" in spec
+          and "__INTENT_SPEC__" in _OUTLINE_PROMPT
+          and _intent_spec("", None) == "" and _intent_spec("recite", None) == "")
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

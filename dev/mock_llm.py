@@ -484,6 +484,20 @@ def _desc_fill_payload(user_text: str) -> str:
     return json.dumps({"units": units}, ensure_ascii=False)
 
 
+def _intent_pick_payload() -> str:
+    """课型推荐桩（按材料体裁给首选 + 两个备选）。"""
+    return json.dumps({"primary": "deep-read",
+                       "reason": "材料是原文加注释，适合逐句精讲",
+                       "alternatives": ["exam", "overview"]}, ensure_ascii=False)
+
+
+def _goal_from_intent_payload() -> str:
+    """「按课型写一句目的」的桩：一句话，不是能力清单。"""
+    return json.dumps(
+        {"goal": "读懂这份材料的主要内容，能顺畅理解并说清它的结构与要点"},
+        ensure_ascii=False)
+
+
 def _pick(body: dict) -> str:
     """按 model 名路由到对应行为，返回回复文本。"""
     model = str(body.get("model") or "")
@@ -512,6 +526,13 @@ def _pick(body: dict) -> str:
             if m.get("role") == "user"
         )
         return _desc_fill_payload(_users)
+    # 「课型推荐」与「按课型写目标」同样是另发的调用，按提示词特征识别。
+    if "你是课程顾问" in _systems:
+        _spy_dump(body)
+        return _intent_pick_payload()
+    if "用户已经选定了材料与想要的课型" in _systems:
+        _spy_dump(body)
+        return _goal_from_intent_payload()
     if model == "mock-normal":
         return _quote_block()
     if model == "mock-stall-guided":

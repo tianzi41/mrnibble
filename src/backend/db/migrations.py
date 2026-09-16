@@ -24,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover - 仅类型标注
 __all__ = ["SCHEMA_VERSION", "run_migrations"]
 
 # 当前目标 schema 版本。新增 DDL 时 +1，并在此文件追加升级逻辑。
-SCHEMA_VERSION: int = 6
+SCHEMA_VERSION: int = 7
 
 
 def _get_version(db: "Database") -> int:
@@ -116,6 +116,17 @@ def _v6_lesson_desc(db: "Database") -> None:
         db.execute("ALTER TABLE course_lessons ADD COLUMN desc_json TEXT")
 
 
+def _v7_course_intent(db: "Database") -> None:
+    """v7：课程课型（``courses.intent_json``）。
+
+    ``{"primary": "...", "assist": "..." | null, "note": "..."}`` —— 课型是用户选定的
+    「想要什么形态的课」，同时充当大纲阶段的结构模板（决定单元怎么切、讲次什么顺序）。
+    旧课程该列为 NULL：出纲时按「无课型」处理，提示词与旧版逐字一致。
+    """
+    if not _column_exists(db, "courses", "intent_json"):
+        db.execute("ALTER TABLE courses ADD COLUMN intent_json TEXT")
+
+
 def run_migrations(db: "Database") -> int:
     """执行建库与迁移，返回迁移后的 schema 版本。
 
@@ -142,6 +153,8 @@ def run_migrations(db: "Database") -> int:
         _v5_course_hands_on(db)
     if current < 6:
         _v6_lesson_desc(db)
+    if current < 7:
+        _v7_course_intent(db)
 
     # 3) 落版本与更新时间。
     if current != SCHEMA_VERSION:

@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from ..errors import AppError, ok
-from ..services.courses import CourseService
+from ..services.courses import CourseService, intent_catalog
 from ..services.coursemedia import get_course_media_service
 
 router = APIRouter()
@@ -21,10 +21,20 @@ router = APIRouter()
 __all__ = ["router"]
 
 
+class CourseIntent(BaseModel):
+    """课型（用户选定）：主课型必选；辅助课型可选、最多一个（在「高级选项」里）。"""
+
+    primary: str = Field(min_length=1, description="主课型 id，见 GET /api/courses/intents")
+    assist: str | None = Field(default=None, description="辅助课型 id；不填=不用")
+    note: str | None = Field(default=None, description="补充要求一句话（学生水平/课时等）")
+
+
 class CourseCreate(BaseModel):
     """``POST /api/courses`` 请求体。"""
 
-    goal: str = Field(min_length=1, description="学习目标（学完想做到什么）")
+    goal: str = Field(
+        default="", max_length=1000,
+        description="学习目标（一句目的句）；**可留空** —— 留空时按所选课型兜底")
     document_ids: list[str] | None = Field(default=None, description="来源材料；空=全部已解析材料")
     level: str = Field(default="beginner", description="beginner|intermediate|advanced")
     depth: str = Field(default="standard", description="brief|standard|detailed")
@@ -33,6 +43,25 @@ class CourseCreate(BaseModel):
     hands_on: bool = Field(
         default=True,
         description="是否包含实践环节（真实操作类题目/讲稿操作任务）；纯理论课程可关闭")
+    intent: CourseIntent | None = Field(
+        default=None, description="课型（主/辅 + 补充）；不传 = 不注入课型（旧客户端行为）")
+
+
+class IntentSuggest(BaseModel):
+    """``POST /api/courses/suggest-intents`` 请求体。"""
+
+    document_ids: list[str] | None = Field(
+        default=None, description="参与判断的材料 id；空=全部已解析材料")
+
+
+class GoalFromIntent(BaseModel):
+    """``POST /api/courses/suggest-goal`` 请求体（按课型写一句目的句）。"""
+
+    document_ids: list[str] | None = Field(
+        default=None, description="材料 id；空=全部已解析材料")
+    primary: str = Field(min_length=1, description="主课型 id")
+    assist: str | None = None
+    note: str | None = None
 
 
 class GoalSuggest(BaseModel):
@@ -134,6 +163,27 @@ def suggest_goals(payload: GoalSuggest | None = None) -> dict:
     """根据勾选材料预测几个「学完想做到什么」的目标（创建向导点选用）。"""
     ids = (payload.document_ids if payload else None) or []
     return ok(_svc().suggest_goals(ids))
+
+
+# 注意：这三条必须注册在 `/courses/{cid}` **之前**，否则 "intents" 会被当成课程 id。
+@router.get("/courses/intents", summary="课型清单（已上线）")
+def list_intents() -> dict:
+    """已上线的课型。课型库只有后端一份，前端经此接口取，避免两边各写一份而漂移。"""
+    return ok({"items": intent_catalog()})
+
+
+@router.post("/courses/suggest-intents", summary="按材料推荐课型")
+def suggest_intents(payload: IntentSuggest | None = None) -> dict:
+    """按材料体裁推荐课型（1 主 + 最多 2 备选），供创建向导预选。"""
+    ids = (payload.document_ids if payload else None) or []
+    return ok(_svc().recommend_intents(ids))
+
+
+@router.post("/courses/suggest-goal", summary="按课型写一句学习目的")
+def suggest_goal(payload: GoalFromIntent) -> dict:
+    """按「材料 + 课型」生成一句目的句（用户可改、可一键清空）。"""
+    return ok(_svc().goal_from_intent(
+        payload.document_ids or [], payload.primary, payload.assist, payload.note or ""))
 
 
 @router.get("/courses/{cid}")

@@ -91,7 +91,7 @@
     card.innerHTML = `
       <div class="row" style="justify-content:space-between">
         <b>新建课程</b>
-        <span class="pill">第 1 步 / 共 2 步：填写学习目标</span>
+        <span class="pill">第 1 步 / 共 2 步：选课型</span>
       </div>
       <div class="sep"></div>
       <div class="field">
@@ -99,11 +99,20 @@
         <div id="pick-docs" class="doc-pick"></div>
       </div>
       <div class="field">
-        <label>学习目标：学完想做到什么？
-          <button class="btn small" id="f-suggest" style="margin-left:8px">✨ 帮我推荐</button>
+        <label>你想要什么课？<span class="hint" style="margin-left:6px">（决定单元怎么分、按什么顺序讲）</span>
+          <button class="btn small" id="f-analyze" style="margin-left:8px">✨ 分析材料并预选</button>
         </label>
-        <textarea id="f-goal" rows="3" placeholder="例如：学完能独立完成二重积分的换序与计算，并能在物理应用题里判断该不该换序"></textarea>
-        <div id="f-goal-list" class="hint" style="margin-top:6px"></div>
+        <div id="intent-cards" class="intent-cards"></div>
+        <div id="intent-hint" class="hint" style="margin-top:6px"></div>
+      </div>
+      <div class="field">
+        <label>学习目标（一句话；AI 按课型写，可改、可清空）</label>
+        <textarea id="f-goal" rows="2" placeholder="选好课型后会自动写一句；也可以自己改，或清空让系统按课型决定"></textarea>
+        <div class="row" style="margin-top:6px">
+          <button class="btn small" id="f-gen-goal">按课型生成</button>
+          <button class="btn small" id="f-clear-goal">清空</button>
+          <span class="hint" id="f-goal-hint"></span>
+        </div>
       </div>
       <div class="row">
         <div class="field">
@@ -126,6 +135,18 @@
           </select>
         </div>
       </div>
+      <details class="adv">
+        <summary>高级选项（辅助课型 / 补充要求）</summary>
+        <div class="field">
+          <label>辅助课型（可选，最多一个）</label>
+          <select id="f-assist"></select>
+          <div class="hint" id="f-assist-hint">在满足主课型结构的前提下，额外加强某一块（例如主课型「精读」+ 辅助「考点」→ 逐句精讲并加强考点）。</div>
+        </div>
+        <div class="field">
+          <label>补充要求（可选，一句话）</label>
+          <input type="text" id="f-note" placeholder="例如：学生初三 / 2 课时 / 必须包含背诵默写">
+        </div>
+      </details>
       <div class="row" style="justify-content:flex-end">
         <button class="btn" id="f-cancel">取消</button>
         <button class="btn primary" id="f-go">生成大纲</button>
@@ -144,41 +165,114 @@
 
     document.getElementById("f-cancel").onclick = () => { S.creating = false; renderMain(); };
 
-    document.getElementById("f-suggest").onclick = async () => {
-      const btn = document.getElementById("f-suggest");
-      const box = document.getElementById("f-goal-list");
-      if (!S.documents.length) return Toast("还没有已解析的材料", true);
-      btn.disabled = true; btn.textContent = "分析中…";
-      box.textContent = "正在分析材料，推荐学习目标…";
-      try {
-        const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
-        const r = await Api.post("/api/courses/suggest-goals", { document_ids: ids });
-        const goals = r.goals || [];
-        box.innerHTML = "";
-        if (!goals.length) { box.textContent = "没有分析出目标，请手动填写。"; return; }
-        box.appendChild(el("div", "hint", "点一个目标，自动填入："));
-        goals.forEach((g) => {
-          const b = el("button", "btn small", esc(g));
-          b.style.margin = "4px 6px 0 0";
-          b.onclick = () => { document.getElementById("f-goal").value = g; Toast("已填入，可再修改"); };
-          box.appendChild(b);
-        });
-        // 材料来源**永远可见**：推荐看的就是这几份材料，错配时一眼能发现
-        // （曾经勾文言文材料却推荐出大模型目标，界面上毫无线索）。
-        const srcs = r.sources || [];
-        if (srcs.length) {
-          box.appendChild(el("div", "hint",
-            `推荐基于你勾选的：${srcs.map((t) => esc(t)).join("、")}`));
-        }
-      } catch (e) {
-        box.textContent = "";
-        Toast("推荐失败：" + e.message, true);
-      } finally { btn.disabled = false; btn.textContent = "✨ 帮我推荐"; }
+    // ── 课型（学习意图）：主课型必选；辅助课型在「高级选项」里可选、最多一个 ──
+    // 课型库只有后端一份（GET /api/courses/intents），这里只负责渲染与选择。
+    const intentBox = document.getElementById("intent-cards");
+    const assistSel = document.getElementById("f-assist");
+    const goalEl = document.getElementById("f-goal");
+    const hintEl = document.getElementById("f-goal-hint");
+    let intents = [];
+    const chosen = { primary: "", assist: "", note: "" };
+
+    const paintIntents = () => {
+      intentBox.innerHTML = "";
+      if (!intents.length) {
+        intentBox.textContent = "课型库加载失败，请刷新页面重试。";
+        return;
+      }
+      intents.forEach((t) => {
+        const c = el("button", "intent-card" + (chosen.primary === t.id ? " on" : ""));
+        c.type = "button";
+        c.innerHTML = `<b>${esc(t.name)}</b><div class="fit">${esc(t.fit)}</div>
+          <div class="pace">${esc(t.pace || "")}</div>`;
+        c.onclick = async () => {
+          chosen.primary = t.id;
+          if (chosen.assist === t.id) chosen.assist = "";   // 辅助不能与主相同
+          paintIntents(); paintAssist();
+          await autoGoal();                                 // 选课型即自动写目标
+        };
+        intentBox.appendChild(c);
+      });
     };
 
+    const paintAssist = () => {
+      assistSel.innerHTML = '<option value="">不用辅助课型</option>' + intents
+        .filter((t) => t.id !== chosen.primary)
+        .map((t) => `<option value="${t.id}">${esc(t.name)} —— ${esc(t.fit)}</option>`)
+        .join("");
+      assistSel.value = chosen.assist || "";
+      assistSel.onchange = () => { chosen.assist = assistSel.value || ""; };
+    };
+
+    const setGoalHint = (s) => { hintEl.textContent = s || ""; };
+
+    /** 按「材料 + 课型」写一句目的句（用户可改、可清空；清空后后端按课型兜底）。 */
+    const autoGoal = async () => {
+      if (!chosen.primary) return;
+      const noteEl = document.getElementById("f-note");
+      chosen.note = (noteEl && noteEl.value || "").trim();
+      setGoalHint("正在按课型写目标…");
+      try {
+        const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
+        const r = await Api.post("/api/courses/suggest-goal", {
+          document_ids: ids, primary: chosen.primary,
+          assist: chosen.assist || null, note: chosen.note || null,
+        });
+        goalEl.value = r.goal || "";
+        setGoalHint(r.goal ? "已按课型生成，可自由修改或清空" : "");
+      } catch (e) {
+        setGoalHint("生成失败，可自己写一句，或留空让系统按课型决定");
+      }
+    };
+
+    document.getElementById("f-analyze").onclick = async () => {
+      const btn = document.getElementById("f-analyze");
+      const hint = document.getElementById("intent-hint");
+      if (!S.documents.length) return Toast("还没有已解析的材料", true);
+      btn.disabled = true; btn.textContent = "分析中…";
+      hint.textContent = "正在看材料的体裁与内容，判断适合什么课…";
+      try {
+        const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
+        const r = await Api.post("/api/courses/suggest-intents", { document_ids: ids });
+        chosen.primary = r.primary || "";
+        paintIntents(); paintAssist();
+        const name = (intents.find((t) => t.id === chosen.primary) || {}).name || "";
+        const alts = (r.alternatives || [])
+          .map((id) => (intents.find((t) => t.id === id) || {}).name).filter(Boolean);
+        // 材料来源与理由**永远可见**：曾经「勾文言文却推荐出大模型目标」时界面上毫无线索。
+        hint.textContent = `推荐「${name}」${r.reason ? "：" + r.reason : ""}`
+          + (alts.length ? `（也可以试试：${alts.join("、")}）` : "")
+          + ((r.sources || []).length ? ` ｜ 基于：${r.sources.map(esc).join("、")}` : "");
+        await autoGoal();
+      } catch (e) {
+        hint.textContent = "";
+        Toast("分析失败：" + e.message, true);
+      } finally { btn.disabled = false; btn.textContent = "✨ 分析材料并预选"; }
+    };
+
+    document.getElementById("f-gen-goal").onclick = () => {
+      if (!chosen.primary) return Toast("请先选一个课型", true);
+      autoGoal();
+    };
+    document.getElementById("f-clear-goal").onclick = () => {
+      goalEl.value = "";
+      setGoalHint("已清空 —— 留空时系统按课型决定这门课怎么讲");
+    };
+
+    (async () => {
+      try {
+        const r = await Api.get("/api/courses/intents");
+        intents = r.items || [];
+      } catch (e) { intents = []; }
+      paintIntents(); paintAssist();
+      document.getElementById("intent-hint").textContent =
+        "点一张卡选课型；拿不准就点「分析材料并预选」。";
+    })();
+
     document.getElementById("f-go").onclick = async () => {
-      const goal = document.getElementById("f-goal").value.trim();
-      if (!goal) return Toast("请填写学习目标", true);
+      if (!chosen.primary) return Toast("请先选一个课型", true);
+      // 目标允许留空（用户可一键清空）：后端会按所选课型兜底出一句「目的」。
+      const goal = goalEl.value.trim();
       const badge = document.getElementById("model-badge");
       if (!badge.dataset.ok) return Toast("请先在「设置」里配置对话模型", true);
       const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
@@ -186,12 +280,18 @@
       btn.disabled = true; btn.textContent = "生成中…";
       try {
         const rawUnit = document.getElementById("f-units").value;
+        const noteEl = document.getElementById("f-note");
         const r = await Api.post("/api/courses", {
           goal, document_ids: ids,
           level: document.getElementById("f-level").value,
           depth: document.getElementById("f-depth").value,
           unit_count: rawUnit ? parseInt(rawUnit, 10) : null,
           hands_on: document.getElementById("f-hands").value === "1",
+          intent: {
+            primary: chosen.primary,
+            assist: chosen.assist || null,
+            note: ((noteEl && noteEl.value) || "").trim() || null,
+          },
         });
         await pollOutline(r.course_id, r.job_id, host);
       } catch (e) {
@@ -458,6 +558,7 @@
       </div>
       <div class="hint">目标：${esc(c.goal)}</div>
       <div class="hint">基础 ${esc(c.level_name)} · 深度 ${esc(c.depth_name)} · 共 ${c.units.length} 个单元</div>
+      ${c.intent ? `<div class="hint">课型：${esc(c.intent.primary_name)}${c.intent.assist_name ? " ＋ " + esc(c.intent.assist_name) + "（辅助）" : ""}${c.intent.note ? " ｜ " + esc(c.intent.note) : ""}</div>` : ""}
       ${c.summary ? `<div class="hint" style="margin-top:6px">${esc(c.summary)}</div>` : ""}
       <div class="bar" style="margin-top:10px"><i style="width:${p.percent || 0}%"></i></div>
       <div class="hint">进度：${p.done_lessons || 0}/${p.total_lessons || 0} 节（${p.percent || 0}%）</div>
