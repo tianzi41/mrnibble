@@ -255,6 +255,61 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             await _asyncio.sleep(0.4)
             gv = await ev("(document.getElementById('f-goal')||{}).value")
             _check("2.80 「清空」按钮真的清掉目标（允许留空）", gv == "", f"value={gv!r}")
+            # ---- P1-1 连点课型卡的「迟到响应」防线（用自研桩制造真实竞态，不依赖后端延迟）----
+            await ev("""(function(){
+                window.__post = Api.post;
+                Api.post = function(url, body){
+                    if (String(url).indexOf('suggest-goal') >= 0) {
+                        var p = (body||{}).primary;
+                        return new Promise(function(res){
+                            setTimeout(function(){ res({goal:'GOAL-' + p}); }, 700);
+                        });
+                    }
+                    return window.__post.apply(this, arguments);
+                };
+                return true;
+            })()""")
+            # 点第 2 张卡，60ms 后点第 1 张卡：前者响应后到，不得覆盖后者的目标
+            await ev("""(function(){
+                var c=document.querySelectorAll('.intent-card');
+                if(!c || c.length<2) return false;
+                c[1].click();
+                setTimeout(function(){ c[0].click(); }, 60);
+                return true;
+            })()""")
+            await _asyncio.sleep(2.0)
+            g1 = await ev("(document.getElementById('f-goal')||{}).value")
+            _check("2.81 连点课型卡：只有最后选中的课型的目标落地（迟到响应被丢弃）",
+                   g1 == "GOAL-overview", f"value={g1!r}")
+            # 手改目标后，在途的自动写目标同样不得覆盖用户输入
+            await ev("""(function(){
+                var c=document.querySelectorAll('.intent-card');
+                if(!c || !c.length) return false;
+                c[0].click();
+                var g=document.getElementById('f-goal');
+                g.value='我手写的目标';
+                g.dispatchEvent(new Event('input'));
+                return true;
+            })()""")
+            await _asyncio.sleep(1.6)
+            g2 = await ev("(document.getElementById('f-goal')||{}).value")
+            _check("2.82 手改目标后，在途的自动写目标不覆盖用户输入", g2 == "我手写的目标",
+                   f"value={g2!r}")
+            await ev("if(window.__post){Api.post=window.__post;delete window.__post;}true")
+
+            # ---- P1-2 向导状态不残留：切走再回课程页，不该又被丢进新建向导 ----
+            await ev("var b=document.getElementById('btn-new');if(b)b.click();")
+            await _asyncio.sleep(0.6)
+            in_wizard = await ev("!!document.getElementById('f-go')")
+            await ev("location.hash='#/memory'")
+            await _asyncio.sleep(0.9)
+            await ev("location.hash='#/courses'")
+            await _asyncio.sleep(1.4)
+            back_wizard = await ev("!!document.getElementById('f-go')")
+            _check("2.83 前置：点「新建课程」确实进入了向导", in_wizard is True, f"in={in_wizard}")
+            _check("2.84 切到别的页再回课程页：不自动进入新建向导（向导状态不残留）",
+                   back_wizard is False, f"f-go={back_wizard}")
+
             # 取消向导，回到列表（避免 S.creating 残留影响后续断言）
             await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
             await _asyncio.sleep(0.6)

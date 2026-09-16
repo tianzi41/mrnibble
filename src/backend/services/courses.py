@@ -62,6 +62,27 @@ _DEFAULT_LESSONS = 3
 # 不再计入防重入 —— 否则用户会被永远挡住，只能靠重启进程解困。
 _JOB_REENTRY_STALE_MIN = 15
 
+# 用户把学习目标一键清空时，后端按课型兜底出来的「目的句」（见 ``create_course``）。
+# 它不含任何材料语义，**不能**当检索查询词用 —— 否则会召回与目标无关的片段、
+# 污染大纲的单元切法。识别出来即只按材料概览组织大纲。
+_FALLBACK_GOAL_RE = re.compile(r"^按「[^」]+」的方式学这门课")
+
+
+def _goal_hits(goal: str, ids: list[str]) -> list[dict[str, Any]]:
+    """按学习目标检索补充片段（0 命中返回空表）。
+
+    目标是「按课型兜底」的句子时**直接返回空**：那种句子不含材料语义，
+    召回的多是与课程无关的片段，会把单元切法带偏；结构交给材料概览决定即可
+    （与 :meth:`CourseService._material` 的空结果兜底同一思路）。
+    """
+    if _FALLBACK_GOAL_RE.match((goal or "").strip()):
+        return []
+    hits, _, _ = get_retrieval_service().hybrid_search(
+        goal, document_ids=ids or None, top_k=6
+    )
+    return list(hits)
+
+
 # ── 「讲稿不许照念课件」的结构判定阈值 ──────────────────
 # 归一化后 difflib 相似度达到该值 → 判定为逐字复述课件。
 # 为什么要做结构判定而不是只写进提示词：模型（尤其小模型）会反复
@@ -876,12 +897,16 @@ class CourseService:
             }
 
         goal = str(payload.get("goal") or "").strip()
+        # 目标是否由系统按课型兜底（用户一键清空）：它影响**临时标题**与**检索词**，
+        # 必须与用户自己写的目标区别对待 —— 兜底句不含材料语义。
+        goal_from_intent = False
         if not goal and intent_obj is not None:
             # 用户把目标一键清空时按课型兜底：目标可以留空，
             # 但检索查询与提示词里的「目的」需要一个非空文本。
             p = intent_by_id(str(intent_obj["primary"]))
             if p is not None:
                 goal = f"按「{p['name']}」的方式学这门课：{p['fit']}"
+                goal_from_intent = True
         if not goal:
             raise AppError(1000, "请填写学习目标", "用一句话说明「学完想做什么」")
 
@@ -904,7 +929,9 @@ class CourseService:
         cid = new_id()
         ts = now_iso()
         # 标题先用「目标首句」，大纲生成后由模型给出的标题覆盖。
-        title = self._draft_title(goal, document_ids)
+        # 目标是课型兜底句时改优先用材料名：兜底句没有句读，取「首句」会截出
+        # 「按『了解脉络型』的方…」这种半截串（用户实测很怪）。
+        title = self._draft_title(goal, document_ids, prefer_material=goal_from_intent)
         db.execute(
             "INSERT INTO courses(id,title,goal,level,depth,unit_count,language,hands_on,"
             "summary,outline_json,status,error,created_at,updated_at,intent_json)"
@@ -1207,7 +1234,7 @@ class CourseService:
             self._set_stage(job_id, "正在读取学习材料")
             rs = get_retrieval_service()
             over_hits, outline = rs.material_overview(ids)
-            goal_hits, _, _ = rs.hybrid_search(goal, document_ids=ids or None, top_k=6)
+            goal_hits = _goal_hits(goal, ids)
             merged: dict[Any, dict[str, Any]] = {}
             for h in list(over_hits) + list(goal_hits):
                 key = h.get("chunk_id")
@@ -1353,7 +1380,7 @@ class CourseService:
             rs = get_retrieval_service()
             ids = list(document_ids)
             over_hits, outline = rs.material_overview(ids)
-            goal_hits, _, _ = rs.hybrid_search(goal, document_ids=ids or None, top_k=6)
+            goal_hits = _goal_hits(goal, ids)
             merged: dict[Any, dict[str, Any]] = {}
             for h in over_hits + goal_hits:
                 key = h.get("chunk_id")
@@ -2469,9 +2496,15 @@ class CourseService:
             new_slide["citation_refs"] = sorted(
                 {int(x) for x in re.findall(r"\[\[c:(\d+)\]\]", text)}
             )
-            if isinstance(scripts, list) and text:
-                scripts.insert(min(idx, len(scripts)),
-                               {"slide_id": new_slide["id"], "text": text[:2000]})
+            if isinstance(scripts, list):
+                if not text:
+                    # 模型没给这一页讲稿 → 用**确定性方法**补一版，保证「课件页 ⇄ 讲稿」
+                    # 严格一一对应：否则多出来的那页课件没有讲稿，导出 / Markdown 的
+                    # 「第 i 页 · 讲稿」会整体错位（前端能降级显示，但存库 JSON 本身是残的）。
+                    text = self._script_from_slide(new_slide)
+                if text:
+                    scripts.insert(min(idx, len(scripts)),
+                                   {"slide_id": new_slide["id"], "text": text[:2000]})
             logger.info("已补 1 页可视化", extra={"extra_fields": {
                 "kind": kind, "index": idx, "slides": len(slides)}})
         except Exception as exc:  # noqa: BLE001 - 补图失败不能影响整讲
@@ -3800,8 +3833,19 @@ class CourseService:
         return row["title"] if row else ""
 
     @staticmethod
-    def _draft_title(goal: str, document_ids: list[str]) -> str:
-        """创建时的临时标题（取目标首句，等模型给出正式标题）。"""
+    def _draft_title(goal: str, document_ids: list[str],
+                     prefer_material: bool = False) -> str:
+        """创建时的临时标题（默认取目标首句，等模型给出正式标题）。
+
+        ``prefer_material=True`` 用于「目标由课型兜底」的情形：那种句子没有句读，
+        取首句会截出「按『XX型』的方…」这种半截串，不如直接用材料名。
+        """
+        if prefer_material and document_ids:
+            row = get_db().query_one(
+                "SELECT title FROM documents WHERE id = ?", (document_ids[0],)
+            )
+            if row:
+                return f"《{row['title']}》课程"
         first = re.split(r"[。！？\n]", (goal or "").strip())[0]
         first = first.strip()[:40]
         if first:

@@ -1037,6 +1037,26 @@ def main() -> int:
               bool(viz) and bool(ysl) and ysl[-1].get("id") != viz[0].get("id"),
               f"末尾={ysl[-1].get('id') if ysl else None} 补图={viz[0].get('id') if viz else None}")
 
+        # Y7–Y8 补图退化路径：模型**没给这一页讲稿**时，服务端必须用确定性方法补一版，
+        # 让「课件页 ⇄ 讲稿」仍然严格一一对应 —— 否则多出来的那页课件没有讲稿，
+        # 导出 / Markdown 的「第 i 页 · 讲稿」会整体错位（前端能降级显示，
+        # 但落库 JSON 本身是残的）。
+        set_model("mock-lecture-plain-noscript")
+        r = post(f"/api/courses/lessons/{lessons_y1[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        det = get(f"/api/courses/lessons/{lessons_y1[0]['id']}")["data"]
+        ysl = det.get("slides") or []
+        ysc = det.get("scripts") or []
+        viz = [x for x in ysl if x.get("diagram") or x.get("chart") or x.get("table")]
+        check("Y7 补图未给讲稿时仍补出 1 页可视化", len(viz) == 1, f"可视化={len(viz)}")
+        check("Y8 补图页讲稿由服务端确定性补齐（页数 == 讲稿数 == 4）",
+              len(ysl) == len(ysc) and len(ysl) == 4,
+              f"slides={len(ysl)} scripts={len(ysc)}")
+        check("Y8b 补出来的那一页在讲稿里有同名 slide_id（严格配对）",
+              bool(viz) and any(s.get("slide_id") == viz[0].get("id") for s in ysc),
+              f"补图 id={viz[0].get('id') if viz else None} "
+              f"scripts={[s.get('slide_id') for s in ysc]}")
+
         # ── Z. 讲次教学设计 desc（大纲详细说明注入逐讲生成）──
         print("\n[Z] 讲次教学设计 desc")
 
@@ -1504,6 +1524,54 @@ def main() -> int:
         check("F3-空单元 被清空单元 = 0、其余单元不受影响",
               u2 == 0 and u1 > 0 and u3 > 0, f"单元1={u1} 单元2={u2} 单元3={u3}")
         _cleanup_courses(cid_f3b)
+
+        # ── P1. 目标留空（课型兜底）的标题与检索词 ─────────
+        print("\n[P1] 目标留空 / 课型兜底句识别")
+        from backend.services import courses as _cm  # noqa: E402
+        from backend.services.courses import (  # noqa: E402
+            _FALLBACK_GOAL_RE as _FB, _goal_hits as _GH)
+
+        _fb_goal = "按「了解脉络型」的方式学这门课：只求大概了解：背景、人物、事件脉络、主旨"
+        check("P1-3a 课型兜底句被识别（与用户自写目标区分开）",
+              bool(_FB.match(_fb_goal)) and not _FB.match("学完能独立完成典型极限题"),
+              f"match={bool(_FB.match(_fb_goal))}")
+        check("P1-3b 兜底句不再当检索词用（直接跳过目标检索，不召回无关片段）",
+              _GH(_fb_goal, []) == [], str(_GH(_fb_goal, [])[:2]))
+
+        class _TitleProbe:                     # 只回答「材料标题」这一次查询
+            def query_one(self, sql, params=()):  # noqa: ANN001, ARG002
+                return {"title": "编码问题排查流程与对照"}
+
+        _orig_get_db = _cm.get_db
+        _cm.get_db = lambda: _TitleProbe()     # type: ignore[assignment]
+        try:
+            _t_fb = _cm.CourseService._draft_title(_fb_goal, ["doc-x"], prefer_material=True)
+            _t_user = _cm.CourseService._draft_title("学完能独立完成典型题。附带说明", [], False)
+        finally:
+            _cm.get_db = _orig_get_db          # type: ignore[assignment]
+        check("P1-3c 目标由课型兜底时临时标题取材料名（不再截出「按『…』的方…」半截串）",
+              _t_fb == "《编码问题排查流程与对照》课程", f"title={_t_fb}")
+        check("P1-3d 用户自写目标仍取首句（旧行为逐字保持）",
+              _t_user == "学完能独立完成典型题", f"title={_t_user}")
+
+        # ── P2. 旧版程序打开新版库：不得把 schema_version 回写降级 ──
+        print("\n[P2] 迁移版本号不降级")
+        from backend.db.connection import Database as _DBC  # noqa: E402
+        from backend.db.migrations import (  # noqa: E402
+            _get_version as _gv, _set_meta as _sm, run_migrations as _rm)
+
+        _p = DATA / "schema-future.db"
+        if _p.exists():
+            _p.unlink()
+        _dbx = _DBC(_p)
+        try:
+            _rm(_dbx)                              # 先按当前版本初始化
+            _sm(_dbx, "schema_version", "99")      # 模拟「被更新版本的程序写过」
+            _ver = _rm(_dbx)                       # 旧程序再启动一次
+            check("P2-1a 库版本高于程序时不改写版本号（数据与版本都保持原样）",
+                  _gv(_dbx) == 99 and _ver == 99, f"version={_gv(_dbx)} ret={_ver}")
+        finally:
+            _dbx.close_all()
 
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")

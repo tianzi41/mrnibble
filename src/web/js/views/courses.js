@@ -200,17 +200,30 @@
         .filter((t) => t.id !== chosen.primary)
         .map((t) => `<option value="${t.id}">${esc(t.name)} —— ${esc(t.fit)}</option>`)
         .join("");
+      // 下拉会因「换主课型」把旧选项过滤掉：内部值必须同步清空，
+      // 否则会出现「界面显示不用辅助、提交却带着旧辅助课型」的错位。
+      if (chosen.assist && (chosen.assist === chosen.primary
+        || !intents.some((t) => t.id === chosen.assist))) {
+        chosen.assist = "";
+      }
       assistSel.value = chosen.assist || "";
       assistSel.onchange = () => { chosen.assist = assistSel.value || ""; };
     };
 
     const setGoalHint = (s) => { hintEl.textContent = s || ""; };
 
-    /** 按「材料 + 课型」写一句目的句（用户可改、可清空；清空后后端按课型兜底）。 */
+    /** 按「材料 + 课型」写一句目的句（用户可改、可清空；清空后后端按课型兜底）。
+     *
+     * `goalSeq` 是**迟到响应防线**：连点不同课型卡时，先发出的请求可能后返回，
+     * 不加判别就会把「上一个课型的目标」写进输入框，甚至覆盖用户刚手改的文本。
+     * 规则：每次发起自增；用户手改 / 清空也自增（作废在途请求）；返回时序号不符即丢弃。
+     */
+    let goalSeq = 0;
     const autoGoal = async () => {
       if (!chosen.primary) return;
       const noteEl = document.getElementById("f-note");
       chosen.note = (noteEl && noteEl.value || "").trim();
+      const seq = ++goalSeq;
       setGoalHint("正在按课型写目标…");
       try {
         const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
@@ -218,12 +231,16 @@
           document_ids: ids, primary: chosen.primary,
           assist: chosen.assist || null, note: chosen.note || null,
         });
+        if (seq !== goalSeq) return;                   // 已被更新的一次选择 / 手改取代
         goalEl.value = r.goal || "";
         setGoalHint(r.goal ? "已按课型生成，可自由修改或清空" : "");
       } catch (e) {
+        if (seq !== goalSeq) return;
         setGoalHint("生成失败，可自己写一句，或留空让系统按课型决定");
       }
     };
+    // 用户手改目标 → 作废在途的自动写目标（程序赋值不触发 input，不会误伤自己）
+    goalEl.addEventListener("input", () => { goalSeq++; });
 
     document.getElementById("f-analyze").onclick = async () => {
       const btn = document.getElementById("f-analyze");
@@ -235,6 +252,7 @@
         const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
         const r = await Api.post("/api/courses/suggest-intents", { document_ids: ids });
         chosen.primary = r.primary || "";
+        if (chosen.assist === chosen.primary) chosen.assist = "";  // 推荐结果可能撞上已选辅助
         paintIntents(); paintAssist();
         const name = (intents.find((t) => t.id === chosen.primary) || {}).name || "";
         const alts = (r.alternatives || [])
@@ -255,6 +273,7 @@
       autoGoal();
     };
     document.getElementById("f-clear-goal").onclick = () => {
+      goalSeq++;                       // 清空同样要作废在途请求，否则会被迟到的响应写回
       goalEl.value = "";
       setGoalHint("已清空 —— 留空时系统按课型决定这门课怎么讲");
     };
@@ -728,8 +747,11 @@
       </div>`;
     renderList();
     if (S.courseId) { try { await loadCourse(S.courseId); } catch (e) { S.courseId = null; S.course = null; } }
-    // 支持 #/courses?new=1 直接进入新建向导（便于 UI 冒烟测试）
+    // 支持 #/courses?new=1 直接进入新建向导（便于 UI 冒烟测试）。
+    // 反向也要管住：向导状态只由「本次进入是否带 new=1」决定 —— 否则用户不走「取消」
+    // 而是切到别的页再回到课程页时，残留的 S.creating=true 会把他**又**丢进新建向导。
     if (/\bnew=1\b/.test(location.hash.split("?")[1] || "")) { S.creating = true; }
+    else { S.creating = false; }
 
     // 直接进入结构编辑（课程详情里的「编辑结构」入口，也可用链接直达）
     const target = confirmTarget();

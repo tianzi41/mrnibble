@@ -241,9 +241,14 @@ def _plain_lecture_payload() -> str:
     return _lecture_payload()
 
 
-def _visual_add_payload() -> str:
-    """补图兜底请求的响应：只返回**新增的那一页** + 该页讲稿。"""
-    return json.dumps({
+def _visual_add_payload(with_script: bool = True) -> str:
+    """补图兜底请求的响应：只返回**新增的那一页**（含该页讲稿）。
+
+    ``with_script=False`` 用来验证退化路径：模型没给这一页讲稿时，服务端必须用
+    **确定性方法**补一版，让「课件页 ⇄ 讲稿」仍然严格一一对应（否则导出 /
+    Markdown 的第 i 页讲稿会整体错位）。
+    """
+    payload = {
         "slide": {
             "kind": "diagram",
             "title": "解题前的检查流程",
@@ -266,7 +271,10 @@ def _visual_add_payload() -> str:
             "才会走到第二步去使用法则；如果类型不对，这条流程根本走不下去，"
             "硬套法则只会把题做错 [[c:1]]。所以两步的顺序不能颠倒，先验证再动手。"
         ),
-    }, ensure_ascii=False)
+    }
+    if not with_script:
+        payload.pop("script", None)
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _mirror_lecture() -> str:
@@ -521,7 +529,9 @@ def _pick(body: dict) -> str:
         if m.get("role") == "system"
     )
     if "补图编辑" in _systems:
-        return _visual_add_payload()
+        # mock-*-noscript：补图响应**不带讲稿** —— 验证服务端会用确定性方法补一版
+        # 讲稿，保证「课件页 ⇄ 讲稿」仍一一对应。
+        return _visual_add_payload(with_script=not model.endswith("-noscript"))
     # 「大纲对齐校验」是出纲后**另发起的一次调用**，模型名与大纲相同，
     # 按提示词特征识别（提示词首句是「你是课程审校」）。
     # 注意先落盘再返回，否则 spy 测试看不到这次调用（一次业务动作的多次调用都要留痕）。
@@ -622,8 +632,9 @@ def _pick(body: dict) -> str:
         return _lecture_payload()
     if model == "mock-lecture-p1":
         return _p1_lecture_payload()
-    if model == "mock-lecture-plain":
-        # 整讲无可视化 → 触发服务端补图兜底
+    if model in ("mock-lecture-plain", "mock-lecture-plain-noscript"):
+        # 整讲无可视化 → 触发服务端补图兜底；
+        # -noscript 变体让**补图响应不带讲稿**（验证确定性补讲稿这条退化路径）
         return _plain_lecture_payload()
     if model in ("mock-lecture-ir", "mock-lecture-ir-bad", "mock-lecture-ir-stubborn"):
         asked_rewrite = "课堂图示编辑" in "\n".join(

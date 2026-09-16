@@ -1395,6 +1395,13 @@
   async function startLecture(btn, opts) {
     opts = opts || {};
     const l = S.lesson;
+    // 「已完成」的讲次重新生成会**整体覆盖**既有讲义/讲稿/标注，而状态仍停在 done、
+    // 界面上看不出区别（核验确认的静默覆盖）。只对这一种情形要用户确认；
+    // 普通的「重新生成讲义」不加确认，免得每次都要多点一下。
+    if (!opts.auto && l.board && l.status === "done"
+      && !confirm("这一讲已标记为完成。重新生成会用新内容覆盖现有的讲义、讲稿与标注，继续吗？")) {
+      return;
+    }
     if (btn) btn.disabled = true;
     const box = document.getElementById("tab-body");
     try {

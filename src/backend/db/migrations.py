@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from ..utils.timeutil import now_iso
@@ -22,6 +23,8 @@ if TYPE_CHECKING:  # pragma: no cover - 仅类型标注
     from .connection import Database
 
 __all__ = ["SCHEMA_VERSION", "run_migrations"]
+
+logger = logging.getLogger(__name__)
 
 # 当前目标 schema 版本。新增 DDL 时 +1，并在此文件追加升级逻辑。
 SCHEMA_VERSION: int = 7
@@ -140,7 +143,19 @@ def run_migrations(db: "Database") -> int:
     db.init_schema()
     current = _get_version(db)
 
-    # 2) 版本补丁（v1 为基线，无补丁）。未来在此按 current 顺序追加。
+    # 2) 库比本程序**更新**（用户拿旧版 exe 打开了新版库）：不补丁、也**不回写版本号**。
+    #    回写会把版本降级成旧值，导致下次新版启动时把已执行过的迁移**再跑一遍**
+    #    （列存在性守卫能兜住，但版本号本身失真、排查困难）。业务侧对多出来的列都有
+    #    存在性守卫，所以旧程序照常可用。
+    if current > SCHEMA_VERSION:
+        logger.warning(
+            "数据库 schema(%s) 比本程序(%s) 新，跳过迁移且不改写版本号",
+            current, SCHEMA_VERSION,
+        )
+        _set_meta(db, "updated_at", now_iso())
+        return current
+
+    # 3) 版本补丁（v1 为基线，无补丁）。未来在此按 current 顺序追加。
     if current == 0:
         _set_meta(db, "created_at", now_iso())
     if current < 2:
@@ -156,7 +171,7 @@ def run_migrations(db: "Database") -> int:
     if current < 7:
         _v7_course_intent(db)
 
-    # 3) 落版本与更新时间。
+    # 4) 落版本与更新时间。
     if current != SCHEMA_VERSION:
         _set_meta(db, "schema_version", str(SCHEMA_VERSION))
     _set_meta(db, "updated_at", now_iso())
