@@ -121,6 +121,20 @@ def wait_http(url: str, timeout: float = 90.0) -> bool:
     return False
 
 
+def _safe_wipe(path) -> None:
+    """尽力清理临时目录；**被沙箱护栏拦住也不能让脚本挂掉**。
+
+    护栏 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`（目录文件数超阈值时直接拒删）抛的不是
+    `OSError`，`rmtree(ignore_errors=True)` 兜不住 —— 曾经的症状是：断言全跑完了，
+    却因为在 `finally` 里清理失败而**在打印统计行之前**退出（exit=1、看不到结果）。
+    清理成功与否与测试结论无关，所以这里连 Exception 一起吞掉。
+    """
+    try:
+        shutil.rmtree(path, ignore_errors=True)
+    except Exception:  # noqa: BLE001 - 护栏拦截不应影响测试结论
+        pass
+
+
 def main() -> int:
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     tts_port = srv.server_address[1]
@@ -129,9 +143,9 @@ def main() -> int:
           f"（每次合成 sleep {SYNTH_DELAY}s，音频 {AUDIO_SECONDS}s）")
 
     if DATA.exists():
-        shutil.rmtree(DATA, ignore_errors=True)
+        _safe_wipe(DATA)
     DATA.mkdir(parents=True)
-    shutil.rmtree(UD, ignore_errors=True)
+    _safe_wipe(UD)
 
     env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": str(APPPORT),
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
@@ -279,8 +293,8 @@ def main() -> int:
                 except Exception:
                     pass
         srv.shutdown()
-        shutil.rmtree(DATA, ignore_errors=True)
-        shutil.rmtree(UD, ignore_errors=True)
+        _safe_wipe(DATA)
+        _safe_wipe(UD)
 
     print("\n" + "=" * 56)
     print(f"通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
