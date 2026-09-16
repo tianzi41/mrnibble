@@ -1228,9 +1228,15 @@ class CourseService:
             ]
             total = len(lesson_rows)
             filled = 0
+            attempts = 0
+            best = 0
             for _ in range(_MAX_RETRY + 1):
+                attempts += 1
                 raw = self._chat(messages, max_tokens=4096)
+                # 每轮覆盖 filled；best 记录「单轮最多补上几讲」（desc 是按轮累写入库的，
+                # 所以 best 才是用户真正看到已生成的数量，用它能给出准确提示）。
                 filled = self._apply_desc_fill(self._safe_json(raw), lesson_rows, struct)
+                best = max(best, filled)
                 # 只有**全部讲次都补上**才算成功；部分成功继续重试（已写入的保留）。
                 if filled == total:
                     break
@@ -1244,9 +1250,11 @@ class CourseService:
                 # 重试用尽仍不全：明确报失败，不能静默「部分成功即成功」。
                 # 已写入的 desc 保留（不回滚），但必须让用户知道没补全。
                 logger.warning("补写教学设计未补全", extra={"extra_fields": {
-                    "filled": filled, "total": total}})
+                    "best": best, "total": total, "attempts": attempts}})
                 self._fail_job(
-                    job_id, f"只补上 {filled}/{total} 讲，请重试"
+                    job_id,
+                    f"教学设计未补全：最多一轮补上 {best}/{total} 讲"
+                    f"（共重试 {attempts} 次），请重试",
                 )
                 return
             self._finish_job(job_id)
@@ -1693,6 +1701,12 @@ class CourseService:
                 if not isinstance(lessons_raw, list):
                     continue
                 lessons_raw = list(lessons_raw)[:12]
+                # F3/F4 防线：讲次标题为空（含纯空格）→ **整批拒绝**，绝不静默跳过。
+                # 静默跳过会让该讲次不进 kept_ids，最终被课程级删除误删（数据灾难边界）。
+                # 注意：lessons_raw 为空数组（用户主动删光该单元讲次）是合法操作，不拦。
+                for _lk in lessons_raw:
+                    if isinstance(_lk, dict) and not str(_lk.get("title") or "").strip():
+                        raise AppError(1000, "讲次标题不能为空", "请补全标题后再保存")
                 # 优先沿用原单元（保留其下的讲次与已生成内容），不足时新建。
                 u_row = db.query_one(
                     "SELECT id FROM course_units WHERE course_id = ? AND ordinal = ?",
@@ -1797,7 +1811,21 @@ class CourseService:
             db.execute("DELETE FROM course_units WHERE course_id = ? AND ordinal > ?",
                        (cid, len(units)))
             if has_ids:
-                # 课程级删除未保留的讲次：kept_ids 为空 = 本轮全删。
+                # 双保险：用户提交了非空讲次，但一个都没被接受（kept_ids 为空）→
+                # 绝不退化成「删光整课」。整批拒绝，课程保持原状（异常触发事务回滚）。
+                # 选择「报错」而非「跳过删除」：让异常结构（空 title / 跨课程 id 注入 /
+                # 其它不可预期的失配）以明确错误返回给客户端，而不是静默保留陈旧数据，
+                # 也避免「提交看似成功、实则什么都没改」的误导。
+                # 注：kept_ids 为空且**未提交任何讲次** = 用户主动删光全部讲次（合法），走下方全删。
+                _submitted = sum(
+                    len(u.get("lessons") or []) for u in units if isinstance(u, dict)
+                )
+                if _submitted > 0 and not kept_ids:
+                    raise AppError(
+                        1000, "课程结构无法落到现有讲次",
+                        "请刷新页面后重试，不要提交空标题或异常结构",
+                    )
+                # 课程级删除未保留的讲次：kept_ids 为空 = 本轮全删（用户主动清空全部讲次）。
                 # 用 placeholders 安全拼接（id 来自新前端，逐项 bind）。
                 if kept_ids:
                     ph = ",".join("?" for _ in kept_ids)

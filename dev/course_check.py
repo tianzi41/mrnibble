@@ -1394,7 +1394,7 @@ def main() -> int:
             j = wait_job(r["data"]["job_id"])
             msg = str(j.get("error") or "")
             check("P0-3 补写 desc 部分成功 → job 明确失败（信息可见）",
-                  j["status"] == "failed" and "只补上" in msg,
+                  j["status"] == "failed" and "补上" in msg and "重试" in msg,
                   f"status={j.get('status')} error={msg}")
         else:
             check("P0-3 补写 desc 部分成功 → job 明确失败（信息可见）",
@@ -1448,6 +1448,62 @@ def main() -> int:
             db4.execute("UPDATE course_jobs SET status='failed' WHERE id=?", (cur_id,))
         db4.close()
         _cleanup_courses(cid_p4)
+
+        # F3/F4 空 title 整批拒绝（数据灾难边界）：确认结构提交时任何讲次 title 为空
+        # → 1000，绝不静默跳过（跳过会让 kept_ids 为空、课程级删除误清空整课）。
+        set_model("mock-outline-5")
+        r = post("/api/courses", {"goal": "F3 空标题回归", "document_ids": [doc_id],
+                                  "unit_count": 3, "depth": "standard"})
+        cid_f3 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        d_f3 = get(f"/api/courses/{cid_f3}")["data"]
+        before_f3 = sum(len(u.get("lessons") or []) for u in d_f3["units"])
+
+        # F3：所有讲次 title 设为纯空格（带真实 id，验证 kept_ids 不再被清空成 0）
+        bad_all = _z7_payload(d_f3, with_id=True)
+        for u in bad_all:
+            for l in (u.get("lessons") or []):
+                l["title"] = "   "
+        r_f3a = post(f"/api/courses/{cid_f3}/outline:confirm",
+                     {"title": d_f3["title"], "units": bad_all})
+        check("F3 所有讲次 title 为空（带 id）→ 整批拒绝 1000",
+              r_f3a.get("code") == 1000, f"code={r_f3a.get('code')}")
+        after_f3 = sum(len(u.get("lessons") or [])
+                       for u in get(f"/api/courses/{cid_f3}")["data"]["units"])
+        check("F3 空 title 拒绝后讲次数不变（未误清空整课；kept_ids 防线生效）",
+              after_f3 == before_f3, f"{before_f3} → {after_f3}")
+
+        # F4：个别讲次 title 为空（其余正常）→ 同样整批拒绝（不静默漏删该讲）
+        bad_mix = _z7_payload(d_f3, with_id=True)
+        if len(bad_mix) >= 2 and (bad_mix[1].get("lessons") or []):
+            bad_mix[1]["lessons"][0]["title"] = ""
+        r_f3b = post(f"/api/courses/{cid_f3}/outline:confirm",
+                     {"title": d_f3["title"], "units": bad_mix})
+        check("F4 个别讲次 title 为空 → 整批拒绝（不静默漏删该讲）",
+              r_f3b.get("code") == 1000, f"code={r_f3b.get('code')}")
+        _cleanup_courses(cid_f3)
+
+        # F3-空单元 空 lessons 数组合法：用户主动删光某单元讲次 → 该单元清空、其余不受影响。
+        set_model("mock-outline-5")
+        r = post("/api/courses", {"goal": "F3 空单元回归", "document_ids": [doc_id],
+                                  "unit_count": 3, "depth": "standard"})
+        cid_f3b = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        d_f3b = get(f"/api/courses/{cid_f3b}")["data"]
+        units_f3b = _z7_payload(d_f3b, with_id=True)
+        if len(units_f3b) >= 2:
+            units_f3b[1]["lessons"] = []          # 清空第 2 单元讲次，保留其它单元
+        r_f3c = post(f"/api/courses/{cid_f3b}/outline:confirm",
+                     {"title": d_f3b["title"], "units": units_f3b})
+        check("F3-空单元 单元 lessons 为空数组 → 允许（非 1000）",
+              r_f3c.get("code") == 0, f"code={r_f3c.get('code')}")
+        d_after = get(f"/api/courses/{cid_f3b}")["data"]
+        u1 = len(d_after["units"][0].get("lessons") or [])
+        u2 = len(d_after["units"][1].get("lessons") or []) if len(d_after["units"]) > 1 else -1
+        u3 = len(d_after["units"][2].get("lessons") or []) if len(d_after["units"]) > 2 else 0
+        check("F3-空单元 被清空单元 = 0、其余单元不受影响",
+              u2 == 0 and u1 > 0 and u3 > 0, f"单元1={u1} 单元2={u2} 单元3={u3}")
+        _cleanup_courses(cid_f3b)
 
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")
