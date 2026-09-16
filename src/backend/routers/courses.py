@@ -155,6 +155,12 @@ def regenerate_outline(cid: str, payload: OutlineUpdate | None = None) -> dict:
     return ok(_svc().regenerate_outline(cid, body))
 
 
+@router.post("/courses/{cid}/desc:rebuild")
+def rebuild_desc(cid: str) -> dict:
+    """为旧课程补写每讲「教学设计」desc（只补 desc，不动结构与已生成的讲义）。"""
+    return ok(_svc().rebuild_desc(cid))
+
+
 @router.post("/courses/{cid}/outline:confirm")
 def confirm_outline(cid: str, payload: OutlineConfirm) -> dict:
     """确认课程结构（可含手工修改后的标题/目标）。"""

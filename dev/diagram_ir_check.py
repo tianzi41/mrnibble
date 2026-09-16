@@ -181,7 +181,8 @@ def main() -> int:
     print("\n[6] 补图兜底判定与提示词硬约束")
     sys.path.insert(0, str(ROOT / "src"))
     from backend.services.courses import (          # noqa: PLC0415
-        _DEPTH_HINT, _LECTURE_PROMPT, _OUTLINE_PROMPT, _material_looks_visual,
+        _DEPTH_HINT, _DESC_FILL_PROMPT, _DESC_SPEC, _LECTURE_PROMPT,
+        _OUTLINE_PROMPT, _material_looks_visual,
     )
 
     positive = ("第一步先判断文件编码，第二步再解析内容，顺序不能颠倒；"
@@ -224,6 +225,18 @@ def main() -> int:
           json.dumps(crec, ensure_ascii=False)[:160])
     csvg2, _ = D.compile_ir(cyclic_ir)
     check("6.8 带环图同样逐字节确定", csvg == csvg2)
+
+    # 6.9/6.10 desc 字段规范的同源断言。
+    # 背景：大纲提示词里的**整段 desc 规范**曾因编辑竞态被静默吃掉，只剩自查清单里
+    # 两句提及 —— 模型完全不知道要输出 desc 字段。而测试走的是自带 desc 的 mock 桩，
+    # 八轮回归全绿却没暴露。教训：提示词里的关键字段定义，必须有断言盯着。
+    check("6.9 大纲提示词含 desc 规范占位与 desc 的 schema 示例",
+          "__DESC_SPEC__" in _OUTLINE_PROMPT and '"desc":{"outcomes"' in _OUTLINE_PROMPT)
+    check("6.10 desc 规范单一来源：常量字段齐全，且「补写 desc」提示词引用同一份",
+          all(k in _DESC_SPEC for k in ("outcomes", "knowledge_points", "concepts",
+                                        "operations", "transition", "exercise_focus",
+                                        "expected_mistakes", "exercise_flow"))
+          and "__DESC_SPEC__" in _DESC_FILL_PROMPT)
 
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")

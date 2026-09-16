@@ -510,7 +510,10 @@ body.teaching-on #tab-body { padding-bottom: 132px; }
 .viz-box svg[data-preset="signal-flow"] .zf-edge path { stroke-linecap: round; }
 .viz-box svg[data-diagram] { max-height: 460px; }
 
-/* 讲次教学设计 desc（结构确认页与讲义页头部的折叠展示） */
+/* 讲次教学设计 desc（结构确认页 / 课程详情页 / 讲义页头部的折叠展示） */
 .lesson-desc { margin-top: 6px; }
 .lesson-desc summary { font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
 .lesson-desc summary:hover { color: var(--text); }
+/* 课程详情页：折叠块挂在讲次行**下方**（讲次行是 flex，不能塞进去） */
+.lesson-desc-row { margin: 0 0 6px 10px; }
+.lesson-desc-row .lesson-desc { margin-top: 0; }

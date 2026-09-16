@@ -446,6 +446,44 @@ def _outline_dirty(kind: str) -> str:
     return json.dumps(obj, ensure_ascii=False)
 
 
+def _desc_fill_payload(user_text: str) -> str:
+    """按输入结构回填讲次 desc（数量与顺序必须与输入一致）。
+
+    与真实模型一样，从 user 消息里的【课程结构】JSON 推断要补几讲、哪几讲是练习讲。
+    """
+    struct: list = []
+    idx = user_text.find("【课程结构")
+    if idx >= 0:
+        seg = user_text[idx:]
+        p = seg.find("[")
+        if p >= 0:
+            try:
+                struct = json.loads(seg[p:].strip())
+            except Exception:  # noqa: BLE001 - 解析不到就当空结构
+                struct = []
+    units: list = []
+    for u in struct:
+        ls: list = []
+        for l in (u.get("lessons") or []):
+            if str(l.get("kind")) == "practice":
+                ls.append({"desc": {
+                    "exercise_focus": ["考察本单元正文讲的概念"],
+                    "expected_mistakes": ["把相近概念混为一谈"],
+                    "exercise_flow": "3 道判断 → 2 道改错 → 1 道综合"}})
+            else:
+                title = str(l.get("lesson") or "")[:14]
+                ls.append({"desc": {
+                    "outcomes": [f"能说明「{title}」的要点"],
+                    "knowledge_points": ["核心定义", "适用条件"],
+                    "concepts": ["极限"],
+                    "operations": ["按定义判断"],
+                    "transition": {"prev": "承接上一讲", "next": "引向下一讲",
+                                   "avoid": "不展开下一讲内容"},
+                    "visual": "流程：输入 → 判断 → 结论"}})
+        units.append({"lessons": ls})
+    return json.dumps({"units": units}, ensure_ascii=False)
+
+
 def _pick(body: dict) -> str:
     """按 model 名路由到对应行为，返回回复文本。"""
     model = str(body.get("model") or "")
@@ -464,6 +502,16 @@ def _pick(body: dict) -> str:
     if "课程审校" in _systems:
         _spy_dump(body)
         return json.dumps({"ok": True}, ensure_ascii=False)
+    # 「补写教学设计」同样是另发的一次调用（为旧课程补 desc），按提示词识别
+    # （提示词里有「已经定稿」这个独有词）。
+    if "已经定稿" in _systems:
+        _spy_dump(body)
+        _users = " ".join(
+            str(m.get("content") or "")
+            for m in (body.get("messages") or [])
+            if m.get("role") == "user"
+        )
+        return _desc_fill_payload(_users)
     if model == "mock-normal":
         return _quote_block()
     if model == "mock-stall-guided":

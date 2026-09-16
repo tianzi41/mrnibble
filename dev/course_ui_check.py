@@ -179,6 +179,31 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                    f"first={hl.get('firstTitle') if hl else ''} hl={hl.get('hlTitle') if hl else ''}")
             _check("2.44 已完成的讲次不被高亮", bool(hl and hl.get("firstIsHl") is False), f"hl={hl}")
 
+            # ---- 2.45–2.47 课程详情：讲次下方展示「教学设计」desc 折叠块 ----
+            # desc 是大纲阶段生成的（旧课程为 null），详情页整讲列表过去不展示它，
+            # 只能点「编辑结构」跳去确认页才看得到 —— 这里锁住「详情页也展示」。
+            dd = await ev("""(function(){
+                var rows=Array.from(document.querySelectorAll('.item.lesson-row'));
+                var ds=Array.from(document.querySelectorAll('.lesson-desc-row'));
+                var det=ds.length?ds[0].querySelector('details'):null;
+                var txt='';
+                if(det){det.open=true;txt=det.textContent||'';}
+                return {rowCount:rows.length, descCount:ds.length,
+                        afterFirst:(rows.length&&ds.length)?(rows[0].nextElementSibling===ds[0]):false,
+                        hasSummary:!!(det&&det.querySelector('summary')),
+                        openText:txt.slice(0,300)};
+            })()""")
+            _check("2.44a 课程详情每个讲次下方都有「教学设计」折叠块",
+                   bool(dd and dd["rowCount"] > 0 and dd["descCount"] == dd["rowCount"]),
+                   f"rows={dd.get('rowCount') if dd else None} desc={dd.get('descCount') if dd else None}")
+            _check("2.44b 折叠块紧跟在讲次行之后（未塞进 flex 行内）",
+                   bool(dd and dd.get("afterFirst")), f"afterFirst={dd.get('afterFirst') if dd else None}")
+            _check("2.44c 展开后有教学设计字段（学习目标/知识点边界/考察点）",
+                   bool(dd and dd.get("hasSummary") and any(
+                       k in (dd.get("openText") or "")
+                       for k in ("学习目标", "知识点边界", "考察点", "术语口径", "涉及操作"))),
+                   f"text={(dd.get('openText') or '')[:80] if dd else None}")
+
             # ---- C 批：建课向导的课程级「实践环节」开关 ----
             await ev("(function(){var b=document.getElementById('btn-new');"
                      "if(b){b.click();return true;}return false;})()")

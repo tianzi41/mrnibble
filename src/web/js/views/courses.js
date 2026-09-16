@@ -436,6 +436,11 @@
     host.innerHTML = "";
     const c = S.course;
     const p = c.progress || {};
+    // 讲次教学设计 desc：旧课程（功能上线前建的）为 null，详情页给一条「只补 desc」
+    // 的入口 —— 用户若走「重新生成大纲」会重建讲次、把已生成好的讲义一起丢掉。
+    const allLessons = [];
+    (c.units || []).forEach((u) => (u.lessons || []).forEach((l) => allLessons.push(l)));
+    const needDesc = allLessons.length > 0 && allLessons.some((l) => !l.desc);
     const head = el("div", "card");
     head.innerHTML = `
       <div class="row" style="justify-content:space-between">
@@ -451,8 +456,11 @@
       <div class="row" style="margin-top:10px">
         <button class="btn small" id="c-edit">编辑结构</button>
         <button class="btn small" id="c-regen">重新生成大纲</button>
+        ${needDesc ? '<button class="btn small" id="c-desc">补写教学设计</button>' : ""}
         <span class="hint" id="c-stage"></span>
       </div>
+      ${needDesc ? `<div class="hint">本课建立时还没有「教学设计」功能，各讲课件只能看到标题。
+        点「补写教学设计」会按现有结构为每讲补一份（不改结构、不影响已生成的讲义）。</div>` : ""}
       <div class="field" style="margin-top:10px">
         <label>重新生成前，写下你的要求（可选）</label>
         <textarea id="c-regen-note" rows="2"
@@ -496,6 +504,35 @@
       }
     };
 
+    // 「补写教学设计」：只为旧课程补 desc，不重建讲次、不动已生成的讲义。
+    const descBtn = document.getElementById("c-desc");
+    if (descBtn) {
+      descBtn.onclick = async () => {
+        const stage = document.getElementById("c-stage");
+        descBtn.disabled = true; descBtn.textContent = "补写中…";
+        if (stage) stage.textContent = "正在为每讲补写教学设计…";
+        const reset = () => {
+          const b = document.getElementById("c-desc");
+          if (b) { b.disabled = false; b.textContent = "补写教学设计"; }
+          const st = document.getElementById("c-stage");
+          if (st) st.textContent = "";
+        };
+        try {
+          const r = await Api.post(`/api/courses/${c.id}/desc:rebuild`);
+          await pollOutline(c.id, r.job_id, host, stage,
+            async () => {
+              await loadCourse(c.id);
+              renderDetail(host);
+              Toast("教学设计已补写完成，展开各讲即可查看", false);
+            },
+            (err) => { Toast((err && err.message) || "补写失败，请稍后重试", true); reset(); });
+        } catch (e) {
+          Toast(e.message, true);
+          reset();
+        }
+      };
+    }
+
     // 按单元顺序 × 单元内讲次顺序，找出第一个 status !== "done" 的讲次（接下来要上的那一讲）
     let nextId = null;
     for (const u0 of (c.units || [])) {
@@ -530,6 +567,14 @@
         go.onclick = () => { location.hash = "#/lessons/" + l.id; };
         row.appendChild(go);
         list.appendChild(row);
+        // 本讲教学设计（大纲阶段生成，只读）：与结构确认页/讲义页同格式的折叠块。
+        // 放在讲次行**之外**——.item 是 flex 行，塞进去会打乱 pill/标题/按钮的排布。
+        const d = descHtml(l.desc);
+        if (d) {
+          const dw = el("div", "lesson-desc-row");
+          dw.innerHTML = d;
+          list.appendChild(dw);
+        }
       });
       box.appendChild(list);
 

@@ -1118,6 +1118,52 @@ def main() -> int:
               f"含教学设计块={'是' if '【本讲教学设计】' in sys_z4 else '否'}")
 
         _cleanup_courses(cid_z4)
+
+        # Z6 旧课程「补写教学设计」：只补 desc，**不动结构、不动已生成的讲义**。
+        # 背景：desc 功能上线前建的课 desc_json 全为 NULL；用户若走「重新生成大纲」
+        # 会重建讲次、把已经看过/听过的讲义一起丢掉。
+        set_model("mock-outline-5")            # 无 desc 的旧大纲桩
+        r = post("/api/courses", {"goal": "补写教学设计端到端", "document_ids": [doc_id],
+                                  "unit_count": 5, "depth": "standard"})
+        cid_z6 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        lessons_z6 = [l for u in (get(f"/api/courses/{cid_z6}")["data"]["units"] or [])
+                      for l in u["lessons"]]
+        titles_before = [l["title"] for l in lessons_z6]
+        check("Z6a 初始状态：旧课讲次 desc 全为空",
+              bool(lessons_z6) and all(not l.get("desc") for l in lessons_z6),
+              f"讲次={len(lessons_z6)} 有 desc 的={sum(1 for l in lessons_z6 if l.get('desc'))}")
+
+        # 先给第一讲生成讲义 —— 补写 desc 后它必须原样还在
+        lec_z6 = [l for l in lessons_z6 if l.get("kind") == "lecture"]
+        set_model("mock-spy-lecture")
+        r = post(f"/api/courses/lessons/{lec_z6[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        slides_before = len(get(f"/api/courses/lessons/{lec_z6[0]['id']}")["data"].get("slides") or [])
+
+        r = post(f"/api/courses/{cid_z6}/desc:rebuild")
+        wait_job(r["data"]["job_id"])
+        lessons_after = [l for u in (get(f"/api/courses/{cid_z6}")["data"]["units"] or [])
+                         for l in u["lessons"]]
+        lect = [l for l in lessons_after if l.get("kind") == "lecture" and l.get("desc")]
+        prac = [l for l in lessons_after if l.get("kind") == "practice" and l.get("desc")]
+        check("Z6b 补写后每讲都有 desc，且结构未变（标题序列一致、数量一致）",
+              len(lessons_after) == len(lessons_z6)
+              and all(l.get("desc") for l in lessons_after)
+              and [l["title"] for l in lessons_after] == titles_before,
+              f"补写={sum(1 for l in lessons_after if l.get('desc'))}/{len(lessons_after)} "
+              f"结构一致={[l['title'] for l in lessons_after] == titles_before}")
+        check("Z6c 正文讲 desc 带知识边界/术语口径，练习讲用专用字段",
+              bool(lect) and all(d.get("knowledge_points") and d.get("concepts")
+                                 for d in (l["desc"] for l in lect))
+              and bool(prac) and all(l["desc"].get("exercise_focus") for l in prac),
+              f"正文讲={len(lect)} 练习讲={len(prac)}")
+        slides_after = len(get(f"/api/courses/lessons/{lec_z6[0]['id']}")["data"].get("slides") or [])
+        check("Z6d 补写 desc 不影响已生成的讲义（页数不变）",
+              slides_before > 0 and slides_after == slides_before,
+              f"{slides_before} → {slides_after}")
+
+        _cleanup_courses(cid_z6)
         _cleanup_courses(cid_y1)
 
         # ── I. 删除 ────────────────────────────────────

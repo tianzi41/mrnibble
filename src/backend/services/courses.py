@@ -88,6 +88,56 @@ _UNIT_SUMMARY_PROMPT = """你是学习教练。这个单元已经学完，请根
 weak_points 必须来自练习中真实答错或得分偏低的题目。
 """ + _BASE_RULES
 
+# ── 讲次教学设计 desc 的字段规范（**单一来源**）─────────────
+# 「生成大纲」与「为旧课程补写 desc」两处提示词都引用它。曾经因为一段编辑竞态，
+# 大纲提示词里的整段 desc 规范被静默吃掉，只留下自查清单里两句提及——模型
+# 完全不知道要输出 desc 字段（而测试用的是带 desc 的 mock 桩，因此没暴露）。
+# 教训：提示词里的关键字段规范必须**可被断言**（diagram_ir_check 有同源断言），
+# 且只写一份。
+_DESC_SPEC = """每讲必须同时产出 desc（本讲教学设计）——它是后续**逐讲独立生成讲义**时的唯一约束：
+逐讲调用看不到其它讲次，讲间边界与术语口径全靠 desc 划清。
+- 正文讲（kind=lecture）的 desc 六个字段：
+  outcomes：学习目标 1~3 条（每条 ≤40 字），写「学完能做到什么」，与 objective 呼应但不重复措辞；
+  knowledge_points：知识点边界 2~5 条（每条 ≤30 字），**只列本讲要讲的内容**——相邻讲次会讲的**一律不列**；
+  concepts：本讲必须解释清楚的核心术语 ≤4 个（每个 ≤12 字），**全课程统一译名**，同一概念在所有讲次用同一写法；
+  operations：涉及的具体操作/命令/演示 ≤4 条（每条 ≤16 字），没有就省略；
+  transition：{"prev":"承接上一讲的什么（≤25 字）","next":"给下一讲引什么（≤25 字）",
+    "avoid":"本讲**不展开**、留给相邻讲次的内容（≤25 字，防讲间重复的关键字段）"}；
+  visual：可视化提示（≤40 字，具体到「什么图/什么表」，如「流程：字节→代码页→乱码」；没有可视觉化内容写「无」）。
+- 练习讲（kind=practice）的 desc 用**另一组**字段（不要照抄正文讲字段）：
+  exercise_focus：考察点 ≤3 条（每条 ≤30 字），指明考的是哪几讲的内容；
+  expected_mistakes：学生易错点 ≤3 条（每条 ≤30 字），供出题时设计干扰项；
+  exercise_flow：题型安排（≤60 字，如「4 道判断 → 2 道改错 → 1 道综合归类」）。"""
+
+# 为**已有旧课程**补写 desc（这些课建于 desc 功能上线前，desc_json 为 NULL）。
+# 只补 desc，绝不动结构/标题/讲次/已生成的讲义。
+_DESC_FILL_PROMPT = """你是课程设计师。下面是一门**已经定稿**的课程结构（单元 + 每讲标题与学习目标）。
+请为**每一讲**补写「本讲教学设计」desc，供后续逐讲生成讲义时约束内容。
+
+**严禁改动结构**：不得增删单元或讲次、不得改标题、不得改变顺序与 kind。
+只输出 desc，其余字段一律原样不动。
+
+__DESC_SPEC__
+
+额外要求：
+- 严格按现有讲次的标题与 objective 推断该讲该讲什么，不要替它换主题；
+- 讲间边界要**落在实际结构上**：transition.prev 指向结构里排在它前面的那一讲，
+  transition.next 指向排在它后面的那一讲（用标题指代即可）；
+- 练习讲的 exercise_focus 必须指向同一单元里**前面那些正文讲**的内容。
+
+输出 JSON（单元与讲次顺序必须与输入完全一致，数量也必须一致）：
+{"units":[{"lessons":[
+  {"desc":{"outcomes":["..."],"knowledge_points":["..."],"concepts":["..."],"operations":["..."],
+           "transition":{"prev":"...","next":"...","avoid":"..."},"visual":"..."}},
+  {"desc":{"exercise_focus":["..."],"expected_mistakes":["..."],"exercise_flow":"..."}}]}]}
+
+输出前自查（只自查，不输出过程）：
+- 讲次数量与顺序是否与输入完全一致？
+- 正文讲是否给了 outcomes/knowledge_points/concepts 三组必备字段？
+- 练习讲是否用了 exercise_focus/expected_mistakes/exercise_flow（而不是正文讲字段）？
+- 同一个术语在所有讲次的 concepts 里是否用了同一个译名？
+""" + _BASE_RULES
+
 _OUTLINE_PROMPT = """你是课程设计师。请依据用户的学习目标与材料，设计一门「能学完」的课程大纲。
 学习者水平与深度要求见用户消息中的【课程信息】。
 
@@ -112,6 +162,8 @@ _OUTLINE_PROMPT = """你是课程设计师。请依据用户的学习目标与�
   apply——用它完成具体例题或应用；
 - 单元 summary：1~2 句，说明该单元在整门课中的角色（承接什么、为后续铺垫什么）。
 
+__DESC_SPEC__
+
 覆盖要求：
 - 优先按材料中体现的章节/主题组织单元；材料覆盖的主要内容不得留整块缺口；
 - 材料里没有的主题不得编造；用户目标与材料冲突时以材料为准，并在 summary 里说明取舍。
@@ -119,7 +171,15 @@ _OUTLINE_PROMPT = """你是课程设计师。请依据用户的学习目标与�
 输出 JSON：
 {"title":"课程标题","summary":"课程简介（2~3 句，说明适合谁、学完能做什么）",
  "units":[{"title":"单元标题","summary":"单元简介",
- "lessons":[{"title":"讲次标题","objective":"学习目标","kind":"lecture|practice","depth":"establish|define|derive|apply"}]}]}
+ "lessons":[
+   {"title":"讲次标题","objective":"学习目标","kind":"lecture","depth":"establish|define|derive|apply",
+    "desc":{"outcomes":["学完能做到什么"],"knowledge_points":["本讲要讲的知识点"],
+            "concepts":["核心术语"],"operations":["涉及的操作"],
+            "transition":{"prev":"承接什么","next":"引向什么","avoid":"本讲不展开的内容"},
+            "visual":"可视化提示，没有写「无」"}},
+   {"title":"练习讲标题","objective":"检验本单元各讲目标是否达成","kind":"practice","depth":"apply",
+    "desc":{"exercise_focus":["考察哪几讲的内容"],"expected_mistakes":["学生易错点"],
+            "exercise_flow":"题型安排"}}]}]}
 
 输出前自查（只自查，不输出过程）：
 - 是否有任意两个讲次的 objective 说的其实是同一件事？
@@ -787,6 +847,142 @@ class CourseService:
             sources = []
         return {"goals": goals, "sources": sources}
 
+    # ── 旧课程：补写讲次教学设计 desc ────────────────────
+    def rebuild_desc(self, cid: str) -> dict[str, Any]:
+        """为**已有旧课程**补写讲次 desc（只补 desc，不动结构、不动已生成的讲义）。
+
+        这些课建于 desc 功能上线前（``desc_json`` 为 NULL）。用户若走「重新生成大纲」
+        会重建讲次、**丢掉已经生成好的讲义** —— 所以单独给一条只补 desc 的路径。
+        """
+        db = get_db()
+        row = db.query_one("SELECT * FROM courses WHERE id = ?", (cid,))
+        if row is None:
+            raise AppError(1001, "课程不存在")
+        n = db.query_one(
+            "SELECT COUNT(*) AS n FROM course_lessons WHERE course_id = ?", (cid,)
+        )
+        if not n or not int(n["n"] or 0):
+            raise AppError(1003, "课程还没有讲次", "请先生成课程结构，再补写教学设计")
+        job_id = self._new_job(cid, None, "outline", "正在读取课程结构")
+        t = threading.Thread(target=self._run_desc_fill, args=(cid, job_id), daemon=True)
+        t.start()
+        return {"course_id": cid, "job_id": job_id, "status": "running"}
+
+    def _run_desc_fill(self, cid: str, job_id: str) -> None:
+        """后台线程：按现有结构为每讲补写 desc。失败只记 job，不把课程标成 failed。"""
+        db = get_db()
+        try:
+            course = db.query_one("SELECT * FROM courses WHERE id = ?", (cid,))
+            if course is None:
+                raise AppError(1001, "课程不存在")
+            struct: list[dict[str, Any]] = []
+            lesson_rows: list[Any] = []
+            for u in db.query_all(
+                "SELECT * FROM course_units WHERE course_id = ? ORDER BY ordinal", (cid,)
+            ):
+                rows = db.query_all(
+                    "SELECT * FROM course_lessons WHERE unit_id = ? ORDER BY ordinal",
+                    (u["id"],),
+                )
+                if not rows:
+                    continue
+                struct.append({
+                    "unit": str(u["title"]),
+                    "lessons": [
+                        {"lesson": str(r["title"]), "kind": str(r["kind"]),
+                         "objective": str(r["objective"] or "")}
+                        for r in rows
+                    ],
+                })
+                lesson_rows.extend(rows)
+            if not lesson_rows:
+                raise AppError(1003, "课程还没有讲次", "请先生成课程结构，再补写教学设计")
+
+            goal = str(course["goal"] or "")
+            ids = [
+                r["document_id"] for r in db.query_all(
+                    "SELECT document_id FROM course_documents WHERE course_id = ?", (cid,)
+                )
+            ]
+            self._set_stage(job_id, "正在读取学习材料")
+            rs = get_retrieval_service()
+            over_hits, outline = rs.material_overview(ids)
+            goal_hits, _, _ = rs.hybrid_search(goal, document_ids=ids or None, top_k=6)
+            merged: dict[Any, dict[str, Any]] = {}
+            for h in list(over_hits) + list(goal_hits):
+                key = h.get("chunk_id")
+                if key is not None:
+                    merged.setdefault(key, h)
+            hits = list(merged.values())
+            if not hits:
+                raise AppError(1002, "没有可用材料", "来源文档没有可检索的文本内容")
+            context, _table = build_context(hits, outline=outline)
+
+            self._set_stage(job_id, "正在补写教学设计")
+            messages = [
+                {"role": "system", "content": _DESC_FILL_PROMPT},
+                {"role": "user", "content":
+                    self._material_user(goal, context)
+                    + "\n\n【课程结构（必须原样保持：顺序与数量都不得变）】\n"
+                    + json.dumps(struct, ensure_ascii=False)},
+            ]
+            filled = 0
+            for _ in range(_MAX_RETRY + 1):
+                raw = self._chat(messages, max_tokens=4096)
+                filled = self._apply_desc_fill(self._safe_json(raw), lesson_rows)
+                if filled:
+                    break
+                messages += [
+                    {"role": "assistant", "content": (raw or "")[:1200]},
+                    {"role": "user", "content":
+                        "上一次输出的单元/讲次数量或顺序与输入不一致，请严格按输入的"
+                        "结构重新输出，只输出一个 JSON 对象。"},
+                ]
+            if not filled:
+                raise AppError(1004, "补写失败", "模型输出与课程结构对不上，请稍后重试")
+            self._finish_job(job_id)
+        except Exception as exc:  # noqa: BLE001 - 后台任务兜底
+            logger.warning("补写教学设计失败",
+                           extra={"extra_fields": {"type": type(exc).__name__}})
+            # 注意：**不**调用 _fail_course —— 旧课只是没补上 desc，课程本身没坏。
+            self._fail_job(job_id, _err_text(exc))
+
+    @staticmethod
+    def _apply_desc_fill(parsed: Any, lesson_rows: list[Any]) -> int:
+        """把补写的 desc 按顺序写回讲次；结构与输入不一致时**整体拒收**。
+
+        数量校验是硬要求：模型少写一讲，后面每讲的 desc 都会错位挂到别的讲上 ——
+        那比不写更糟（会被当成「本讲本该讲这些」注入讲义提示词）。
+        """
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("units"), list):
+            return 0
+        flat: list[Any] = []
+        for u in parsed["units"]:
+            if not isinstance(u, dict) or not isinstance(u.get("lessons"), list):
+                return 0
+            flat.extend(u["lessons"])
+        if len(flat) != len(lesson_rows):
+            logger.warning(
+                "补写 desc 的讲次数与课程不一致，已整体拒收",
+                extra={"extra_fields": {"got": len(flat), "want": len(lesson_rows)}},
+            )
+            return 0
+        db = get_db()
+        ts = now_iso()
+        n = 0
+        for item, row in zip(flat, lesson_rows):
+            if not isinstance(item, dict):
+                continue
+            desc = _norm_desc(item.get("desc"), str(row["kind"]))
+            if not desc:
+                continue
+            db.execute(
+                "UPDATE course_lessons SET desc_json=?, updated_at=? WHERE id=?",
+                (json.dumps(desc, ensure_ascii=False), ts, row["id"]),
+            )
+            n += 1
+        return n
+
     # ── 后台：大纲生成 ──────────────────────────────────
     def _run_outline(
         self,
@@ -839,6 +1035,7 @@ class CourseService:
                 _OUTLINE_PROMPT
                 .replace("__UNITS_RULE__", units_rule)
                 .replace("__LESSONS_RULE__", lessons_rule)
+                .replace("__DESC_SPEC__", _DESC_SPEC)
             ) + (
                 f"\n补充要求：学习者当前水平为「{_LEVEL_NAME.get(level, level)}」，"
                 f"内容深度要求「{_DEPTH_NAME.get(depth, depth)}」。"
