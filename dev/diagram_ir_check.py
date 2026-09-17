@@ -272,6 +272,20 @@ def main() -> int:
           and _intent_spec("", None) == ""
           and _intent_spec("not-a-real-intent", None) == "")
 
+    # 6.15 课件卡片「内容类型底色」必须走 CSS 变量。
+    # 为什么盯这条：卡片底色曾在 lesson.js 里被写死成内联浅色（#eef2ff 等），
+    # 主题管不到它 → 暗色下「卡片仍浅底、文字跟着主题变浅」= 内容看不清（用户实测报告）。
+    lesson_src = (ROOT / "src" / "web" / "js" / "views" / "lesson.js").read_text(encoding="utf-8")
+    css_src = (ROOT / "src" / "web" / "css" / "app.css").read_text(encoding="utf-8")
+    check("6.15 课件卡片底色走 CSS 变量（--card-* / --past-opacity），且未写死浅色值",
+          "var(--card-concept)" in lesson_src
+          and "var(--card-takeaway)" in lesson_src
+          and "#eef2ff" not in lesson_src
+          and "--card-concept:" in css_src
+          and "--past-opacity:" in css_src
+          and "opacity: var(--past-opacity)" in css_src,
+          "lesson.js 或 app.css 里仍有写死的卡片底色 / 弱化强度")
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

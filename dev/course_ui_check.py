@@ -379,6 +379,8 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                     return {attr: document.documentElement.getAttribute('data-theme'),
                             bg: cs.getPropertyValue('--bg').trim(),
                             paper: cs.getPropertyValue('--paper').trim(),
+                            card: cs.getPropertyValue('--card-concept').trim(),
+                            past: cs.getPropertyValue('--past-opacity').trim(),
                             saved: saved};
                 })()""")
 
@@ -391,15 +393,20 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             p_green = await _theme_probe("green")
             _check("2.92 切豆绿：--bg 变豆绿",
                    bool(p_green and p_green.get("bg") == "#e6efe2"), f"{p_green}")
+            # 卡片底色也必须跟着主题变：它曾经被写死在 lesson.js 的内联样式里，
+            # 结果暗色下「卡片仍浅底 + 文字变浅」→ 内容看不清（用户实测报告）。
             p_dark = await _theme_probe("dark")
-            _check("2.93 切暗色：页面底色变深，但「纸面 --paper」仍是浅色（图示 SVG 才看得清）",
+            _check("2.93 切暗色：页面变深、纸面仍浅、**卡片底色也切到深色**、弱化不过度",
                    bool(p_dark and p_dark.get("bg") == "#14161a"
-                        and p_dark.get("paper") == "#f7f8fa"),
+                        and p_dark.get("paper") == "#f7f8fa"
+                        and str(p_dark.get("card")).startswith("#1")
+                        and float(p_dark.get("past") or 0) >= 0.7),
                    f"{p_dark}")
             p_back = await _theme_probe("")
-            _check("2.94 切回默认：data-theme 被移除、变量回到浅色",
+            _check("2.94 切回默认：data-theme 被移除、变量回到浅色（卡片底色也回来）",
                    bool(p_back and p_back.get("attr") is None
-                        and p_back.get("bg") == "#f5f6fa"),
+                        and p_back.get("bg") == "#f5f6fa"
+                        and p_back.get("card") == "#eef2ff"),
                    f"{p_back}")
 
             # 取消向导，回到列表（避免 S.creating 残留影响后续断言）

@@ -43,11 +43,15 @@
     lessonId: null,         // 当前课堂对应的讲次 id（用于切页续讲）
   };
 
+  /** 卡片「内容类型」→ [显示名, 底色]。
+   *  底色**必须走 CSS 变量**，不能写死色值 —— 写死的话主题（暗色）管不到它，
+   *  卡片保持浅底、而文字跟着主题变浅 → 「浅底浅字」直接看不清（2026-09-17 实测踩到）。 */
   const KIND = {
-    concept: ["概念", "#eef2ff"], example: ["例子", "#ecfdf5"],
-    formula: ["公式", "#fff7ed"], quote: ["材料原文", "#fdf4ff"], note: ["补充", "#f8fafc"],
-    diagram: ["图示", "#f0f9ff"], chart: ["图表", "#fefce8"],
-    table: ["对比", "#f5f3ff"], takeaway: ["金句", "#fff1f2"],
+    concept: ["概念", "var(--card-concept)"], example: ["例子", "var(--card-example)"],
+    formula: ["公式", "var(--card-formula)"], quote: ["材料原文", "var(--card-quote)"],
+    note: ["补充", "var(--card-note)"],
+    diagram: ["图示", "var(--card-diagram)"], chart: ["图表", "var(--card-chart)"],
+    table: ["对比", "var(--card-table)"], takeaway: ["金句", "var(--card-takeaway)"],
   };
 
   const el = (tag, cls, html) => {
@@ -411,8 +415,8 @@
       const cx = (x1 + x2) / 2;
       svg.insertAdjacentHTML("beforeend",
         `<path d="M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}"`
-        + ` fill="none" stroke="#4f46e5" stroke-width="1.2" opacity="0.55"/>`
-        + `<circle cx="${x1}" cy="${y1}" r="3" fill="#4f46e5" opacity="0.7"/>`);
+        + ` fill="none" stroke="var(--primary)" stroke-width="1.2" opacity="0.55"/>`
+        + `<circle cx="${x1}" cy="${y1}" r="3" fill="var(--primary)" opacity="0.7"/>`);
     });
     // stageBox 仅用于保持引用（避免未使用变量告警）
     void stageBox;
