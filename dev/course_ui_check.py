@@ -381,6 +381,8 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                             paper: cs.getPropertyValue('--paper').trim(),
                             card: cs.getPropertyValue('--card-concept').trim(),
                             past: cs.getPropertyValue('--past-opacity').trim(),
+                            sub: cs.getPropertyValue('--subtitle-bg').trim(),
+                            scheme: cs.colorScheme,
                             saved: saved};
                 })()""")
 
@@ -396,17 +398,21 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             # 卡片底色也必须跟着主题变：它曾经被写死在 lesson.js 的内联样式里，
             # 结果暗色下「卡片仍浅底 + 文字变浅」→ 内容看不清（用户实测报告）。
             p_dark = await _theme_probe("dark")
-            _check("2.93 切暗色：页面变深、纸面仍浅、**卡片底色也切到深色**、弱化不过度",
+            _check("2.93 切暗色：页面变深、纸面仍浅、卡片底色变深、字幕条深底、原生控件跟暗色",
                    bool(p_dark and p_dark.get("bg") == "#14161a"
                         and p_dark.get("paper") == "#f7f8fa"
                         and str(p_dark.get("card")).startswith("#1")
-                        and float(p_dark.get("past") or 0) >= 0.7),
+                        and float(p_dark.get("past") or 0) >= 0.7
+                        and str(p_dark.get("sub")).startswith("rgba(8")
+                        and "dark" in str(p_dark.get("scheme"))),
                    f"{p_dark}")
             p_back = await _theme_probe("")
-            _check("2.94 切回默认：data-theme 被移除、变量回到浅色（卡片底色也回来）",
+            _check("2.94 切回默认：属性移除、变量回浅色（卡片底色与字幕条都回来）",
                    bool(p_back and p_back.get("attr") is None
                         and p_back.get("bg") == "#f5f6fa"
-                        and p_back.get("card") == "#eef2ff"),
+                        and p_back.get("card") == "#eef2ff"
+                        and str(p_back.get("sub")).startswith("rgba(17")
+                        and "light" in str(p_back.get("scheme"))),
                    f"{p_back}")
 
             # 取消向导，回到列表（避免 S.creating 残留影响后续断言）

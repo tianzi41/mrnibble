@@ -1,6 +1,7 @@
 /* 知伴 · 全局样式（浅色主题，本地资源，零 CDN） */
 
 :root {
+  color-scheme: light;   /* 让原生滚动条/表单控件按浅色渲染（暗色主题会覆盖成 dark）*/
   --bg: #f5f6fa;
   --panel: #ffffff;
   --border: #e3e6ee;
@@ -30,6 +31,13 @@
   --bad-soft: #fef2f2; --bad-border: #fecaca; --bad-tint: rgba(220, 38, 38, .09);
   --float-bg: rgba(255, 255, 255, .8);
   --toast-bg: #1f2430; --toast-text: #fff;
+  /* 课堂字幕条**单独一套**：toast 在暗色下是「反相」的（浅底深字，为了醒目），
+     字幕条如果跟着 toast 走，暗色下就会变成一片浅色横条、与页面很不搭。
+     字幕应始终「深底浅字」并随主题微调色温。 */
+  --subtitle-bg: rgba(17, 24, 39, .86); --subtitle-text: #ffffff;
+  --scroll-thumb: rgba(31, 36, 48, .26);
+  --scroll-thumb-hover: rgba(31, 36, 48, .44);
+  --scroll-track: transparent;
   --overlay: rgba(15, 23, 42, .45);
   --shadow-modal: 0 18px 50px rgba(0, 0, 0, .22);
   /* 课件卡片按「内容类型」着色的底色 + 已讲页的弱化强度。
@@ -380,7 +388,7 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 600; }
 .teach-ask .teach-card .t { font-size: 14px; }
 .teach-sub {
   pointer-events: auto; text-align: center;
-  background: var(--toast-bg); color: var(--toast-text);
+  background: var(--subtitle-bg); color: var(--subtitle-text);
   border-radius: 10px; padding: 10px 16px;
   font-size: 15px; line-height: 1.6; letter-spacing: .2px;
   box-shadow: var(--shadow-float);
@@ -593,6 +601,8 @@ details.adv > .field { margin-top: 10px; }
   --card-concept: #e9e6f5; --card-example: #e9f0e0; --card-formula: #f7ecd6;
   --card-quote: #f5e8f1; --card-note: #f4efe0; --card-diagram: #e7eef2;
   --card-chart: #f7f2d9; --card-table: #ede8f3; --card-takeaway: #f6e7e5;
+  --subtitle-bg: rgba(59, 50, 35, .9); --subtitle-text: #fdfbf3;
+  --scroll-thumb: rgba(90, 74, 40, .3); --scroll-thumb-hover: rgba(90, 74, 40, .5);
 }
 [data-theme="green"] {
   --bg: #e6efe2; --panel: #f7fbf5; --border: #cfdfc9; --text: #2c382a; --muted: #6b7d66;
@@ -611,6 +621,8 @@ details.adv > .field { margin-top: 10px; }
   --card-concept: #e6eaf3; --card-example: #e6f1dc; --card-formula: #f2eddb;
   --card-quote: #f0e8ef; --card-note: #eaf1e5; --card-diagram: #e4eef1;
   --card-chart: #f1f0da; --card-table: #eae9f0; --card-takeaway: #f2e5e3;
+  --subtitle-bg: rgba(38, 52, 33, .9); --subtitle-text: #f7fbf5;
+  --scroll-thumb: rgba(46, 66, 40, .3); --scroll-thumb-hover: rgba(46, 66, 40, .5);
 }
 [data-theme="dark"] {
   --bg: #14161a; --panel: #1c1f26; --border: #2c313b; --text: #e6e8ee; --muted: #9aa3b2;
@@ -635,6 +647,11 @@ details.adv > .field { margin-top: 10px; }
   --card-concept: #1e2438; --card-example: #16281f; --card-formula: #2a2114;
   --card-quote: #28192a; --card-note: #1a1d23; --card-diagram: #16232e;
   --card-chart: #262314; --card-table: #221d33; --card-takeaway: #2a1a1d;
+  color-scheme: dark;    /* 原生滚动条 / 表单控件跟随暗色 */
+  /* 字幕：深底 + 浅字（比浅色主题再暗一档，贴住暗色页面而不是跳出来） */
+  --subtitle-bg: rgba(8, 10, 14, .86); --subtitle-text: #e6e8ee;
+  --scroll-thumb: rgba(230, 232, 238, .26);
+  --scroll-thumb-hover: rgba(230, 232, 238, .48);
 }
 /* 图示 SVG 自带浅色配色（后端编译产物）→ 容器垫一层纸面，暗色下也看得清 */
 .board-card .card-body svg, .board-card .card-body canvas,
@@ -644,3 +661,16 @@ details.adv > .field { margin-top: 10px; }
   padding: 4px 8px; font-size: 12px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--panel); color: var(--text);
 }
+
+/* ── 滚动条跟随主题 ────────────────────────────
+   之前页面没声明 color-scheme，Chromium 一律用默认**浅色**滚动条 ——
+   暗色主题下右侧栏那几条白竖条就是这么来的（用户实测报告）。
+   这里两条一起做：color-scheme（让原生控件跟随）+ 自绘滚动条（四套主题统一观感）。 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--scroll-track); }
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: 6px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
