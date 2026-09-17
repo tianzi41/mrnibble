@@ -8,6 +8,11 @@
     courseId: null,
     course: null,       // 当前查看的课程详情
     creating: false,
+    // 从课程页的「AI 材料」入口点进来时要接回的任务（一次性，用完即清）。
+    // ⚠️ 它必须活过整页重渲染：点任务会改 hash → hashchange → 整个视图重建。
+    pendingMaterial: null,
+    // 课程页要展示的材料任务（type='material'），只留「还没收尾」的。
+    materialJobs: [],
     mindmap: null,      // 结构预览的 markmap 实例
   };
 
@@ -64,16 +69,111 @@
         await loadCourses(); renderList(); renderMain();
       };
       item.appendChild(del);
-      item.onclick = async () => { await loadCourse(c.id); renderList(); renderMain(); };
+      // ⚠️ 必须走 openCourse：它会清掉 S.creating。
+      // 只调 renderMain() 的话，向导状态还在 → renderMain 又把向导顶出来 →
+      // 用户点左侧任何课程都进不去，看起来就是「锁死在新建课程界面」（2026-09-17 实测）。
+      item.onclick = () => openCourse(c.id);
       body.appendChild(item);
     });
     box.appendChild(body);
-    document.getElementById("btn-new").onclick = () => { S.creating = true; S.course = null; renderMain(); };
+    document.getElementById("btn-new").onclick = openCreate;
+    renderMaterialJobs(box);
+  }
+
+  /** 课程列表下方的「AI 材料」区块：只显示**还没收尾**的材料生成任务。
+   *
+   *  为什么需要它：材料是逐章写的、要跑几十秒，用户中途切到别的页是常态。
+   *  此前进度只活在新建向导的内存里，向导一重建就再也找不回来
+   *  （用户实测：「写正文到一半切到别的页再回来，我找不回来了」）。
+   *  这里改成**从后端任务行恢复**：`GET /api/generations?type=material` 的任务里有
+   *  目录 JSON 和「已写了几章」，所以切页、甚至关掉软件重开都能接上。
+   */
+  function renderMaterialJobs(box) {
+    const jobs = (S.materialJobs || []).filter(materialJobVisible);
+    if (!jobs.length) return;
+    const panel = el("div");
+    panel.style.marginTop = "10px";
+    panel.appendChild(el("div", "panel-head", `<span>AI 材料（${jobs.length}）</span>`));
+    const body = el("div", "panel-body");
+    jobs.forEach((j) => {
+      const it = el("div", "item");
+      it.title = "点击继续 / 用它建课";
+      it.appendChild(el("span", "t", esc(materialJobTitle(j))));
+      it.appendChild(el("small", null, materialJobBadge(j)));
+      it.onclick = () => { S.pendingMaterial = j; openCreate(); };
+      body.appendChild(it);
+    });
+    panel.appendChild(body);
+    box.appendChild(panel);
+  }
+
+  /** 材料任务该不该出现在课程页：
+   *  · 进行中 / 已中断 → 显示（用户需要一条「回来的路」）
+   *  · 写完但**还没有任何课程用它** → 显示（等着建课）
+   *  · 写完且已被某门课引用 → 不显示（这条链路已经走完了） */
+  function materialJobVisible(j) {
+    if (j.status === "running" || j.status === "failed") return true;
+    const did = (j.content_json || {}).doc_id || "";
+    if (!did) return false;
+    return !(S.courses || []).some((c) => (c.document_ids || []).includes(did));
+  }
+  function materialJobTitle(j) {
+    return (((j.content_json || {}).outline) || {}).title || j.title || "AI 材料";
+  }
+  function materialJobBadge(j) {
+    if (j.status === "running") {
+      const n = ((j.content_md || "").match(/^## /gm) || []).length;
+      const total = (((((j.content_json || {}).outline) || {}).chapters) || []).length;
+      return total ? `生成中 ${n}/${total}` : "生成中";
+    }
+    if (j.status === "failed") return "已中断";
+    return "待建课";
+  }
+  /** 拉一次材料任务列表（课程页渲染时调用）。 */
+  async function loadMaterialJobs() {
+    try {
+      const d = await Api.get("/api/generations?type=material");
+      S.materialJobs = (d.items || []).slice(0, 20);
+    } catch (e) { S.materialJobs = []; }
+  }
+
+  /* ── 视图入口（hash 是「是否在新建向导」的唯一真相源）─────
+     S.creating 曾经有两个真相源：点击时改状态 + render() 里按 hash 覆盖。
+     而「＋新建课程」只改了状态、没改 hash，于是同一个视图内再点课程/大纲时
+     renderMain 会一直把向导顶回前面 —— 用户看到的就是「锁死在新建课程界面」
+     （2026-09-17 实测）。现在统一走下面三个入口，状态与 hash 永远一致。 */
+
+  /** 改 hash，返回「是否已交给路由重渲染」。
+   *  hash 相同时浏览器**不会**派发 hashchange → 那种情况要调用方自己重渲染。 */
+  function goHash(h) {
+    if (location.hash === h) return false;
+    location.hash = h;
+    return true;
+  }
+  /** 进入新建向导。 */
+  function openCreate() {
+    S.creating = true; S.course = null;
+    if (!goHash("#/courses?new=1")) { renderList(); renderMain(); }
+  }
+  /** 离开向导（取消、或进课程详情时都要清，否则向导会一直霸占主区）。 */
+  function closeCreate() {
+    S.creating = false; S.pendingMaterial = null;
+    if (!goHash("#/courses")) { renderList(); renderMain(); }
+  }
+  /** 打开某门课程详情。 */
+  async function openCourse(id) {
+    S.creating = false; S.pendingMaterial = null;
+    if (goHash("#/courses")) return;      // 已改 hash → 交给 route() 渲染
+    S.courseId = id; S.course = null;
+    try { await loadCourse(id); } catch (e) { Toast(e.message, true); }
+    renderList(); renderMain();
   }
 
   /* ── 主区分发 ─────────────────────────── */
   function renderMain() {
     const host = document.getElementById("course-main");
+    // 切页/异步回调可能落在视图已被替换之后 → host 为 null（原来会直接抛错）
+    if (!host) return;
     host.innerHTML = "";
     if (S.creating) return renderCreate(host);
     if (!S.course) {
@@ -87,6 +187,11 @@
 
   /* ── 新建课程（创建向导）───────────────── */
   function renderCreate(host) {
+    // 每次进向导都从**干净状态**开始：S.topicMode 是模块级单例，不重置的话
+    // 上一次的「✅ 材料已就绪：《…》」会残留到下一次新建课程
+    // （用户实测：「回来重新点新建课程，发现有上次创建课程的残留」）。
+    // 真正需要「接着上次」的任务，改由课程页的「AI 材料」入口按后端状态恢复。
+    S.topicMode = null;
     const card = el("div", "card");
     card.innerHTML = `
       <div class="row" style="justify-content:space-between">
@@ -259,6 +364,9 @@
     /** 轮询生成任务（材料目录 / 材料正文都用它）。 */
     const pollGen = async (gid, tick, done, fail) => {
       for (let i = 0; i < 900; i++) {
+        // 用户切页后向导会被重建（S.topicMode 换成新对象）→ 旧轮询必须自己退出：
+        // 否则它会一直打接口，还往已经不在页面上的节点写状态（幽灵轮询）。
+        if (S.topicMode !== T) return;
         let d = null;
         try { d = await Api.get("/api/generations/" + gid); } catch (e) { /* 抖动就重试 */ }
         if (d) {
@@ -287,13 +395,7 @@
         T.gid = r.generation_id;
         await pollGen(T.gid,
           () => { tHint.textContent = "正在规划材料结构…"; },
-          (d) => {
-            const o = ((d.content_json || {}).outline) || {};
-            T.title = o.title || topic;
-            T.outline = (o.chapters || []).map((c) => ({ title: c.title, brief: c.brief }));
-            tHint.textContent = `目录已生成（${T.outline.length} 章）。改好标题后点「② 确认目录，开始写正文」。`;
-            paintChapters();
-          },
+          applyOutline,
           (e) => { tHint.textContent = "目录生成失败，可改主题后重试"; Toast("目录生成失败：" + e.message, true); });
       } catch (e) { Toast(e.message, true); }
       finally { tOutlineBtn.disabled = false; tOutlineBtn.textContent = "① 生成目录"; }
@@ -306,26 +408,7 @@
       tWriteBtn.disabled = true;
       try {
         await Api.post("/api/materials/chapters", { generation_id: T.gid, chapters: T.outline });
-        const total = T.outline.length;
-        await pollGen(T.gid,
-          (d) => {
-            // 进度就藏在 content_md 里：每写完一章追加一个 `## `，数它即可
-            const n = ((d.content_md || "").match(/^## /gm) || []).length;
-            tHint.textContent = `正在写材料 ${Math.min(n + 1, total)}/${total} 章…（可切到别的页，回来自动继续）`;
-          },
-          (d) => {
-            const cj = d.content_json || {};
-            T.docId = cj.doc_id || "";
-            T.title = cj.title || T.title;
-            const part = cj.chapters_done != null && cj.chapters_total != null
-              && cj.chapters_done < cj.chapters_total;
-            tHint.textContent = cj.skip_reason
-              ? "ℹ️ " + cj.skip_reason
-              : `✅ 材料已就绪：《${T.title}》（${cj.chapters_done || total}/${cj.chapters_total || total} 章）`
-                + (part ? "，部分章节生成失败，可稍后重新生成材料" : "");
-            if (T.docId) loadDocuments();
-          },
-          (e) => Toast("材料生成失败：" + e.message, true));
+        await pollGen(T.gid, paintWriting, finishWriting, failWriting);
       } catch (e) { Toast(e.message, true); }
       finally { tWriteBtn.disabled = false; tWriteBtn.textContent = "② 确认目录，开始写正文"; }
     };
@@ -333,9 +416,78 @@
       T.outline.push({ title: "", brief: "" });
       paintChapters();
     };
+
+    /** 目录就绪：填进界面等用户审阅（①生成目录、以及接回「出目录中」的任务时共用）。 */
+    const applyOutline = (d) => {
+      const o = ((d.content_json || {}).outline) || {};
+      T.title = o.title || T.topic || "";
+      T.outline = (o.chapters || []).map((c) => ({ title: c.title, brief: c.brief }));
+      tHint.textContent = `目录已生成（${T.outline.length} 章）。改好标题后点「② 确认目录，开始写正文」。`;
+      paintChapters();
+    };
+    /** 写正文的进度：数 content_md 里的 `## `（每章一个，是服务端逐章追加的）。 */
+    const paintWriting = (d) => {
+      const total = T.outline.length || 1;
+      const n = ((d.content_md || "").match(/^## /gm) || []).length;
+      tHint.textContent = `正在写材料 ${Math.min(n + 1, total)}/${total} 章…（可切到别的页，回来自动继续）`;
+    };
+    /** 材料写完：记下 doc_id（它会自动成为本课的材料）。 */
+    const finishWriting = (d) => {
+      const cj = d.content_json || {};
+      T.docId = cj.doc_id || "";
+      T.title = cj.title || T.title;
+      const dn = cj.chapters_done, tt = cj.chapters_total;
+      const part = dn != null && tt != null && dn < tt;
+      tHint.textContent = cj.skip_reason
+        ? "ℹ️ " + cj.skip_reason
+        : `✅ 材料已就绪：《${T.title}》（${dn || T.outline.length}/${tt || T.outline.length} 章）`
+          + (part ? "，部分章节生成失败，可稍后重新生成材料" : "");
+      if (T.docId) { loadDocuments(); loadMaterialJobs(); }
+    };
+    const failWriting = (e) => Toast("材料生成失败：" + e.message, true);
+
     paintSrc(); paintChapters();
 
-    document.getElementById("f-cancel").onclick = () => { S.creating = false; renderMain(); };
+    // ── 接回上次的材料任务（从课程页「AI 材料」入口点进来的）──
+    // 状态**全部来自后端任务行**：目录在 content_json.outline，进度在 content_md。
+    // 所以切页、甚至关掉软件重开，都还能接上 —— 这才是「找不回来」的根治办法，
+    // 而不是把希望寄托在前端内存里那份状态上（那份状态必然随着向导重建而消失）。
+    const pend = S.pendingMaterial;
+    S.pendingMaterial = null;
+    if (pend) {
+      const params = pend.params || {};
+      const o = ((pend.content_json || {}).outline) || {};
+      T.on = true;
+      T.gid = pend.id || "";
+      T.depth = params.depth || "standard";
+      T.topic = params.topic || "";
+      T.title = o.title || pend.title || T.topic;
+      T.outline = (o.chapters || []).map((c) => ({ title: c.title, brief: c.brief }));
+      T.docId = (pend.content_json || {}).doc_id || "";
+      const topicEl = document.getElementById("f-topic");
+      if (topicEl && T.topic) topicEl.value = T.topic;
+      const depthEl = document.getElementById("f-topic-depth");
+      if (depthEl) depthEl.value = T.depth;
+      paintSrc(); paintChapters();
+      if (pend.status === "running" && T.gid) {
+        if (T.outline.length) {
+          tHint.textContent = "上次的任务还在后台继续，正在接回…";
+          pollGen(T.gid, paintWriting, finishWriting, failWriting);
+        } else {
+          tHint.textContent = "正在规划材料结构…（上次的任务还在后台跑）";
+          pollGen(T.gid, () => { tHint.textContent = "正在规划材料结构…"; },
+                  applyOutline, failWriting);
+        }
+      } else if (pend.status === "failed") {
+        tHint.textContent = "上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。";
+      } else if (T.docId) {
+        tHint.textContent = `✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`;
+      } else if (T.outline.length) {
+        tHint.textContent = "目录已就绪，点「② 确认目录，开始写正文」继续。";
+      }
+    }
+
+    document.getElementById("f-cancel").onclick = closeCreate;
 
     // 「单元数量 → 自定义…」时展开数字输入（1~12；留空 = 自动）
     const unitsSel = document.getElementById("f-units");
@@ -544,6 +696,7 @@
       if (job.status === "ready") {
         if (onReady) { await onReady(job); return; }
         await loadCourses();
+        await loadMaterialJobs();   // 材料可能已被本课用掉 → 刷新「AI 材料」区块
         await loadCourse(courseId);
         renderList();
         S.creating = false;
@@ -553,7 +706,7 @@
         if (onFail) { onFail(new Error(job.error || "生成失败")); return; }
         host.innerHTML = `<div class="card"><b>大纲生成失败</b><div class="hint">${esc(job.error || "")}</div>
           <div class="row" style="margin-top:12px"><button class="btn primary" id="retry">重新生成</button></div></div>`;
-        document.getElementById("retry").onclick = () => { S.creating = true; renderMain(); };
+        document.getElementById("retry").onclick = openCreate;
         return;
       }
       await new Promise((r) => setTimeout(r, 700));
@@ -725,6 +878,8 @@
           renderMain();
           Toast("结构已保存");
         } else {
+          // 同样要清掉 ?new=1：否则刷新页面会又跳进新建向导（用户反馈过的「残留」）
+          goHash("#/courses");
           renderMain();
           Toast("课程已就绪，开始学习吧");
         }
@@ -930,7 +1085,7 @@
   }
 
   async function render(host) {
-    await Promise.all([loadCourses(), loadDocuments()]);
+    await Promise.all([loadCourses(), loadDocuments(), loadMaterialJobs()]);
     host.innerHTML = `
       <div class="cols">
         <div class="col col-side" id="course-list" style="display:flex;flex-direction:column"></div>

@@ -286,6 +286,28 @@ def main() -> int:
           and "opacity: var(--past-opacity)" in css_src,
           "lesson.js 或 app.css 里仍有写死的卡片底色 / 弱化强度")
 
+    # 6.16/6.17 课程页「向导状态」的不变量（2026-09-17 用户实测三连反馈）。
+    #  症状一：点「＋新建课程」只改内存状态、不同步 hash → 同一视图内点左侧任何课程
+    #    都被 renderMain 顶回向导，用户「锁死在新建课程界面」出不去。
+    #  症状二：S.topicMode 是不重置的单例 → 上次的「材料已就绪」残留到下一次新建。
+    #  症状三：材料生成进度只活在内存里 → 切页回来就找不回来了。
+    check("6.16 课程页入口一致：新建/取消/进课程三条路都走统一入口并同步 hash",
+          'item.onclick = () => openCourse(' in web_src
+          and 'document.getElementById("btn-new").onclick = openCreate' in web_src
+          and 'document.getElementById("f-cancel").onclick = closeCreate' in web_src
+          and "function goHash(" in web_src
+          and web_src.count('goHash("#/courses")') >= 2,
+          "进课程详情/新建/取消必须走 openCourse / openCreate / closeCreate，"
+          "否则向导态会盖住课程详情（锁死）")
+
+    check("6.17 向导每次进入都重置状态 + 材料任务可从后端接回",
+          "S.topicMode = null;" in web_src
+          and 'type=material' in web_src
+          and "loadMaterialJobs()" in web_src
+          and "S.pendingMaterial" in web_src
+          and "if (S.topicMode !== T) return;" in web_src,
+          "缺「进向导重置状态」或「材料任务的课程页入口 / 幽灵轮询防护」")
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

@@ -457,6 +457,35 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
             await _asyncio.sleep(0.6)
 
+            # ---- 向导状态与 URL 必须一致，且「进得去也出得来」（2026-09-17 用户实测）----
+            # 症状：点「＋新建课程」只改了内存里的状态、没同步 hash，于是同一个视图内
+            # 点左侧任何课程都会被 renderMain 顶回向导 —— 用户「锁死在新建课程界面」。
+            # 修法是让 hash 成为唯一真相源，这里就盯住「出入向导」这条路。
+            await ev("var b=document.getElementById('btn-new');if(b)b.click();")
+            await _asyncio.sleep(1.2)
+            wiz = await ev("""(function(){
+                return {hash: location.hash,
+                        onWizard: !!document.getElementById('f-topic'),
+                        title: (document.querySelector('#course-main b')||{}).textContent||''};
+            })()""")
+            _check("2.98 进向导时 URL 同步带 new=1（hash 是向导状态的唯一真相源，防止再锁死）",
+                   bool(wiz and "new=1" in str(wiz.get("hash"))
+                        and wiz.get("onWizard")
+                        and "新建课程" in str(wiz.get("title"))),
+                   f"{wiz}")
+            await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
+            await _asyncio.sleep(1.2)
+            outw = await ev("""(function(){
+                return {hash: location.hash,
+                        onWizard: !!document.getElementById('f-topic'),
+                        hasNew: !!document.getElementById('btn-new')};
+            })()""")
+            _check("2.99 取消后能真正退出向导（hash 清掉 new=1、向导元素消失、列表回来）",
+                   bool(outw and str(outw.get("hash")).split("?")[0] == "#/courses"
+                        and outw.get("onWizard") is False
+                        and outw.get("hasNew")),
+                   f"{outw}")
+
             # ---- 上课 / 暂停继续 / 回到课堂浮动入口 ----
             await ev("location.hash='#/lessons/%s'" % lesson_id)
             await _asyncio.sleep(3.0)
