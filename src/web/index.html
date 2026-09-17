@@ -6,6 +6,17 @@
 <title>知伴 · 本地 AI 学习伴侣</title>
 <link rel="stylesheet" href="/static/vendor/highlight/github.min.css">
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+<!-- 首屏防闪：在样式加载前就把 data-theme 设好（完整逻辑见 js/theme.js） -->
+<script>
+(function () {
+  try {
+    var v = localStorage.getItem("zhiban-theme") || "auto";
+    var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var t = v === "auto" ? (dark ? "dark" : "") : v;
+    if (t) document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
 <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
@@ -15,6 +26,7 @@
     <div class="brand"><span class="logo">知</span><span>知伴</span><small>本地 AI 学习伴侣</small></div>
     <nav class="nav" id="nav"></nav>
     <div class="topbar-right">
+      <select id="theme-sel" class="theme-sel" title="外观（浅色 / 护眼 / 暗色）"></select>
       <span id="conn-dot" class="dot" title="服务状态"></span>
       <span id="model-badge" class="badge">未配置模型</span>
     </div>
@@ -66,6 +78,7 @@
 <script src="/static/js/views/review.js"></script>
 <script src="/static/js/views/memory.js"></script>
 <script src="/static/js/views/settings.js"></script>
+<script src="/static/js/theme.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
 </html>

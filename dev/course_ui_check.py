@@ -358,6 +358,50 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             await ev("location.hash='#/courses'")
             await _asyncio.sleep(1.2)
 
+            # ---- 外观（主题）：三套主题 + 跟随系统 —— 验证变量真的换了、选择被记住 ----
+            th = await ev("""(function(){
+                var s=document.getElementById('theme-sel');
+                return {exists:!!s, n:s?s.options.length:0,
+                        vals:s?Array.prototype.map.call(s.options,function(o){return o.value;}):[]};
+            })()""")
+            _check("2.90 顶栏有「外观」下拉（默认 / 米黄 / 豆绿 / 暗色 / 跟随系统）",
+                   bool(th and th.get("exists") and th.get("n") == 5
+                        and th.get("vals") == ["", "sepia", "green", "dark", "auto"]),
+                   f"th={th}")
+
+            async def _theme_probe(v):
+                await ev("(function(){var s=document.getElementById('theme-sel');"
+                         "s.value=%r;s.dispatchEvent(new Event('change'));return true;})()" % v)
+                await _asyncio.sleep(0.4)
+                return await ev("""(function(){
+                    var cs=getComputedStyle(document.documentElement);
+                    var saved=null; try{saved=localStorage.getItem('zhiban-theme');}catch(e){}
+                    return {attr: document.documentElement.getAttribute('data-theme'),
+                            bg: cs.getPropertyValue('--bg').trim(),
+                            paper: cs.getPropertyValue('--paper').trim(),
+                            saved: saved};
+                })()""")
+
+            p_sepia = await _theme_probe("sepia")
+            _check("2.91 切米黄：data-theme=sepia、--bg 变米黄、选择被记住",
+                   bool(p_sepia and p_sepia.get("attr") == "sepia"
+                        and p_sepia.get("bg") == "#f5f0e1"
+                        and p_sepia.get("saved") == "sepia"),
+                   f"{p_sepia}")
+            p_green = await _theme_probe("green")
+            _check("2.92 切豆绿：--bg 变豆绿",
+                   bool(p_green and p_green.get("bg") == "#e6efe2"), f"{p_green}")
+            p_dark = await _theme_probe("dark")
+            _check("2.93 切暗色：页面底色变深，但「纸面 --paper」仍是浅色（图示 SVG 才看得清）",
+                   bool(p_dark and p_dark.get("bg") == "#14161a"
+                        and p_dark.get("paper") == "#f7f8fa"),
+                   f"{p_dark}")
+            p_back = await _theme_probe("")
+            _check("2.94 切回默认：data-theme 被移除、变量回到浅色",
+                   bool(p_back and p_back.get("attr") is None
+                        and p_back.get("bg") == "#f5f6fa"),
+                   f"{p_back}")
+
             # 取消向导，回到列表（避免 S.creating 残留影响后续断言）
             await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
             await _asyncio.sleep(0.6)
