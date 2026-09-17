@@ -818,8 +818,17 @@ def main() -> int:
         cid_on = r["data"]["course_id"]
         wait_job(r["data"]["job_id"])
         c_on = get(f"/api/courses/{cid_on}")["data"]
-        check("K1 课程默认带 hands_on（默认开启实操）",
-              c_on.get("hands_on") is True, str(c_on.get("hands_on")))
+        check("K1 不传 hands_on → 「自动」三态（存 NULL，回显 null）",
+              c_on.get("hands_on") is None, str(c_on.get("hands_on")))
+
+        # K1b 三态的另两端：显式 true（含实操）/ false（纯理论）
+        r = post("/api/courses", {"goal": "显式开启实操", "document_ids": [doc_id],
+                                  "unit_count": 1, "hands_on": True})
+        cid_true = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        c_true = get(f"/api/courses/{cid_true}")["data"]
+        check("K1b 显式传 hands_on=true → 回显 true（三态的「含实操」端）",
+              c_true.get("hands_on") is True, str(c_true.get("hands_on")))
 
         r = post("/api/courses", {"goal": "纯理论课程", "document_ids": [doc_id],
                                   "unit_count": 1, "hands_on": False})
@@ -877,7 +886,21 @@ def main() -> int:
               bool(hit) and hit.get("hands_on") is False,
               str(hit.get("hands_on") if hit else None))
 
-        _cleanup_courses(cid_on, cid_off)
+        # K8/K9 单元数量：自定义输入的上限是 12（前端 1~12 + 后端 Pydantic le=12）
+        set_model("mock-outline")
+        r12 = post("/api/courses", {"goal": "单元数上限 12", "document_ids": [doc_id],
+                                    "unit_count": 12})
+        cid_u12 = r12["data"]["course_id"]
+        wait_job(r12["data"]["job_id"])
+        c12 = get(f"/api/courses/{cid_u12}")["data"]
+        check("K8 unit_count=12 接受并落库（「自定义」的上限）",
+              c12.get("unit_count") == 12, str(c12.get("unit_count")))
+        r13 = post("/api/courses", {"goal": "单元数超限", "document_ids": [doc_id],
+                                    "unit_count": 13})
+        check("K9 unit_count=13 被拒（上限 12，不放过误填）",
+              "course_id" not in (r13.get("data") or {}), str(r13)[:140])
+
+        _cleanup_courses(cid_on, cid_off, cid_true, cid_u12)
 
         # ── X. 架构化图示：typed IR → 后端确定性编译 ──
         print("\n[X] 架构化图示（IR → 确定性编译 SVG）")
@@ -1299,8 +1322,9 @@ def main() -> int:
         # 而「想要什么形态的课」才是用户真正要表达的东西。
         cat = get("/api/courses/intents")["data"]["items"]
         ids_live = [t["id"] for t in cat]
-        check("Z8a 课型接口只返回已上线项（通用 5 种），不含 live=False 的预留项",
-              ids_live == ["overview", "deep-read", "exam", "inquiry", "project"],
+        check("Z8a 课型接口返回全部已上线课型（通用 5 + 语文 3 + 对比阅读 / 微课）",
+              ids_live == ["overview", "deep-read", "exam", "inquiry", "project",
+                           "recite", "character", "culture", "contrast", "micro"],
               f"got={ids_live}")
 
         set_model("mock-normal")
@@ -1352,10 +1376,12 @@ def main() -> int:
               f"含课型块={'【本次课型' in spy8b}")
         _cleanup_courses(cid_z8b)
 
-        # Z8h 非法/未上线课型 id → 明确报错；**不**静默换成一个别的课型
+        # Z8h 非法/不存在课型 id → 明确报错；**不**静默换成一个别的课型。
+        # 注：原先拿预留项（recite）当反面样本，但它是**已上线**课型了 —— 反面样本必须
+        # 用真正不存在的 id，否则「上线新课时型」会把这条断言弄红（2026-09-17 踩过）。
         r = post("/api/courses", {"goal": "非法课型", "document_ids": [doc_id],
-                                  "intent": {"primary": "recite"}})     # recite 是预留项
-        check("Z8h 未上线/非法课型 id 被拒（不静默降级成别的课型）",
+                                  "intent": {"primary": "not-a-real-intent"}})
+        check("Z8h 不存在的课型 id 被拒（不静默降级成别的课型）",
               r.get("code") == 1000, f"code={r.get('code')}")
         _cleanup_courses(cid_y1)
 

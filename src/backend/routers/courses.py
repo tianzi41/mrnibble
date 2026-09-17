@@ -38,11 +38,11 @@ class CourseCreate(BaseModel):
     document_ids: list[str] | None = Field(default=None, description="来源材料；空=全部已解析材料")
     level: str = Field(default="beginner", description="beginner|intermediate|advanced")
     depth: str = Field(default="standard", description="brief|standard|detailed")
-    unit_count: int | None = Field(default=None, ge=1, le=8, description="单元数量；不填 = 由系统按材料体量自动决定")
+    unit_count: int | None = Field(default=None, ge=1, le=12, description="单元数量（1~12）；不填 = 由系统按材料体量自动决定")
     language: str = Field(default="zh", description="课程语言")
-    hands_on: bool = Field(
-        default=True,
-        description="是否包含实践环节（真实操作类题目/讲稿操作任务）；纯理论课程可关闭")
+    hands_on: bool | None = Field(
+        default=None,
+        description="实践环节：true=包含实操、false=纯理论、不传或 null=自动（由模型按材料判断）")
     intent: CourseIntent | None = Field(
         default=None, description="课型（主/辅 + 补充）；不传 = 不注入课型（旧客户端行为）")
 

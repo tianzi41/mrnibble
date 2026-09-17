@@ -238,8 +238,19 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 600; }
 .bar > i { display: block; height: 100%; background: var(--primary); transition: width .3s; }
 
 /* 材料多选 */
-.doc-pick { max-height: 168px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
-.doc-pick .switch { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 13px; }
+/* 材料选择：自适应多列网格 —— 文件多时不再挤成一长条竖列（右侧空间也用上）；
+   长文件名用省略号，完整名放 title。 */
+.doc-pick {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2px 14px; max-height: 240px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+}
+.doc-pick .switch { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 13px; min-width: 0; }
+.doc-pick .switch input { flex-shrink: 0; }
+.doc-pick .switch .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 拖拽上传：文件悬停在「资料库」面板上时高亮（见 workbench.js 的 ondrop） */
+.dropping { outline: 2px dashed var(--primary); outline-offset: -4px; background: var(--primary-soft); }
 
 /* 大纲确认 */
 .unit-box { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }

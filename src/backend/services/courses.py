@@ -67,6 +67,12 @@ _JOB_REENTRY_STALE_MIN = 15
 # 污染大纲的单元切法。识别出来即只按材料概览组织大纲。
 _FALLBACK_GOAL_RE = re.compile(r"^按「[^」]+」的方式学这门课")
 
+# ``courses.hands_on`` 的三态取值：1 = 包含实操、0 = 纯理论、2 = **自动**（按材料判断）。
+# 为什么不用 NULL 表示「自动」：该列是 `INTEGER NOT NULL DEFAULT 1`（schema v5 / migrations v5），
+# 插 NULL 会直接 IntegrityError 把建课接口打崩（2026-09-17 实测踩到）。
+# 用 2 的好处：**不需要迁移**；旧程序读到 2 时 `bool(2)` = True（含实操），行为安全。
+_HANDS_ON, _HANDS_OFF, _HANDS_AUTO = 1, 0, 2
+
 
 def _goal_hits(goal: str, ids: list[str]) -> list[dict[str, Any]]:
     """按学习目标检索补充片段（0 命中返回空表）。
@@ -205,31 +211,31 @@ _INTENT_TYPES: tuple[dict[str, Any], ...] = (
               "展示与评价", "总结反思"],
      "assist": "实操与成果产出环节"},
     # ── 预留（live=False）：把 live 改成 True 即上线 ──────
-    {"id": "recite", "live": False, "group": "subject-zh", "name": "诵读涵泳型",
+    {"id": "recite", "live": True, "group": "subject-zh", "name": "诵读涵泳型",
      "fit": "诗词、美文、经典：重语感、节奏、情感、背诵",
      "pace": "适合诗词与经典散文",
      "flow": ["初读正音", "节奏停顿", "范读/跟读", "字词疏通", "画面与意象",
               "情感变化", "手法赏析", "背诵默写", "总结"],
      "assist": "节奏、范读与背诵环节"},
-    {"id": "character", "live": False, "group": "subject-zh", "name": "人物形象探究型",
+    {"id": "character", "live": True, "group": "subject-zh", "name": "人物形象探究型",
      "fit": "史传、传记、记人叙事：重点分析人物性格与评价",
      "pace": "适合史传类文本",
      "flow": ["人物档案", "生平时间轴", "典型事件", "细节描写", "性格多面性",
               "作者评价", "历史影响", "启示与迁移", "总结"],
      "assist": "人物细节与性格分析"},
-    {"id": "culture", "live": False, "group": "subject-zh", "name": "文化专题型",
+    {"id": "culture", "live": True, "group": "subject-zh", "name": "文化专题型",
      "fit": "想讲礼制、官职、地理、典故、民俗",
      "pace": "适合文化信息密集的文本",
      "flow": ["文化导入", "关键文化点", "文本印证", "背景拓展", "古今对比",
               "文化意义", "总结"],
      "assist": "文化常识与古今对照"},
-    {"id": "contrast", "live": False, "group": "general", "name": "对比阅读型",
+    {"id": "contrast", "live": True, "group": "general", "name": "对比阅读型",
      "fit": "两篇或多篇材料一起讲：求同、比异",
      "pace": "适合单元复习与群文阅读",
      "flow": ["选文组合", "求同", "比异", "人物/主旨/手法比较", "背景比较",
               "迁移写作", "总结"],
      "assist": "对照表与差异分析"},
-    {"id": "micro", "live": False, "group": "general", "name": "微课型",
+    {"id": "micro", "live": True, "group": "general", "name": "微课型",
      "fit": "时间短、课前自学或课后复习",
      "pace": "每页信息少、节奏快，5~15 分钟",
      "flow": ["课前任务单", "微课讲重点", "当堂检测", "课后拓展"],
@@ -831,10 +837,41 @@ class CourseService:
             return default
 
     @classmethod
-    def _course_hands_on(cls, cid: str) -> bool:
-        """该课程是否启用实践环节（缺列/查不到时按启用处理，保持旧行为）。"""
+    def _course_hands_mode(cls, cid: str) -> str:
+        """课程的实践环节模式：``on``（含实操）/ ``off``（纯理论）/ ``auto``（按材料判断）。
+
+        **``2`` 表示「自动」** —— 用户在建课向导里选「自动」，或旧客户端根本没传这个字段。
+        列不存在（v5 之前的库）按 ``on`` 处理，保持旧行为。
+
+        注意不要用 ``_row_get(row, "hands_on", 1)``：``bool(2)`` 虽然也是 True，但那样
+        就分不出「自动」与「含实操」了。
+        """
         row = get_db().query_one("SELECT hands_on FROM courses WHERE id = ?", (cid,))
-        return bool(cls._row_get(row, "hands_on", 1)) if row is not None else True
+        if row is None:
+            return "on"
+        try:
+            raw = row["hands_on"]
+        except (IndexError, KeyError, TypeError):
+            return "on"
+        if raw is None or int(raw) == _HANDS_AUTO:
+            return "auto"
+        return "on" if int(raw) else "off"
+
+    @classmethod
+    def _course_hands_on(cls, cid: str) -> bool:
+        """该课程是否**允许**出实操题（``auto`` 也允许 —— 「自动」只是让模型按材料自己判断）。"""
+        return cls._course_hands_mode(cid) != "off"
+
+    @staticmethod
+    def _hands_on_out(row: Any) -> bool | None:
+        """对外输出的实践环节：``True`` 含实操 / ``False`` 纯理论 / ``None`` 自动。"""
+        try:
+            raw = row["hands_on"]
+        except (IndexError, KeyError, TypeError):
+            return True
+        if raw is None or int(raw) == _HANDS_AUTO:
+            return None
+        return bool(raw)
 
     @staticmethod
     def _progress(cid: str) -> dict[str, Any]:
@@ -923,7 +960,10 @@ class CourseService:
             raw_units = 0
         unit_count = raw_units if raw_units >= 1 else 0
         # 课程级「实践环节」开关：并非每门课都需要实操（文言文/理论课关掉即可）。
-        hands_on = 1 if payload.get("hands_on", True) else 0
+        # 实践环节三态：True = 包含实操、False = 纯理论、None / 不传 = **自动**
+        # （存 2，由模型按材料判断要不要出实操题）。注意该列 NOT NULL，不能存 NULL。
+        raw_hands = payload.get("hands_on")
+        hands_on = _HANDS_AUTO if raw_hands is None else (1 if raw_hands else 0)
 
         db = get_db()
         cid = new_id()
@@ -2233,10 +2273,15 @@ class CourseService:
                 _DEPTH_HINT["standard"],
             )
             depth_block = "；".join(x for x in (lesson_hint, volume_hint) if x)
-            if not self._course_hands_on(lesson["course_id"]):
+            hands_mode = self._course_hands_mode(lesson["course_id"])
+            if hands_mode == "off":
                 # 课程级关闭实操：防止文科/理论课的讲稿里冒出「你现在打开终端试试」。
                 depth_block += ("；本课程为理论型课程，课件与讲稿**不得布置真实操作任务**"
                                 "（不要出现「打开终端/运行命令/动手试一下」这类指令）")
+            elif hands_mode == "auto":
+                # 「自动」：把判断交回模型（操作性材料才布置动手任务，纯概念别硬造）
+                depth_block += ("；是否布置动手任务**由你按材料判断**："
+                                "材料以操作流程/命令/步骤为主时可安排，纯概念材料不要硬造")
             prompt = (
                 _LECTURE_PROMPT
                 .replace("__DEPTH__", depth_block)
@@ -3216,7 +3261,8 @@ class CourseService:
                 raise AppError(1002, "没有可用材料", "来源文档没有可检索的文本内容")
 
             self._set_stage(job_id, "正在生成题目")
-            allow_hands_on = self._course_hands_on(lesson["course_id"])
+            hands_mode = self._course_hands_mode(lesson["course_id"])
+            allow_hands_on = hands_mode != "off"
             prompt = (
                 _PRACTICE_PROMPT
                 .replace("__COUNT__", str(count))
@@ -3225,8 +3271,12 @@ class CourseService:
                 .replace("__OBJECTIVE__", lesson["objective"] or lesson["title"])
                 .replace("__DESC__", self._desc_block(lesson))
             )
-            if not allow_hands_on:
+            if hands_mode == "off":
                 prompt += ('\n- 本课程**不包含**真实操作类题目：禁止输出 type 为 "hands_on" 的题。\n')
+            elif hands_mode == "auto":
+                prompt += ('\n- 是否出真实操作类题目（type "hands_on"）**由你按材料判断**：'
+                           '材料含可执行的操作/命令/流程/步骤 → 出 1~2 道；'
+                           '纯概念叙述材料不要硬造。\n')
             messages = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": self._lesson_user(lesson, query, context)},
@@ -4017,8 +4067,9 @@ class CourseService:
             "depth": row["depth"],
             "depth_name": _DEPTH_NAME.get(row["depth"], row["depth"]),
             "unit_count": row["unit_count"],
-            # 旧库可能没有该列（迁移前创建的行），取不到时按「含实操」处理
-            "hands_on": bool(self._row_get(row, "hands_on", 1)),
+            # 实践环节三态：true=含实操 / false=纯理论 / null=自动（前端显示「自动」）。
+            # 旧库可能没有该列（迁移前创建的行）→ 按 true 处理，与旧行为一致。
+            "hands_on": self._hands_on_out(row),
             # 课型（主/辅，含名称）：旧课程为 None → 前端不显示课型行
             "intent": _intent_out(self._row_get(row, "intent_json")),
             "summary": row["summary"],

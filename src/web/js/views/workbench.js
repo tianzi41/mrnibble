@@ -66,7 +66,8 @@
     docs.appendChild(head);
     const body = el("div", "panel-body");
     if (!S.documents.length) {
-      body.appendChild(el("div", "empty", "还没有资料。<br>上传 PDF / DOCX / PPTX / MD / TXT 后即可基于材料提问。"));
+      body.appendChild(el("div", "empty",
+        "还没有资料。<br>点上方「＋ 上传」，或把 PDF / DOCX / PPTX / MD / TXT / HTML <b>直接拖到这里</b>。"));
     }
     S.documents.forEach((d) => {
       const item = el("div", "item" + (S.selectedDocs.includes(d.id) ? " active" : ""));
@@ -136,6 +137,27 @@
 
     document.getElementById("btn-upload").onclick = triggerUpload;
     document.getElementById("btn-newconv").onclick = newConversation;
+
+    // 拖拽上传：把文件拖到「资料库」面板即可（与点「＋ 上传」共用 uploadFiles）。
+    // 用 onXxx **赋值**（不是 addEventListener）—— renderSide 会重画多次，赋值天然防重复绑定。
+    const drop = document.getElementById("side-docs");
+    if (drop) {
+      drop.ondragover = (ev) => {
+        ev.preventDefault();
+        const types = ev.dataTransfer && ev.dataTransfer.types;
+        if (types && Array.prototype.indexOf.call(types, "Files") >= 0) {
+          drop.classList.add("dropping");
+        }
+      };
+      drop.ondragleave = () => drop.classList.remove("dropping");
+      drop.ondrop = (ev) => {
+        ev.preventDefault();
+        drop.classList.remove("dropping");
+        const fl = ev.dataTransfer && ev.dataTransfer.files;
+        if (fl && fl.length) uploadFiles(fl);
+        else Toast("请拖入文件（暂不支持文件夹）", true);
+      };
+    }
   }
 
   function renderChat() {
@@ -237,21 +259,26 @@
   }
 
   /* ── 上传 ─────────────────────────────── */
+  /** 真正上传：点「＋ 上传」选文件与**拖拽落文件**共用这一条路径。 */
+  async function uploadFiles(files) {
+    const list = [...(files || [])].filter((f) => f && f.name);
+    if (!list.length) return;
+    const fd = new FormData();
+    list.forEach((f) => fd.append("files", f));
+    try {
+      const d = await Api.upload("/api/documents/upload", fd);
+      Toast(`已上传 ${d.documents.length} 个文件，解析中…`);
+      await loadDocuments(); renderSide();
+      d.documents.forEach(pollDoc);
+    } catch (e) { Toast(e.message, true); }
+  }
+
   function triggerUpload() {
     const inp = el("input");
     inp.type = "file";
     inp.accept = ".pdf,.docx,.pptx,.md,.txt,.html,.htm";
     inp.multiple = true;
-    inp.onchange = async () => {
-      const fd = new FormData();
-      [...inp.files].forEach((f) => fd.append("files", f));
-      try {
-        const d = await Api.upload("/api/documents/upload", fd);
-        Toast(`已上传 ${d.documents.length} 个文件，解析中…`);
-        await loadDocuments(); renderSide();
-        d.documents.forEach(pollDoc);
-      } catch (e) { Toast(e.message, true); }
-    };
+    inp.onchange = () => uploadFiles(inp.files);
     inp.click();
   }
 

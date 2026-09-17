@@ -125,12 +125,19 @@
         </div>
         <div class="field">
           <label>单元数量</label>
-          <select id="f-units"><option value="" selected>自动（按材料定）</option>${[2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n} 个单元</option>`).join("")}</select>
+          <select id="f-units">
+            <option value="" selected>自动（按材料定）</option>
+            ${[2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n} 个单元</option>`).join("")}
+            <option value="custom">自定义…</option>
+          </select>
+          <input type="number" id="f-units-custom" min="1" max="12" placeholder="1 ~ 12"
+                 style="display:none;margin-top:6px;max-width:110px">
         </div>
         <div class="field">
           <label>实践环节</label>
           <select id="f-hands">
-            <option value="1" selected>包含实操（可出真实操作类题目）</option>
+            <option value="auto" selected>自动（按材料决定）</option>
+            <option value="1">包含实操（可出真实操作类题目）</option>
             <option value="0">纯理论（不出实操题，讲稿也不布置操作任务）</option>
           </select>
         </div>
@@ -159,11 +166,32 @@
       pick.appendChild(el("div", "hint", "还没有已解析的材料，请先到「工作台」上传文件。"));
     }
     S.documents.forEach((d) => {
-      const lab = el("label", "switch", `<input type="checkbox" value="${d.id}"> ${esc(d.title)}`);
+      // 标题包一层 span：多列网格下超长文件名用省略号，完整名放 title 里
+      const lab = el("label", "switch",
+        `<input type="checkbox" value="${d.id}">` +
+        `<span class="t" title="${esc(d.title)}">${esc(d.title)}</span>`);
       pick.appendChild(lab);
     });
+    // 已选计数：材料多时一眼知道选了几份（不选 = 用全部材料）
+    const pickHint = el("div", "hint", "");
+    pick.parentElement.appendChild(pickHint);
+    const paintPicked = () => {
+      const n = pick.querySelectorAll("input:checked").length;
+      pickHint.textContent = n ? `已选 ${n} 份材料` : "";
+    };
+    pick.addEventListener("change", paintPicked);
+    paintPicked();
 
     document.getElementById("f-cancel").onclick = () => { S.creating = false; renderMain(); };
+
+    // 「单元数量 → 自定义…」时展开数字输入（1~12；留空 = 自动）
+    const unitsSel = document.getElementById("f-units");
+    const unitsCustom = document.getElementById("f-units-custom");
+    unitsSel.onchange = () => {
+      const custom = unitsSel.value === "custom";
+      unitsCustom.style.display = custom ? "" : "none";
+      if (custom) unitsCustom.focus();
+    };
 
     // ── 课型（学习意图）：主课型必选；辅助课型在「高级选项」里可选、最多一个 ──
     // 课型库只有后端一份（GET /api/courses/intents），这里只负责渲染与选择。
@@ -299,13 +327,19 @@
       btn.disabled = true; btn.textContent = "生成中…";
       try {
         const rawUnit = document.getElementById("f-units").value;
+        const customUnit = parseInt((document.getElementById("f-units-custom") || {}).value || "", 10);
+        const unitCount = rawUnit === "custom"
+          ? (Number.isFinite(customUnit) ? customUnit : null)
+          : (rawUnit ? parseInt(rawUnit, 10) : null);
+        const rawHands = document.getElementById("f-hands").value;   // auto | 1 | 0
         const noteEl = document.getElementById("f-note");
         const r = await Api.post("/api/courses", {
           goal, document_ids: ids,
           level: document.getElementById("f-level").value,
           depth: document.getElementById("f-depth").value,
-          unit_count: rawUnit ? parseInt(rawUnit, 10) : null,
-          hands_on: document.getElementById("f-hands").value === "1",
+          unit_count: unitCount,
+          // 「自动」传 null → 后端存 NULL，由模型按材料判断要不要出实操题
+          hands_on: rawHands === "auto" ? null : rawHands === "1",
           intent: {
             primary: chosen.primary,
             assist: chosen.assist || null,

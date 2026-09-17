@@ -61,14 +61,17 @@
       <div class="card">
         <h3 style="margin:0 0 4px">嵌入模型（用于语义检索）</h3>
         <p class="hint" style="margin-top:0">
-          <code>auto</code>：配了云端就用云端，连不上自动退回本地；<code>local</code>：只用本地关键词检索（完全离线）；<code>cloud</code>：只用云端。
+          自动（<code>auto</code>）：配了云端就用云端，连不上自动退回本地；本地（<code>local</code>）：只用本地引擎检索（完全离线）；云端（<code>cloud</code>）：只用云端。
           <br>不配置也能用 —— 自动退化为本地检索。base_url 留空时<strong>沿用对话模型的地址</strong>，Key 留空时沿用对话模型的 Key。
           <br>⚠️ 换过嵌入模型后，旧文档需要用新模型重建索引：在「工作台 → 资料库」里对文档点 <strong>↻</strong> 重新解析。
         </p>
         <div class="row">
-          <div class="field" style="max-width:160px"><label>provider</label>
+          <div class="field" style="max-width:260px"><label>检索方式</label>
             <select id="em-provider">
-              ${["auto", "cloud", "local"].map((p) => `<option value="${p}" ${cfg.embed.provider === p ? "selected" : ""}>${p}</option>`).join("")}
+              ${[["auto", "自动（auto）— 配了云端用云端，连不上退回本地"],
+                 ["cloud", "云端（cloud）— 只用云端嵌入"],
+                 ["local", "本地（local）— 完全离线"]]
+                .map(([v, n]) => `<option value="${v}" ${cfg.embed.provider === v ? "selected" : ""}>${n}</option>`).join("")}
             </select></div>
           <div class="field"><label>base_url（可留空，与对话模型相同）</label><input type="text" id="em-base" value="${cfg.embed.base_url}"></div>
           <div class="field"><label>模型名</label><input type="text" id="em-model" value="${cfg.embed.model}" placeholder="text-embedding-3-small"></div>

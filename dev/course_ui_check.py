@@ -216,11 +216,14 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             })()""")
             _check("2.45 建课向导含「实践环节」开关", bool(wh and wh.get("exists") and wh.get("goal")),
                    f"wh={wh}")
-            _check("2.46 开关可区分「包含实操 / 纯理论」",
-                   bool(wh and len(wh.get("opts") or []) == 2
+            _check("2.46 实践环节三态：自动 / 包含实操 / 纯理论",
+                   bool(wh and len(wh.get("opts") or []) == 3
+                        and "自动" in (wh["opts"][0] or "")
                         and any("实操" in (o or "") for o in wh["opts"])
                         and any("纯理论" in (o or "") for o in wh["opts"])),
                    f"opts={wh.get('opts') if wh else None}")
+            hands_val = await ev("(document.getElementById('f-hands')||{}).value")
+            _check("2.46b 实践环节默认选中「自动」", hands_val == "auto", f"value={hands_val!r}")
 
             # ---- 课型（学习意图）卡片：主课型必选、辅助课型收在高级选项里 ----
             it = await ev("""(function(){
@@ -241,9 +244,9 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                         and "由浅入深精读型" in (it.get("names") or [])
                         and "考点应试型" in (it.get("names") or [])),
                    f"cards={it.get('cards') if it else None} names={it.get('names') if it else None}")
-            _check("2.78 高级选项默认收起，内含辅助课型下拉（1 空项 + 5 课型）",
+            _check("2.78 高级选项默认收起，内含辅助课型下拉（1 空项 + 9 课型）",
                    bool(it and it.get("advExists") and it.get("advOpen") is False
-                        and it.get("assistOpts", 0) == 6),
+                        and it.get("assistOpts", 0) == 11),
                    f"advOpen={it.get('advOpen') if it else None} "
                    f"opts={it.get('assistOpts') if it else None}")
             # 交互：选课型后卡片高亮；「清空」真的清掉目标（留空由后端按课型兜底）
@@ -309,6 +312,51 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
             _check("2.83 前置：点「新建课程」确实进入了向导", in_wizard is True, f"in={in_wizard}")
             _check("2.84 切到别的页再回课程页：不自动进入新建向导（向导状态不残留）",
                    back_wizard is False, f"f-go={back_wizard}")
+
+            # ---- 本轮新增：课型全量上线 / 单元自定义 / 材料框网格 / 拖拽上传 ----
+            await ev("var b=document.getElementById('btn-new');if(b)b.click();")
+            await _asyncio.sleep(1.0)
+            full = await ev("""(function(){
+                var cards=Array.prototype.slice.call(document.querySelectorAll('.intent-card'));
+                var names=cards.map(function(c){var b=c.querySelector('b');return b?b.textContent:'';});
+                var uc=document.getElementById('f-units-custom');
+                var pick=document.getElementById('pick-docs');
+                return {cards:cards.length, names:names,
+                        unitsCustom: !!uc,
+                        customHidden: uc ? uc.style.display === 'none' : null,
+                        unitsMax: uc ? uc.max : null,
+                        pickDisplay: pick ? getComputedStyle(pick).display : null};
+            })()""")
+            _check("2.85 课型全量上线（10 张，含诵读涵泳 / 对比阅读 / 微课）",
+                   bool(full and full.get("cards") == 10
+                        and "诵读涵泳型" in (full.get("names") or [])
+                        and "对比阅读型" in (full.get("names") or [])
+                        and "微课型" in (full.get("names") or [])),
+                   f"cards={full.get('cards') if full else None} "
+                   f"names={full.get('names') if full else None}")
+            _check("2.86 单元数量含「自定义」数字输入（默认隐藏、上限 12）",
+                   bool(full and full.get("unitsCustom") and full.get("customHidden") is True
+                        and str(full.get("unitsMax")) == "12"),
+                   f"full={full}")
+            await ev("(function(){var s=document.getElementById('f-units');"
+                     "s.value='custom';s.dispatchEvent(new Event('change'));return true;})()")
+            await _asyncio.sleep(0.4)
+            shown = await ev("(function(){var u=document.getElementById('f-units-custom');"
+                             "return u ? u.style.display !== 'none' : false;})()")
+            _check("2.87 选「自定义…」后数字输入框出现", shown is True, f"shown={shown}")
+            _check("2.88 材料选择框改为自适应网格（不再是一长条竖列）",
+                   bool(full and full.get("pickDisplay") == "grid"),
+                   f"display={full.get('pickDisplay') if full else None}")
+            await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
+            await _asyncio.sleep(0.5)
+            await ev("location.hash='#/workbench'")
+            await _asyncio.sleep(1.5)
+            dd = await ev("""(function(){var d=document.getElementById('side-docs');
+                return d ? {drop: !!d.ondrop, over: !!d.ondragover} : null;})()""")
+            _check("2.89 工作台「资料库」面板已支持拖拽上传（ondrop + ondragover 已绑定）",
+                   bool(dd and dd.get("drop") and dd.get("over")), f"dd={dd}")
+            await ev("location.hash='#/courses'")
+            await _asyncio.sleep(1.2)
 
             # 取消向导，回到列表（避免 S.creating 残留影响后续断言）
             await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
