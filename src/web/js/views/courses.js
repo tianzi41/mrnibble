@@ -163,8 +163,10 @@
   /** 打开某门课程详情。 */
   async function openCourse(id) {
     S.creating = false; S.pendingMaterial = null;
-    if (goHash("#/courses")) return;      // 已改 hash → 交给 route() 渲染
+    // ⚠️ 必须**先**把 courseId 设上再改 hash：改 hash 触发的是 route() → render()，
+    // 而 render() 是靠 `S.courseId` 去加载详情的 —— 顺序反了就会加载「上一门」课程。
     S.courseId = id; S.course = null;
+    if (goHash("#/courses")) return;      // 已改 hash → 交给 route() 渲染
     try { await loadCourse(id); } catch (e) { Toast(e.message, true); }
     renderList(); renderMain();
   }
