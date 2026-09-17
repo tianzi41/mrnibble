@@ -5,10 +5,15 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from ..errors import AppError, ok
-from ..models.generation import GenerationCreate
+from ..models.generation import (
+    GenerationCreate,
+    MaterialChaptersCreate,
+    MaterialOutlineCreate,
+)
 from ..models.memory import MemoryCreate
 from ..services.flashcards import FlashcardService, REVIEW_QUALITY
 from ..services.generation import GenerationService
+from ..services.materials import get_material_service
 
 router = APIRouter()
 
@@ -52,6 +57,22 @@ def delete_generation(gid: str) -> dict:
 
 
 # ── 闪卡复习 ────────────────────────────────────────────
+# ── 主题模式：无材料也能学（先让 AI 把材料写出来，再走既有课程链路）──
+@router.post("/materials/outline", summary="主题模式第一步：生成材料目录")
+def material_outline(payload: MaterialOutlineCreate) -> dict:
+    """按主题产出「教学材料」的目录（JSON）；前端展示给用户审阅/修改后再写正文。"""
+    return ok(get_material_service().start_outline(payload.model_dump(exclude_unset=True)))
+
+
+@router.post("/materials/chapters", summary="主题模式第二步：逐章写正文并落成材料")
+def material_chapters(payload: MaterialChaptersCreate) -> dict:
+    """目录确认后逐章生成正文，落进资料库（source_type='ai'）并建索引。
+
+    进度看 ``GET /api/generations/{gid}``：``content_md`` 里 ``## `` 的条数 = 已写章数。
+    """
+    return ok(get_material_service().start_chapters(payload.model_dump(exclude_unset=True)))
+
+
 @router.get("/flashcards")
 def list_flashcards(
     generation_id: str | None = None,

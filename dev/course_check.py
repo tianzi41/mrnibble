@@ -1599,6 +1599,90 @@ def main() -> int:
         finally:
             _dbx.close_all()
 
+        # ── M. 主题模式：没有材料时先让 AI 写出材料，再走既有链路 ──
+        # 用户拍板的「两段式」：先出目录（可审阅）→ 逐章写正文 → 落成 documents →
+        # 之后的建课完全走老路（引用防伪因此仍然成立）。
+        print("\n[M] 主题模式（AI 先写材料）")
+
+        def wait_gen(gid_: str, tries: int = 160) -> dict:
+            for _ in range(tries):
+                d = (get(f"/api/generations/{gid_}").get("data") or {})
+                if d.get("status") in ("ready", "failed"):
+                    return d
+                time.sleep(0.5)
+            return {"status": "timeout"}
+
+        set_model("mock-normal")
+        r = post("/api/materials/outline", {"topic": "Python 装饰器", "depth": "brief"})
+        gid_m = (r.get("data") or {}).get("generation_id")
+        check("M1a 第一步（出目录）返回 generation_id", bool(gid_m), str(r)[:140])
+        g1 = wait_gen(gid_m or "")
+        outline = ((g1.get("content_json") or {}).get("outline") or {})
+        chs = outline.get("chapters") or []
+        check("M1b 目录生成成功，且章数符合档位（brief=4 章）",
+              g1.get("status") == "ready" and len(chs) == 4,
+              f"status={g1.get('status')} 章数={len(chs)} err={g1.get('error')}")
+
+        r2 = post("/api/materials/chapters", {"generation_id": gid_m})
+        check("M2a 第二步接受同一任务 id", r2.get("code") == 0, str(r2)[:140])
+        g2 = wait_gen(gid_m or "")
+        cj2 = g2.get("content_json") or {}
+        doc_ai = cj2.get("doc_id")
+        md2 = g2.get("content_md") or ""
+        n_head = md2.count("\n## ")
+        check("M2b 材料落库并回传 doc_id", bool(doc_ai), str(cj2)[:160])
+        check("M2c 进度口径：content_md 里 `## ` 条数 == 章数（前端据此显示 N/M 章）",
+              n_head == len(chs), f"##={n_head} 章数={len(chs)}")
+        det_doc = {}
+        if doc_ai:
+            det_doc = (get(f"/api/documents/{doc_ai}").get("data") or {}).get("document") or {}
+        check("M2d 材料标记为 AI 生成（source_type=ai + 「AI 生成」标签）",
+              str(det_doc.get("source_type")) == "ai"
+              and "AI 生成" in (det_doc.get("tags") or []),
+              f"source_type={det_doc.get('source_type')} tags={det_doc.get('tags')}")
+
+        set_model("mock-spy-lecture")
+        r3 = post("/api/courses", {"goal": "学会装饰器", "document_ids": [doc_ai],
+                                   "unit_count": 2})
+        cid_m = r3["data"]["course_id"]
+        wait_job(r3["data"]["job_id"])
+        d_m = get(f"/api/courses/{cid_m}")["data"]
+        les_m = [l for u in (d_m.get("units") or []) for l in u["lessons"]
+                 if l.get("kind") == "lecture"]
+        r4 = post(f"/api/courses/lessons/{les_m[0]['id']}/lecture") if les_m else {"data": {}}
+        if les_m:
+            wait_job(r4["data"]["job_id"])
+        det_m = get(f"/api/courses/lessons/{les_m[0]['id']}")["data"] if les_m else {}
+        check("M3 用 AI 生成的材料能正常建课（大纲 + 讲义都出得来，说明材料真的可检索）",
+              bool(les_m) and bool(det_m.get("slides")),
+              f"讲次数={len(les_m)} 页数={len(det_m.get('slides') or [])}")
+
+        set_model("mock-material-short")   # 单章正文故意太短 → 重试后仍失败 → 留占位
+        r5 = post("/api/materials/outline", {"topic": "失败口径测试", "depth": "brief"})
+        gid_f = (r5.get("data") or {}).get("generation_id")
+        wait_gen(gid_f or "")
+        post("/api/materials/chapters", {"generation_id": gid_f})
+        g6 = wait_gen(gid_f or "")
+        md6 = g6.get("content_md") or ""
+        check("M4 单章失败：任务仍算成功、材料里留占位（不整体失败、不浪费已生成部分）",
+              g6.get("status") == "ready" and "本章生成失败" in md6,
+              f"status={g6.get('status')} 含占位={'本章生成失败' in md6}")
+
+        set_model("mock-normal")   # 桩是确定性的 → 同主题重跑内容完全一致 → 应命中去重
+        r7 = post("/api/materials/outline", {"topic": "Python 装饰器", "depth": "brief"})
+        gid_d = (r7.get("data") or {}).get("generation_id")
+        wait_gen(gid_d or "")
+        post("/api/materials/chapters", {"generation_id": gid_d})
+        g8 = wait_gen(gid_d or "")
+        cj8 = g8.get("content_json") or {}
+        check("M5 相同内容重复生成 → 命中已有材料并给出提示（不产生重复文档）",
+              bool(cj8.get("skip_reason")) and cj8.get("doc_id") == doc_ai,
+              str(cj8)[:170])
+        check("M6 空主题被拒（不静默生成一份空材料）",
+              post("/api/materials/outline", {"topic": "   "}).get("code") == 1000,
+              str(post("/api/materials/outline", {"topic": "   "}))[:120])
+        _cleanup_courses(cid_m)
+
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")
         with httpx.Client(trust_env=False) as cli:

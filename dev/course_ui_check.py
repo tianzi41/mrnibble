@@ -415,6 +415,44 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                         and "light" in str(p_back.get("scheme"))),
                    f"{p_back}")
 
+            # ---- 主题模式：没有材料时让 AI 先把材料写出来（两段式）----
+            await ev("var b=document.getElementById('btn-new');if(b)b.click();")
+            await _asyncio.sleep(1.0)
+            tm = await ev("""(function(){
+                var d=document.getElementById('pane-docs'), t=document.getElementById('pane-topic');
+                var td=document.getElementById('f-topic-depth');
+                var ow=document.getElementById('t-outline-wrap');
+                return {docsVisible: d ? d.style.display !== 'none' : null,
+                        topicVisible: t ? t.style.display !== 'none' : null,
+                        hasTopic: !!document.getElementById('f-topic'),
+                        depthOpts: td ? td.options.length : 0,
+                        hasOutlineBtn: !!document.getElementById('t-outline'),
+                        outlineHidden: ow ? ow.style.display === 'none' : null};
+            })()""")
+            _check("2.95 向导默认「用我上传的材料」（材料勾选区可见、主题区隐藏、目录区未出现）",
+                   bool(tm and tm.get("docsVisible") and tm.get("topicVisible") is False
+                        and tm.get("outlineHidden")),
+                   f"{tm}")
+            _check("2.96 主题模式控件齐备（主题输入 + 3 档篇幅 + 「① 生成目录」）",
+                   bool(tm and tm.get("hasTopic") and tm.get("depthOpts") == 3
+                        and tm.get("hasOutlineBtn")),
+                   f"{tm}")
+            await ev("var b=document.getElementById('src-topic');if(b)b.click();")
+            await _asyncio.sleep(0.4)
+            sw = await ev("""(function(){
+                var d=document.getElementById('pane-docs'), t=document.getElementById('pane-topic');
+                var b=document.getElementById('src-topic');
+                return {docsVisible: d ? d.style.display !== 'none' : null,
+                        topicVisible: t ? t.style.display !== 'none' : null,
+                        on: b ? b.classList.contains('on') : null};
+            })()""")
+            _check("2.97 切到「没有材料，我直接说想学什么」：主题区出现、材料区隐藏、按钮高亮",
+                   bool(sw and sw.get("topicVisible") and sw.get("docsVisible") is False
+                        and sw.get("on")),
+                   f"{sw}")
+            await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
+            await _asyncio.sleep(0.5)
+
             # 取消向导，回到列表（避免 S.creating 残留影响后续断言）
             await ev("var c=document.getElementById('f-cancel');if(c)c.click();")
             await _asyncio.sleep(0.6)

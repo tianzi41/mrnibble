@@ -95,8 +95,41 @@
       </div>
       <div class="sep"></div>
       <div class="field">
-        <label>学习材料（不选则使用全部已解析材料）</label>
-        <div id="pick-docs" class="doc-pick"></div>
+        <label>学习材料</label>
+        <div class="row" style="gap:6px">
+          <button class="btn small src-tab" id="src-docs" type="button">用我上传的材料</button>
+          <button class="btn small src-tab" id="src-topic" type="button">没有材料，我直接说想学什么</button>
+        </div>
+        <div id="pane-docs" style="margin-top:8px">
+          <div id="pick-docs" class="doc-pick"></div>
+          <div class="hint">不选 = 使用全部已解析材料</div>
+        </div>
+        <div id="pane-topic" style="display:none;margin-top:8px">
+          <div class="row" style="gap:8px;align-items:flex-end">
+            <div class="field" style="margin:0">
+              <label>想学什么？（一句话主题）</label>
+              <input type="text" id="f-topic" placeholder="例如：Python 装饰器 / 宏观经济学入门">
+            </div>
+            <div class="field" style="margin:0;max-width:170px">
+              <label>材料篇幅</label>
+              <select id="f-topic-depth">
+                <option value="brief">精简（4 章）</option>
+                <option value="standard" selected>标准（6 章）</option>
+                <option value="detailed">详细（8 章）</option>
+              </select>
+            </div>
+            <button class="btn small" id="t-outline" type="button">① 生成目录</button>
+          </div>
+          <div class="hint" id="t-hint">AI 会先写出一份教学材料并入库，再基于它备课 —— 这样讲义的引用页码仍然真实可查。</div>
+          <div id="t-outline-wrap" style="display:none;margin-top:8px">
+            <div class="hint">目录（可直接改标题、删掉不需要的章；改完再写正文）</div>
+            <div id="t-chapters"></div>
+            <div class="row" style="margin-top:6px">
+              <button class="btn small" id="t-add" type="button">＋ 加一章</button>
+              <button class="btn small primary" id="t-write" type="button">② 确认目录，开始写正文</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="field">
         <label>你想要什么课？<span class="hint" style="margin-left:6px">（决定单元怎么分、按什么顺序讲）</span>
@@ -181,6 +214,126 @@
     };
     pick.addEventListener("change", paintPicked);
     paintPicked();
+
+    // ── 材料来源：用我的材料 / 没有材料（让 AI 先把材料写出来）──────
+    // 两段式（用户拍板）：AI 写的材料**真的入库**，之后大纲/讲义/练习/引用走的还是老路，
+    // 「只依据材料」与「引用防伪」两条红线因此都还在。
+    const T = S.topicMode || (S.topicMode = {
+      on: false, topic: "", depth: "standard", gid: "", outline: [],
+      docId: "", title: "", stage: "",
+    });
+    const paneDocs = document.getElementById("pane-docs");
+    const paneTopic = document.getElementById("pane-topic");
+    const tHint = document.getElementById("t-hint");
+    const tWrap = document.getElementById("t-outline-wrap");
+    const tChapters = document.getElementById("t-chapters");
+
+    const paintSrc = () => {
+      paneDocs.style.display = T.on ? "none" : "";
+      paneTopic.style.display = T.on ? "" : "none";
+      document.getElementById("src-docs").classList.toggle("on", !T.on);
+      document.getElementById("src-topic").classList.toggle("on", T.on);
+      if (T.docId) {
+        tHint.textContent = `✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`;
+      }
+    };
+    const paintChapters = () => {
+      tWrap.style.display = T.outline.length ? "" : "none";
+      tChapters.innerHTML = "";
+      T.outline.forEach((c, i) => {
+        const row = el("div", "row", "");
+        row.style.marginBottom = "4px";
+        const inp = el("input");
+        inp.type = "text";
+        inp.value = c.title || "";
+        inp.style.flex = "1";
+        inp.oninput = () => { T.outline[i].title = inp.value; };
+        const del = el("button", "btn small", "删");
+        del.type = "button";
+        del.onclick = () => { T.outline.splice(i, 1); paintChapters(); };
+        row.append(inp, del);
+        tChapters.appendChild(row);
+      });
+    };
+
+    /** 轮询生成任务（材料目录 / 材料正文都用它）。 */
+    const pollGen = async (gid, tick, done, fail) => {
+      for (let i = 0; i < 900; i++) {
+        let d = null;
+        try { d = await Api.get("/api/generations/" + gid); } catch (e) { /* 抖动就重试 */ }
+        if (d) {
+          if (d.status === "ready") return done(d);
+          if (d.status === "failed") return fail(new Error(d.error || "生成失败"));
+          tick(d);
+        }
+        await new Promise((r) => setTimeout(r, 700));
+      }
+      fail(new Error("生成超时，请稍后重试"));
+    };
+
+    document.getElementById("src-docs").onclick = () => { T.on = false; paintSrc(); };
+    document.getElementById("src-topic").onclick = () => { T.on = true; paintSrc(); };
+
+    const tOutlineBtn = document.getElementById("t-outline");
+    tOutlineBtn.onclick = async () => {
+      const topic = document.getElementById("f-topic").value.trim();
+      if (!topic) return Toast("先写一句「想学什么」", true);
+      T.topic = topic;
+      T.depth = document.getElementById("f-topic-depth").value;
+      T.outline = []; T.docId = ""; paintChapters();
+      tOutlineBtn.disabled = true; tOutlineBtn.textContent = "生成目录中…";
+      try {
+        const r = await Api.post("/api/materials/outline", { topic, depth: T.depth });
+        T.gid = r.generation_id;
+        await pollGen(T.gid,
+          () => { tHint.textContent = "正在规划材料结构…"; },
+          (d) => {
+            const o = ((d.content_json || {}).outline) || {};
+            T.title = o.title || topic;
+            T.outline = (o.chapters || []).map((c) => ({ title: c.title, brief: c.brief }));
+            tHint.textContent = `目录已生成（${T.outline.length} 章）。改好标题后点「② 确认目录，开始写正文」。`;
+            paintChapters();
+          },
+          (e) => { tHint.textContent = "目录生成失败，可改主题后重试"; Toast("目录生成失败：" + e.message, true); });
+      } catch (e) { Toast(e.message, true); }
+      finally { tOutlineBtn.disabled = false; tOutlineBtn.textContent = "① 生成目录"; }
+    };
+
+    const tWriteBtn = document.getElementById("t-write");
+    tWriteBtn.onclick = async () => {
+      if (!T.gid || !T.outline.length) return Toast("请先生成目录", true);
+      if (T.outline.some((c) => !String(c.title || "").trim())) return Toast("章节标题不能为空", true);
+      tWriteBtn.disabled = true;
+      try {
+        await Api.post("/api/materials/chapters", { generation_id: T.gid, chapters: T.outline });
+        const total = T.outline.length;
+        await pollGen(T.gid,
+          (d) => {
+            // 进度就藏在 content_md 里：每写完一章追加一个 `## `，数它即可
+            const n = ((d.content_md || "").match(/^## /gm) || []).length;
+            tHint.textContent = `正在写材料 ${Math.min(n + 1, total)}/${total} 章…（可切到别的页，回来自动继续）`;
+          },
+          (d) => {
+            const cj = d.content_json || {};
+            T.docId = cj.doc_id || "";
+            T.title = cj.title || T.title;
+            const part = cj.chapters_done != null && cj.chapters_total != null
+              && cj.chapters_done < cj.chapters_total;
+            tHint.textContent = cj.skip_reason
+              ? "ℹ️ " + cj.skip_reason
+              : `✅ 材料已就绪：《${T.title}》（${cj.chapters_done || total}/${cj.chapters_total || total} 章）`
+                + (part ? "，部分章节生成失败，可稍后重新生成材料" : "");
+            if (T.docId) loadDocuments();
+          },
+          (e) => Toast("材料生成失败：" + e.message, true));
+      } catch (e) { Toast(e.message, true); }
+      finally { tWriteBtn.disabled = false; tWriteBtn.textContent = "② 确认目录，开始写正文"; }
+    };
+    document.getElementById("t-add").onclick = () => {
+      T.outline.push({ title: "", brief: "" });
+      paintChapters();
+    };
+    paintSrc(); paintChapters();
 
     document.getElementById("f-cancel").onclick = () => { S.creating = false; renderMain(); };
 
@@ -322,7 +475,11 @@
       const goal = goalEl.value.trim();
       const badge = document.getElementById("model-badge");
       if (!badge.dataset.ok) return Toast("请先在「设置」里配置对话模型", true);
-      const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
+      // 材料来源：主题模式下用 AI 刚生成并入库的那份材料
+      if (T.on && !T.docId) return Toast("请先点「① 生成目录」把材料写出来，或切回「用我上传的材料」", true);
+      const ids = T.on
+        ? [T.docId]
+        : [...pick.querySelectorAll("input:checked")].map((i) => i.value);
       const btn = document.getElementById("f-go");
       btn.disabled = true; btn.textContent = "生成中…";
       try {

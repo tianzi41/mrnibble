@@ -674,3 +674,9 @@ details.adv > .field { margin-top: 10px; }
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
+
+/* 材料来源切换（用我的材料 / 没有材料）—— 选中态与课型卡一致的观感 */
+.src-tab.on {
+  border-color: var(--primary); color: var(--primary);
+  background: var(--primary-soft); font-weight: 500;
+}

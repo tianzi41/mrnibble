@@ -12,6 +12,9 @@ __all__ = [
     "GenerationOut",
     "QuizItem",
     "FlashcardItem",
+    "MaterialOutlineCreate",
+    "MaterialChapter",
+    "MaterialChaptersCreate",
 ]
 
 GenerationType = Literal["cheatsheet", "notes", "mindmap", "quiz", "flashcard"]
@@ -60,3 +63,33 @@ class GenerationOut(BaseModel):
     model: str | None = None
     created_at: str = ""
     updated_at: str = ""
+
+
+class MaterialOutlineCreate(BaseModel):
+    """``POST /api/materials/outline`` 请求体：主题模式第一步（出材料目录）。
+
+    用户没有材料、只想「打字说想学什么」时，先让 AI 把材料写出来；
+    材料真正入库后，下游（大纲/讲义/练习/引用）走的还是既有链路。
+    """
+
+    topic: str = Field(min_length=1, description="想学的主题，例如「Python 装饰器」")
+    level: str = Field(default="beginner", description="beginner|intermediate|advanced")
+    depth: str = Field(
+        default="standard", description="档位：brief=4 章 / standard=6 章 / detailed=8 章")
+    chapter_count: int | None = Field(
+        default=None, ge=3, le=12, description="显式章数（覆盖档位）")
+
+
+class MaterialChapter(BaseModel):
+    """材料目录里的一章（用户可在前端审阅后改标题/增删）。"""
+
+    title: str = Field(min_length=1, description="章节标题")
+    brief: str = Field(default="", description="本章要讲什么（一句话）")
+
+
+class MaterialChaptersCreate(BaseModel):
+    """``POST /api/materials/chapters`` 请求体：第二步（逐章写正文并落成材料）。"""
+
+    generation_id: str = Field(min_length=1, description="第一步返回的 generation_id")
+    chapters: list[MaterialChapter] | None = Field(
+        default=None, description="用户审阅/修改后的目录；不传则用第一步的结果")

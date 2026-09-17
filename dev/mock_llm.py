@@ -518,6 +518,40 @@ def _goal_from_intent_payload() -> str:
         ensure_ascii=False)
 
 
+def _material_outline_payload(systems: str) -> str:
+    """主题模式·目录桩：按提示词里要求的章数出目录（``共 **N** 章``）。"""
+    import re as _re
+    m = _re.search(r"共\s*\*\*(\d+)", systems or "")   # 兼容「共 **6 章**」「共 **6** 章」
+    n = int(m.group(1)) if m else 4
+    n = max(3, min(n, 12))
+    return json.dumps({
+        "title": "装饰器入门（示例材料）",
+        "chapters": [
+            {"title": f"第{i}章 要点{i}", "brief": f"讲清第 {i} 个要点"}
+            for i in range(1, n + 1)
+        ],
+    }, ensure_ascii=False)
+
+
+def _material_chapter_payload(with_body: bool = True) -> str:
+    """主题模式·单章桩：合格正文（含小节与「本章要点」）。
+
+    ``with_body=False`` 用来验证「单章失败 → 重试一次 → 仍失败则留占位、任务仍算成功」。
+    """
+    if not with_body:
+        return "太短了。"
+    return (
+        "### 它是什么\n\n"
+        "这是一个用于测试的小节。装饰器本质上是一个接收函数并返回函数的可调用对象，"
+        "它让「在不改动原函数代码的前提下增加行为」成为可能。这里刻意写足长度，"
+        "以便通过材料服务的最低长度校验（真实生成时本段是 600~1000 字的教学内容）。\n\n"
+        "### 怎么用\n\n"
+        "示例：@deco 写在函数定义上一行，等价于 f = deco(f)。真实使用时这里会给出"
+        "完整例子、参数写法与注意事项。\n\n"
+        "**本章要点**\n- 装饰器是函数的包装\n- 返回值要记得 return\n- 顺序由内向外\n"
+    )
+
+
 def _pick(body: dict) -> str:
     """按 model 名路由到对应行为，返回回复文本。"""
     model = str(body.get("model") or "")
@@ -528,6 +562,15 @@ def _pick(body: dict) -> str:
         for m in (body.get("messages") or [])
         if m.get("role") == "system"
     )
+    # 「主题模式·材料生成」是本轮新增的两段调用：按提示词特征识别
+    # （目录提示词含「请先规划这份材料的」；分章提示词含「请写出这份教学材料的」）。
+    if "请先规划这份材料的" in _systems:
+        _spy_dump(body)
+        return _material_outline_payload(_systems)
+    if "请写出这份教学材料的" in _systems:
+        _spy_dump(body)
+        # mock-material-short：正文故意写太短 → 触发重试 → 最终留占位（验证失败口径）
+        return _material_chapter_payload(with_body=(model != "mock-material-short"))
     if "补图编辑" in _systems:
         # mock-*-noscript：补图响应**不带讲稿** —— 验证服务端会用确定性方法补一版
         # 讲稿，保证「课件页 ⇄ 讲稿」仍一一对应。
