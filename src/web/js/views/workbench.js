@@ -18,6 +18,10 @@
     recording: false,
     tts: null,
     ttsOn: false,          // 朗读开关（跨重渲染保持；新回答到达时据此朗读）
+    // 右栏三块面板的折叠状态（引用 / 记忆 / 文档预览）。收起后只留一条竖条，
+    // 把横向空间让给聊天区 —— 三块全展开会把聊天区挤得很窄。
+    fold: { cites: false, memory: false, preview: false },
+    previewDoc: null,      // 右栏正在预览的文档：{ id, title, text, loading }
   };
 
   const el = (tag, cls, html) => {
@@ -64,6 +68,9 @@
     const head = el("div", "panel-head",
       `<span>资料库（${S.documents.length}）</span><button class="btn small primary" id="btn-upload">＋ 上传</button>`);
     docs.appendChild(head);
+    // 用户反馈：不知道要先选文件再提问。这行放在「＋ 上传」正下方，最先被看到。
+    docs.appendChild(el("div", "hint",
+      "点击选择参考文件以进行提问（可多选；不选 = 使用全库）"));
     const body = el("div", "panel-body");
     if (!S.documents.length) {
       body.appendChild(el("div", "empty",
@@ -74,7 +81,13 @@
       const icon = { pdf: "📕", docx: "📘", pptx: "📙", md: "📗", txt: "📒", html: "🌐" }[d.fmt] || "📄";
       item.appendChild(el("span", null, icon));
       item.appendChild(el("span", "t", `${d.title}`));
+      // 选中要有明确回执：一个对勾 + 左侧主色竖条（用户反馈「只是加深一点，提示不明显」）
+      if (S.selectedDocs.includes(d.id)) item.appendChild(el("span", "picked", "✓"));
       item.appendChild(el("small", null, d.status === "ready" ? `${d.page_count || ""}` : d.status));
+      const pv = el("button", "pv", "👁");
+      pv.title = "在右侧预览原文";
+      pv.onclick = (ev) => { ev.stopPropagation(); openDocPreview(d); };
+      item.appendChild(pv);
       const re = el("button", "r", "↻");
       re.title = "用当前嵌入模型重新解析（换过嵌入模型后需点这里重建索引）";
       re.onclick = async (ev) => {
@@ -166,8 +179,12 @@
     sc.innerHTML = "";
     if (!S.messages.length) {
       sc.appendChild(el("div", "empty",
-        "开始提问吧。回答会附带<strong>页码引用</strong>，点击角标可查看来源。<br><br>" +
-        "材料里没有的内容，知伴会明确告知「材料中未提及」，不编造。"));
+        "<b>三步开始：</b><br>" +
+        "① 先在左边「资料库」勾选要参考的文件（可多选；不选 = 使用全库）<br>" +
+        "② 再按实际情况决定是否勾选下方的「允许材料外回答」——" +
+        "不勾就只依据材料，材料里没有的会明确告知<br>" +
+        "③ 最后在下面的方框里提问<br><br>" +
+        "回答会附带<strong>页码引用</strong>，点击角标可查看来源。"));
     }
     S.messages.forEach((m) => sc.appendChild(msgNode(m.role, m.content, m.citations, m.content_json)));
     sc.scrollTop = sc.scrollHeight;
@@ -227,27 +244,71 @@
     return card;
   }
 
-  function renderRight() {
-    const box = document.getElementById("right-cites");
-    box.innerHTML = "";
-    box.appendChild(el("div", "panel-head", `<span>引用来源（${S.citations.length}）</span>`));
-    const body = el("div", "panel-body");
-    if (!S.citations.length) body.appendChild(el("div", "empty", "回答中的引用会显示在这里"));
-    S.citations.forEach((c) => body.appendChild(citeCard(c)));
-    box.appendChild(body);
+  /** 右栏面板标题栏：整条可点，用来折叠 / 展开该面板。 */
+  function foldHead(title, key, extra) {
+    const folded = S.fold[key];
+    const h = el("div", "panel-head clickable",
+      `<span>${title}</span>` +
+      `<span style="display:flex;align-items:center;gap:6px">${extra || ""}` +
+      `<span class="fold" title="${folded ? "展开" : "收起"}">${folded ? "▸" : "◂"}</span></span>`);
+    h.onclick = (e) => {
+      if (e.target.closest("button")) return;   // 「管理」「关闭」这类按钮不触发折叠
+      S.fold[key] = !S.fold[key];
+      renderRight();
+    };
+    return h;
+  }
 
+  function renderRight() {
+    // ── 引用来源 ──
+    const box = document.getElementById("right-cites");
+    if (box) {
+      box.className = "col col-right" + (S.fold.cites ? " folded" : "");
+      box.innerHTML = "";
+      box.appendChild(foldHead(`引用来源（${S.citations.length}）`, "cites"));
+      const body = el("div", "panel-body");
+      if (!S.citations.length) body.appendChild(el("div", "empty", "回答中的引用会显示在这里"));
+      S.citations.forEach((c) => body.appendChild(citeCard(c)));
+      box.appendChild(body);
+    }
+
+    // ── 记忆 ──
     const mbox = document.getElementById("right-memory");
-    mbox.innerHTML = "";
-    mbox.appendChild(el("div", "panel-head",
-      `<span>记忆（${S.memories.length}）</span><button class="btn small" data-nav="#/memory">管理</button>`));
-    const mbody = el("div", "panel-body");
-    S.memories.forEach((m) => {
-      mbody.appendChild(el("div", "hint",
-        `<span class="pill ${m.type === "knowledge_gap" ? "warn" : ""}">${typeName(m.type)}</span> ${escapeHtml(m.content.slice(0, 60))}`));
-    });
-    if (!S.memories.length) mbody.appendChild(el("div", "empty", "还没有记忆"));
-    mbox.appendChild(mbody);
-    mbox.querySelector("[data-nav]").onclick = () => location.hash = "#/memory";
+    if (mbox) {
+      mbox.className = "col col-right" + (S.fold.memory ? " folded" : "");
+      mbox.innerHTML = "";
+      mbox.appendChild(foldHead(`记忆（${S.memories.length}）`, "memory",
+        `<button class="btn small" data-nav="#/memory">管理</button>`));
+      const mbody = el("div", "panel-body");
+      S.memories.forEach((m) => {
+        mbody.appendChild(el("div", "hint",
+          `<span class="pill ${m.type === "knowledge_gap" ? "warn" : ""}">${typeName(m.type)}</span> ${escapeHtml(m.content.slice(0, 60))}`));
+      });
+      if (!S.memories.length) mbody.appendChild(el("div", "empty", "还没有记忆"));
+      mbox.appendChild(mbody);
+      mbox.querySelector("[data-nav]").onclick = () => location.hash = "#/memory";
+    }
+
+    // ── 文档预览（点资料库里的 👁 才出现；没预览时整块不占地方）──
+    const pbox = document.getElementById("right-preview");
+    if (pbox) {
+      const d = S.previewDoc;
+      pbox.style.display = d ? "" : "none";
+      if (d) {
+        pbox.className = "col col-right" + (S.fold.preview ? " folded" : "");
+        pbox.innerHTML = "";
+        pbox.appendChild(foldHead(`文档预览《${escapeHtml(d.title)}》`, "preview",
+          `<button class="btn small" id="pv-close">关闭</button>`));
+        const pb = el("div", "panel-body");
+        // 用 textContent 而不是 innerHTML：原文里可能有 < > &，当 HTML 解析会显示错乱
+        const pre = el("pre", "doc-preview");
+        pre.textContent = d.loading ? "加载中…" : (d.text || "（这份文档没有可显示的文本）");
+        pb.appendChild(pre);
+        pbox.appendChild(pb);
+        const cb = pbox.querySelector("#pv-close");
+        if (cb) cb.onclick = closeDocPreview;
+      }
+    }
   }
 
   function typeName(t) {
@@ -371,7 +432,35 @@
     });
   }
 
-  /* ── 引用定位（站内浮层预览原文，不再弹新窗口）───── */
+  /* ── 右栏文档预览（点资料库里的 👁）──────────────────
+   和「点引用角标看原文」是两条路：那个只弹**引用命中的那一页**（浮层，看完就关）；
+   这个把整份文档摊在右栏、边看边提问。
+   打开时自动把「引用来源」「记忆」收起来 —— 否则三块全展开会把聊天区挤没。 */
+async function openDocPreview(d) {
+  S.previewDoc = { id: d.id, title: d.title, text: "", loading: true };
+  S.fold.cites = true; S.fold.memory = true;
+  renderRight();
+  let text = "";
+  try {
+    const r = await Api.get(`/api/documents/${d.id}/preview`);
+    text = (r.pages || []).map((pg) => `【第 ${pg.page_no} 页】\n${pg.text}`).join("\n\n");
+  } catch (e) {
+    text = "（无法加载原文：" + e.message + "）";
+  }
+  // 等待期间用户可能已切到别的文档 / 关掉了预览 → 只在还是同一份时才写回
+  if (S.previewDoc && S.previewDoc.id === d.id) {
+    S.previewDoc = { id: d.id, title: d.title, text, loading: false };
+    renderRight();
+  }
+}
+
+function closeDocPreview() {
+  S.previewDoc = null;
+  S.fold.cites = false; S.fold.memory = false;   // 收起的原因没了，恢复展开
+  renderRight();
+}
+
+/* ── 引用定位（站内浮层预览原文，不再弹新窗口）───── */
   async function openPreview(c) {
     showOverlay(
       `《${c.document_title}》${c.page_no != null ? " · 第 " + c.page_no + " 页" : ""}`,
@@ -493,7 +582,8 @@
         </div>
       </div>
       <div class="col col-right" id="right-cites"></div>
-      <div class="col col-right" id="right-memory"></div>`;
+      <div class="col col-right" id="right-memory"></div>
+      <div class="col col-right" id="right-preview" style="display:none"></div>`;
     host.appendChild(cols);
 
     renderSide(); renderChat(); renderRight();

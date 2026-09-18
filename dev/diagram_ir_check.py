@@ -308,6 +308,28 @@ def main() -> int:
           and "if (S.topicMode !== T) return;" in web_src,
           "缺「进向导重置状态」或「材料任务的课程页入口 / 幽灵轮询防护」")
 
+    # 6.18/6.19 工作台与帮助页的源码不变量（2026-09-18 用户优化清单）。
+    #  预览按钮 / 选中打勾 / 面板折叠 / 预览区底色跟随主题 —— 这几条都是「改了容易、
+    #  改回去也不报错」的东西，光靠 UI 冒烟覆盖不全（有些要真实文档 + 点击才露头）。
+    wb_src = (ROOT / "src" / "web" / "js" / "views" / "workbench.js").read_text(encoding="utf-8")
+    help_src = (ROOT / "src" / "web" / "js" / "views" / "help.js").read_text(encoding="utf-8")
+    check("6.18 工作台：资料库带预览按钮 / 选中打勾 / 右栏三面板可折叠 / 默认语句改三步引导",
+          'el("button", "pv", "👁")' in wb_src
+          and 'el("span", "picked", "✓")' in wb_src
+          and "function foldHead(" in wb_src
+          and 'id="right-preview"' in wb_src
+          and "三步开始" in wb_src
+          and "点击选择参考文件" in wb_src,
+          "工作台的新手引导 / 预览 / 折叠有一处缺失")
+
+    check("6.19 预览区底色跟随主题（禁止再写死浅色）+ 帮助页写清 DeepSeek 申请",
+          ".preview { background: var(--panel)" in css_src
+          and "platform.deepseek.com" in help_src
+          and "API Key" in help_src
+          and "语音朗读" in help_src
+          and "window.Views.help" in help_src,
+          "预览区底色或帮助页内容不符合约定")
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

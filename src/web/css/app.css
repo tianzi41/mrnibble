@@ -93,7 +93,17 @@ main { flex: 1; min-height: 0; display: flex; }
 .col { display: flex; flex-direction: column; min-width: 0; }
 .col-side { width: 250px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--panel); }
 .col-main { flex: 1; }
-.col-right { width: 290px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); }
+.col-right { width: 290px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); transition: width .16s ease; }
+/* 右栏面板可折叠：收起时收窄成一条竖条，把横向空间让给聊天区 / 文档预览。
+   三个面板（引用来源 / 记忆 / 文档预览）共用这套规则。 */
+.col-right.folded { width: 46px; }
+.col-right.folded .panel-body { display: none; }
+.col-right.folded .panel-head {
+  height: 100%; flex-direction: column; align-items: center;
+  justify-content: flex-start; gap: 10px; padding: 14px 0; border-bottom: 0;
+}
+.col-right.folded .panel-head > span:last-child { display: none; }
+.col-right.folded .panel-head > span:first-child { writing-mode: vertical-rl; letter-spacing: .12em; }
 /* 左补白列与右栏（课堂提问，340px）同宽 → 主栏落在屏幕中央 */
 .col-spacer { width: 340px; flex-shrink: 0; }
 /* 窗口不够宽时隐藏补白列，避免主栏被挤扁 */
@@ -164,7 +174,12 @@ main { flex: 1; min-height: 0; display: flex; }
   border: 1px solid transparent; display: flex; align-items: center; gap: 8px;
 }
 .item:hover { background: var(--bg); }
-.item.active { background: var(--primary-soft); border-color: var(--primary-border); }
+/* 选中态要一眼看得出（用户反馈「只是加深了一点，提示不明显」）：
+   底色 + 主色边框 + 左侧一条主色竖条（box-shadow 不占布局）。 */
+.item.active {
+  background: var(--primary-soft); border-color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
 .item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item .x { color: var(--muted); border: 0; background: none; padding: 0 4px; opacity: 0; }
 .item:hover .x { opacity: 1; }
@@ -172,6 +187,12 @@ main { flex: 1; min-height: 0; display: flex; }
 .item .r { color: var(--muted); border: 0; background: none; padding: 0 4px; opacity: 0; }
 .item:hover .r { opacity: 1; }
 .item .r:hover { color: var(--primary); }
+/* 预览按钮：常显但淡（藏进 hover 会没人发现），悬停变主色 */
+.item .pv { color: var(--muted); border: 0; background: none; padding: 0 4px; opacity: .55; }
+.item:hover .pv { opacity: 1; }
+.item .pv:hover { color: var(--primary); }
+/* 选中标记：文档名右侧的勾 */
+.item .picked { color: var(--primary); font-weight: 700; }
 
 /* 引导式：只把「本轮请回答」摆在明面，拆解与状态收进折叠区 */
 .guided-ask {
@@ -233,7 +254,12 @@ main { flex: 1; min-height: 0; display: flex; }
   border: 1px solid var(--border); background: var(--panel); padding: 7px 14px; border-radius: 999px;
 }
 .tabs button.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-.preview { background: var(--paper); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; min-height: 200px; }
+/* ⚠️ 容器背景必须**跟随主题**（曾经写死 --paper）：
+   --paper 在暗色主题下**故意仍是浅色**（那是给图示 SVG / 图片垫底用的），
+   于是预览区成了「浅底 + 浅字」，生成的资料几乎看不清（用户实测报告）。
+   浅色产物另有兜底：下面的 svg / canvas / img 各自垫 --paper。 */
+.preview { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; min-height: 200px; }
+.preview img { background: var(--paper); border-radius: 6px; }
 .quiz-item { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
 .quiz-item .opt { display: block; padding: 3px 0; }
 .quiz-item .opt.correct { color: var(--ok); font-weight: 600; }
@@ -679,4 +705,11 @@ details.adv > .field { margin-top: 10px; }
 .src-tab.on {
   border-color: var(--primary); color: var(--primary);
   background: var(--primary-soft); font-weight: 500;
+}
+
+/* ── 右栏「文档预览」正文 ──────────────────────────────
+   右栏只有 290px，正文用 pre-wrap 原样换行；字号比正文小一档。 */
+.doc-preview {
+  white-space: pre-wrap; word-break: break-word; margin: 0;
+  font-size: 12.5px; line-height: 1.75; color: var(--text);
 }

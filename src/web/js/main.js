@@ -11,6 +11,7 @@
     ["#/review", "闪卡复习", "review"],
     ["#/memory", "记忆", "memory"],
     ["#/settings", "设置", "settings"],
+  ["#/help", "不会用，点这里", "help"],
   ];
 
   // 带参数的课程子页：#/lessons/{id}、#/practice/{id}

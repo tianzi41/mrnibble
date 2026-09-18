@@ -510,6 +510,109 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                         and outw.get("hasNew")),
                    f"{outw}")
 
+            # ---- 工作台：新手引导 / 侧栏预览 / 面板折叠 / 暗色预览底色 ----
+            # 用户 2026-09-18 一次性提的优化清单：默认语句太笼统、选中文档看不出来、
+            # 看原文只能弹浮层、右栏挤、暗色下生成的资料看不清。
+            await ev("location.hash='#/workbench'")
+            await _asyncio.sleep(1.8)
+            wb = await ev("""(function(){
+                var hint = document.querySelector('#side-docs .hint');
+                var empty = document.querySelector('#chat-scroll .empty');
+                var pv = document.getElementById('right-preview');
+                return {
+                    noErr: !document.querySelector('[data-view-error]'),
+                    hint: hint ? hint.textContent : null,
+                    guide: empty ? empty.textContent : null,
+                    hasCites: !!document.getElementById('right-cites'),
+                    hasMem: !!document.getElementById('right-memory'),
+                    hasPv: !!pv,
+                    pvHidden: pv ? pv.style.display === 'none' : null
+                };
+            })()""")
+            _check("9.1 工作台：「＋上传」下方有「点击选择参考文件…」提示",
+                   bool(wb and wb.get("noErr") and wb.get("hint")
+                        and "点击选择参考文件" in str(wb.get("hint"))),
+                   f"{wb}")
+            _check("9.2 默认语句改三步引导（先选资料 → 再看是否允许材料外回答 → 再提问）",
+                   bool(wb and "三步开始" in str(wb.get("guide"))
+                        and "资料库" in str(wb.get("guide"))
+                        and "允许材料外回答" in str(wb.get("guide"))),
+                   f"guide={str((wb or {}).get('guide'))[:120]}")
+            _check("9.3 右栏三块面板就位（引用 / 记忆 / 文档预览）",
+                   bool(wb and wb.get("hasCites") and wb.get("hasMem") and wb.get("hasPv")),
+                   f"{wb}")
+            _check("9.4 没在预览时预览面板不占位（display:none）",
+                   bool(wb and wb.get("pvHidden") is True), f"{wb}")
+
+            # 折叠：点「引用来源」标题栏 → 面板收起成竖条；再点一次复原
+            await ev("""(function(){var h=document.querySelector('#right-cites .panel-head');
+                if(h)h.click();return !!h;})()""")
+            await _asyncio.sleep(0.6)
+            folded = await ev("""(function(){
+                var e = document.getElementById('right-cites');
+                return {cls: e ? e.className : null,
+                        w: e ? Math.round(e.getBoundingClientRect().width) : null};
+            })()""")
+            _check("9.5 引用面板可折叠（点标题栏后加 folded，宽度收窄成竖条）",
+                   bool(folded and "folded" in str(folded.get("cls"))
+                        and float(folded.get("w") or 999) < 100),
+                   f"{folded}")
+            await ev("""(function(){var h=document.querySelector('#right-cites .panel-head');
+                if(h)h.click();return true;})()""")
+            await _asyncio.sleep(0.5)
+
+            # 暗色下「预览区」必须跟着变深 —— 它曾经写死浅色 --paper，
+            # 于是暗色主题成了「浅底 + 浅字」，生成的资料几乎看不清（用户实测报告）。
+            await ev("var s=document.getElementById('theme-sel');"
+                     "s.value='dark';s.dispatchEvent(new Event('change'));")
+            await _asyncio.sleep(0.5)
+            pv_dark = await ev("""(function(){
+                var d=document.createElement('div'); d.className='preview';
+                d.style.cssText='position:absolute;left:-9999px;width:10px;height:10px';
+                document.body.appendChild(d);
+                var bg=getComputedStyle(d).backgroundColor; d.remove();
+                var nums = bg.substring(bg.indexOf('(')+1, bg.indexOf(')')).split(',').map(Number);
+                var lum = nums.length >= 3 ? nums[0]*0.299 + nums[1]*0.587 + nums[2]*0.114 : 255;
+                return {bg:bg, lum:Math.round(lum)};
+            })()""")
+            _check("9.6 暗色下预览区背景跟随主题变深（不再写死浅色，否则浅底浅字）",
+                   bool(pv_dark and float(pv_dark.get("lum") or 255) < 128),
+                   f"{pv_dark}")
+            await ev("var s=document.getElementById('theme-sel');"
+                     "s.value='';s.dispatchEvent(new Event('change'));")
+            await _asyncio.sleep(0.4)
+            pv_light = await ev("""(function(){
+                var d=document.createElement('div'); d.className='preview';
+                d.style.cssText='position:absolute;left:-9999px;width:10px;height:10px';
+                document.body.appendChild(d);
+                var bg=getComputedStyle(d).backgroundColor; d.remove();
+                var nums = bg.substring(bg.indexOf('(')+1, bg.indexOf(')')).split(',').map(Number);
+                var lum = nums.length >= 3 ? nums[0]*0.299 + nums[1]*0.587 + nums[2]*0.114 : 255;
+                return {bg:bg, lum:Math.round(lum)};
+            })()""")
+            _check("9.7 浅色主题下预览区仍是浅底（双向验证，证明确实「跟随主题」）",
+                   bool(pv_light and float(pv_light.get("lum") or 0) >= 128), f"{pv_light}")
+
+            # 帮助页（顶栏「不会用，点这里」）
+            await ev("location.hash='#/help'")
+            await _asyncio.sleep(1.3)
+            hp = await ev("""(function(){
+                var v=document.getElementById('view');
+                var nav=document.querySelector('#nav button[data-hash="#/help"]');
+                return {noErr: !document.querySelector('[data-view-error]'),
+                        text: v ? v.textContent : '',
+                        navLabel: nav ? nav.textContent : null};
+            })()""")
+            _check("9.8 帮助页可达：写明使用步骤，并给出 DeepSeek 申请网址与「填到设置里」",
+                   bool(hp and hp.get("noErr")
+                        and "platform.deepseek.com" in str(hp.get("text"))
+                        and "API Key" in str(hp.get("text"))
+                        and "测试连接" in str(hp.get("text"))),
+                   f"len={len(str((hp or {}).get('text')))}")
+            _check("9.9 顶栏导航有「不会用，点这里」入口",
+                   bool(hp and hp.get("navLabel") == "不会用，点这里"),
+                   f"navLabel={(hp or {}).get('navLabel')}")
+
             # ---- 上课 / 暂停继续 / 回到课堂浮动入口 ----
             await ev("location.hash='#/lessons/%s'" % lesson_id)
             await _asyncio.sleep(3.0)
@@ -1386,6 +1489,17 @@ def main() -> int:
                 time.sleep(0.5)
 
         dom = dump(f"{BASE}/#/courses")
+        # ---- 工作台（此时资料库里已有文档）：预览按钮 / 新手提示 / 帮助页 ----
+        wdom = dump(f"{BASE}/#/workbench")
+        check("9.10 资料库每项带「在右侧预览原文」按钮",
+              'class="pv"' in wdom, wdom[:200])
+        check("9.11 工作台资料库面板里有选择提示语",
+              "点击选择参考文件" in wdom)
+        hdom = dump(f"{BASE}/#/help")
+        check("9.12 帮助页含使用步骤 + DeepSeek 申请指引（离线渲染也正常）",
+              "platform.deepseek.com" in hdom and "语音朗读" in hdom
+              and "data-view-error" not in hdom, hdom[:200])
+
         check("2.1 课程页无渲染异常", 'data-view-error' not in dom, dom[:300])
         check("2.2 显示课程标题", "极限" in dom or "洛必达" in dom)
 
