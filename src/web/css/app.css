@@ -661,6 +661,9 @@ details.adv > .field { margin-top: 10px; }
   --bad-soft: #2a1a1a; --bad-border: #4a2c2c; --bad-tint: rgba(248, 113, 113, .14);
   --bg-soft: #1a1d23; --bg-canvas: #191c22;
   --paper: #f7f8fa;
+  /* 垫在浅色产物（--paper）上的**文字**用它 —— 那类容器在暗色下仍是浅底，
+     文字若跟着主题变浅就会「浅底浅字」（2026-09-18 踩到第三次）。 */
+  --on-paper-muted: #5b6472;
   --float-bg: rgba(28, 31, 38, .85);
   --overlay: rgba(0, 0, 0, .6);
   --shadow-modal: 0 18px 50px rgba(0, 0, 0, .6);
@@ -713,3 +716,15 @@ details.adv > .field { margin-top: 10px; }
   white-space: pre-wrap; word-break: break-word; margin: 0;
   font-size: 12.5px; line-height: 1.75; color: var(--text);
 }
+
+/* ── 浅色垫板容器里的文字必须强制深色 ─────────────────────
+   `.q-figure`（练习题的材料配图）与 `.tree-map`（结构编辑的思维导图）都是
+   `background: var(--paper)` —— 它们**必须**保持浅底（里面装的是 canvas/SVG 这类
+   浅色产物，暗色下也得看得见）。但这两个容器里同时放了说明文字（图注 / 标题行），
+   文字走 --muted 就会在暗色下变成浅色 → 又是「浅底浅字」。
+   所以：**容器保持浅色，容器内的文字强制用浅色垫板上的深色**。 */
+.q-figure .hint, .tree-map .hint, .q-figure .row, .tree-map .row {
+  color: var(--on-paper-muted);
+}
+/* 配图用的是 canvas（不是 svg），一并给它垫浅色底 */
+.q-figure canvas { background: var(--paper); border-radius: 6px; }

@@ -330,6 +330,15 @@ def main() -> int:
           and "window.Views.help" in help_src,
           "预览区底色或帮助页内容不符合约定")
 
+    # 6.20 「浅色垫板容器里的文字」必须强制深色。
+    #  这是同一类错误的**第三次**（第一次 lesson.js 卡片内联底色，第二次 .preview 背景，
+    #  这次是 .q-figure / .tree-map —— 它们必须保持 --paper 浅底来保护里面的 canvas/SVG，
+    #  但容器里同时放了说明文字，文字跟随主题就会在暗色下变成浅色）。
+    check("6.20 浅色垫板容器（.q-figure / .tree-map）内的文字强制深色，不用 --muted",
+          "--on-paper-muted" in css_src
+          and ".q-figure .hint, .tree-map .hint" in css_src,
+          "浅色垫板容器里的文字会跟随主题变浅 → 暗色下浅底浅字")
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:
