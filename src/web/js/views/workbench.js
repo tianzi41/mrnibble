@@ -458,6 +458,10 @@ function openDocPreview(d, page) {
   // 渲染与取数都在 DocPreview 组件里（PDF 原页 / 其他格式文本），这里只记状态
   S.previewDoc = { id: d.id, title: d.title, doc: d, page: page || 1 };
   S.fold.cites = true; S.fold.memory = true;   // 给预览腾地方
+  // ⚠️ 点 👁 = 明确要「看」。若预览面板曾被手动收起（点标题栏会折叠它，且收起态
+  // 没有「关闭」按钮、标题也看不见），再点 👁 必须强制展开并换上新文档 ——
+  // 否则用户看到的就是「点了没反应 / 换文件不切换」（2026-09-18 用户实测反馈）。
+  S.fold.preview = false;
   renderRight();
 }
 
