@@ -339,6 +339,19 @@ def main() -> int:
           and ".q-figure .hint, .tree-map .hint" in css_src,
           "浅色垫板容器里的文字会跟随主题变浅 → 暗色下浅底浅字")
 
+    # 6.21 设置页的 DeepSeek 预设必须是**当前有效**的模型名。
+    #  deepseek-chat / deepseek-reasoner 已退役 —— 照预设填会直接调用失败，
+    #  而「第一次用的人」唯一会走的就是这条路径，错了等于装好也用不了。
+    #  断言只拦「已知的退役名」，**不写死必须是某个具体新名** —— 免得官方下次再更新就误报。
+    settings_src = (ROOT / "src" / "web" / "js" / "views" / "settings.js").read_text(encoding="utf-8")
+    settings_code = "\n".join(
+        ln for ln in settings_src.splitlines() if not ln.strip().startswith("//"))
+    check("6.21 设置页 DeepSeek 预设不含已退役的模型名（chat / reasoner）",
+          "deepseek-flash" in settings_code
+          and "deepseek-chat" not in settings_code
+          and "deepseek-reasoner" not in settings_code,
+          "预设里的模型名过期 → 用户照它填会直接调用失败")
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

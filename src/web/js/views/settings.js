@@ -3,7 +3,9 @@
   "use strict";
 
   const PRESETS = [
-    ["https://api.deepseek.com/v1", "deepseek-chat", "DeepSeek"],
+    // 模型名以官方当前值为准：deepseek-chat / deepseek-reasoner 已退役，
+    // 现在直接用 deepseek-flash（Flash 无需再指定 4.0/4.1 这类版本号）。
+    ["https://api.deepseek.com", "deepseek-flash", "DeepSeek"],
     ["https://open.bigmodel.cn/api/paas/v4", "glm-4-plus", "智谱 GLM"],
     ["https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", "阿里百炼"],
     ["https://api.siliconflow.cn/v1", "Qwen/Qwen2.5-7B-Instruct", "SiliconFlow"],
@@ -32,9 +34,9 @@
             <option value="custom">自定义（手动填写）</option>
           </select></div>
         <div class="row">
-          <div class="field"><label>base_url</label><input type="text" id="st-base" value="${cfg.llm.base_url}" placeholder="https://api.deepseek.com/v1"></div>
+          <div class="field"><label>base_url</label><input type="text" id="st-base" value="${cfg.llm.base_url}" placeholder="https://api.deepseek.com"></div>
           <div class="field" style="max-width:280px"><label>模型名</label>
-            <input type="text" id="st-model" value="${cfg.llm.model}" placeholder="deepseek-chat">
+            <input type="text" id="st-model" value="${cfg.llm.model}" placeholder="deepseek-flash">
             <button class="btn small" id="st-models" style="margin-top:6px">拉取可用模型</button>
             <div id="st-model-list" class="hint" style="margin-top:6px"></div>
           </div>
@@ -184,7 +186,7 @@
       const model = val("st-model");
       // 只填地址不填模型名 = 无法提问；必须在保存时就说清楚，不能静默通过。
       if (!base) { document.getElementById("st-base").focus(); return Toast("请先填写接口地址 base_url", true); }
-      if (!model) { document.getElementById("st-model").focus(); return Toast("请先填写模型名（如 deepseek-chat）", true); }
+      if (!model) { document.getElementById("st-model").focus(); return Toast("请先填写模型名（如 deepseek-flash）", true); }
       const patch = {
         llm: {
           base_url: base, model: model,
@@ -202,7 +204,7 @@
       const out = document.getElementById("st-test-result");
       const base = val("st-base"), model = val("st-model");
       if (!base) { document.getElementById("st-base").focus(); return Toast("请先填写接口地址 base_url", true); }
-      if (!model) { document.getElementById("st-model").focus(); return Toast("请先填写模型名（如 deepseek-chat）", true); }
+      if (!model) { document.getElementById("st-model").focus(); return Toast("请先填写模型名（如 deepseek-flash）", true); }
       out.textContent = "测试中…";
       await saveIfChanged();
       try {

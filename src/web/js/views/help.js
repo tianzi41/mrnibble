@@ -40,11 +40,17 @@
       <b>② 填到知伴里（填一次，以后不用管）</b>
       <ol style="margin:8px 0 0;padding-left:22px;line-height:2">
         <li>点右上角 <b>设置</b></li>
-        <li>在「对话模型」一栏，预设选 <b>DeepSeek</b> —— 接口地址和模型名会自动填好</li>
+        <li>在「对话模型」一栏，预设选 <b>DeepSeek</b> —— 会自动填好这两项：
+            地址 <code>https://api.deepseek.com</code>、模型名 <code>deepseek-flash</code></li>
         <li>把刚才复制的 Key 粘贴到 <b>API Key</b> 输入框</li>
         <li>点 <b>测试连接</b>，提示成功就保存</li>
       </ol>
     </div>
+
+    <p class="hint" style="margin-top:12px">
+      用的是别的服务商、或单位/学校给的中转接口？那就把三项都换成它给你的值 ——
+      只要它兼容 <b>OpenAI 的对话接口</b>（绝大多数服务都兼容），知伴就能接。
+    </p>
 
     <p class="hint" style="margin-top:12px">
       Key 只保存在你自己电脑上（本地加密存储），不会上传到任何地方。
