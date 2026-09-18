@@ -124,17 +124,26 @@ def wait_http(url: str, timeout: float = 90.0) -> bool:
     return False
 
 
-def _safe_wipe(path) -> None:
-    """尽力清理临时目录；**被沙箱护栏拦住也不能让脚本挂掉**。
+# 沙箱删除护栏的阈值：单次删除的文件数超过它就会被拦。
+# ⚠️ 关键：被拦时它**直接终止进程**，不是抛 Python 异常 ——
+# 所以 `except Exception` 和 `rmtree(ignore_errors=True)` 统统兜不住，
+# 症状是「断言全跑完 ✅ 却打印不出统计行、exit=1、日志无 traceback」。
+# 实测：ui-prefetch 386 个文件时必现。因此**删之前必须自己数文件数**。
+_WIPE_FILE_LIMIT = 100
 
-    护栏 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`（目录文件数超阈值时直接拒删）抛的不是
-    `OSError`，`rmtree(ignore_errors=True)` 兜不住 —— 曾经的症状是：断言全跑完了，
-    却因为在 `finally` 里清理失败而**在打印统计行之前**退出（exit=1、看不到结果）。
-    清理成功与否与测试结论无关，所以这里连 Exception 一起吞掉。
-    """
+
+def _safe_wipe(path) -> None:
+    """尽力清理临时目录；**无论如何都不能影响测试结论**。"""
     try:
+        p = Path(path)
+        if p.is_dir():
+            n = sum(1 for _ in p.rglob("*"))
+            if n > _WIPE_FILE_LIMIT:
+                print(f"  [跳过清理] {p.name}: {n} 个文件超过护栏阈值，"
+                      "删了会中断脚本；留着不影响结果")
+                return
         shutil.rmtree(path, ignore_errors=True)
-    except Exception:  # noqa: BLE001 - 护栏拦截不应影响测试结论
+    except Exception:  # noqa: BLE001 - 清理失败与测试结论无关
         pass
 
 

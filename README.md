@@ -184,8 +184,8 @@ powershell -ExecutionPolicy Bypass -File build\build.ps1
 .venv\Scripts\python dev\t06_t11_check.py     # 后端主链路 81 项
 .venv\Scripts\python dev\course_check.py      # 课程链路 116 项
 .venv\Scripts\python dev\course_ui_check.py   # 前端页面冒烟 44 项（需本机 Chrome）
-# 打包后冻结态（46 项；务必用独立数据目录，别污染真实数据）
-#   ZHIBAN_DIST=dist10 ZHIBAN_DATA_DIR=<临时目录> .venv\Scripts\python dev\frozen_check.py
+# 打包后冻结态（48 项；务必用独立数据目录，别污染真实数据）
+#   ZHIBAN_DIST=dist39 ZHIBAN_DATA_DIR=<临时目录> .venv\Scripts\python dev\frozen_check.py
 ```
 
 ---

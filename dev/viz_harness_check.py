@@ -45,10 +45,16 @@ def ui_profile(kind: str) -> str:
     UI_TMP.mkdir(parents=True, exist_ok=True)
     cutoff = time.time() - 24 * 3600
     for old in UI_TMP.glob("ui-%s-*" % kind):
+        # ⚠️ 删之前必须数文件数：沙箱护栏超阈值（120）时**直接终止进程**，不抛异常，
+        # try/except 兜不住 —— 症状是整套测试跑完却打印不出统计行（exit=1、无 traceback）。
+        # 一个 Chrome profile 轻松几百个文件，所以这里宁可留着也不删。
         try:
-            if old.stat().st_mtime < cutoff:
-                shutil.rmtree(old, ignore_errors=True)
-        except OSError:
+            if old.stat().st_mtime >= cutoff:
+                continue
+            if sum(1 for _ in old.rglob("*")) > 100:
+                continue
+            shutil.rmtree(old, ignore_errors=True)
+        except Exception:  # noqa: BLE001 - 清理失败绝不能影响测试
             pass
     return str(UI_TMP / ("ui-%s-%d" % (kind, int(time.time()))))
 WEB = ROOT / "src" / "web"

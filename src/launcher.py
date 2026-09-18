@@ -75,6 +75,12 @@ def _open_window(port: int) -> subprocess.Popen | None:
     ``--no-proxy-server``：全部内容都在 127.0.0.1，直连即可；带系统代理
     反而可能把 localhost 请求丢给代理（装了 Clash 的机器上首开就会
     「拒绝连接」）。
+
+    ``--disable-http-cache``：**必须加**。应用窗口用的是独立 profile
+    （``--user-data-dir``），而静态资源没有 ``Cache-Control`` 头 ——
+    浏览器于是走「启发式缓存」，把 JS/CSS 当新鲜文件，**改了前端、重启应用看到的还是旧页面**
+    （2026-09-18 用户报「新功能看不到」就是它）。而 ``--app`` 模式没有地址栏、
+    用户也没有「刷新」按钮可按。本地应用不存在网络开销，直接禁掉缓存最省事。
     """
     url = f"http://127.0.0.1:{port}"
     for name in ("msedge.exe", "chrome.exe"):
@@ -95,7 +101,8 @@ def _open_window(port: int) -> subprocess.Popen | None:
             try:
                 return subprocess.Popen(
                     [exe, f"--app={url}", f"--user-data-dir={_profile_dir()}",
-                     "--no-first-run", "--no-default-browser-check", "--no-proxy-server"],
+                     "--no-first-run", "--no-default-browser-check", "--no-proxy-server",
+                     "--disable-http-cache"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
             except OSError:
