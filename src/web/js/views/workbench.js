@@ -301,7 +301,11 @@
       });
       if (!S.memories.length) mbody.appendChild(el("div", "empty", "还没有记忆"));
       mbox.appendChild(mbody);
-      mbox.querySelector("[data-nav]").onclick = () => location.hash = "#/memory";
+      // ⚠️ 收起态 foldHead 不渲染「管理」按钮（见 foldHead 注释），这里必须判空 ——
+      // 否则点 👁 预览时（会顺手把记忆面板折叠）renderRight 在这行抛
+      // TypeError，**后面的预览面板渲染整段跳过**（2026-09-18 用户实测踩坑）。
+      const navBtn = mbox.querySelector("[data-nav]");
+      if (navBtn) navBtn.onclick = () => location.hash = "#/memory";
     }
 
     // ── 文档预览（点资料库里的 👁 才出现；没预览时整块不占地方）──
