@@ -613,6 +613,33 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                    bool(hp and hp.get("navLabel") == "不会用，点这里"),
                    f"navLabel={(hp or {}).get('navLabel')}")
 
+            # ---- 折叠态：标题栏里不该再露出按钮 ----
+            # 用户截图反馈：收起后「管理」按钮被竖排显示出来。根因是 foldHead 给按钮组写的
+            # **内联 display:flex** 优先级高于样式表里的 display:none，隐藏没生效。
+            await ev("location.hash='#/workbench'")
+            await _asyncio.sleep(1.8)
+            await ev("""(function(){var h=document.querySelector('#right-memory .panel-head');
+                if(h)h.click();return true;})()""")
+            await _asyncio.sleep(0.6)
+            fold = await ev("""(function(){
+                var p = document.getElementById('right-memory');
+                if (!p) return null;
+                var lab = p.querySelector('.panel-head .fold-label');
+                return {
+                    folded: p.className.indexOf('folded') >= 0,
+                    hasBtn: !!p.querySelector('.panel-head button'),
+                    label: lab ? lab.textContent : null
+                };
+            })()""")
+            _check("9.13 面板收起后标题栏不再露出按钮（「管理」曾被竖排显示）",
+                   bool(fold and fold.get("folded") and fold.get("hasBtn") is False),
+                   f"{fold}")
+            _check("9.14 收起态只显示短标签（44px 宽放不下「记忆（0）」这样的全称）",
+                   bool(fold and fold.get("label") == "记忆"), f"{fold}")
+            await ev("""(function(){var h=document.querySelector('#right-memory .panel-head');
+                if(h)h.click();return true;})()""")
+            await _asyncio.sleep(0.5)
+
             # ---- 上课 / 暂停继续 / 回到课堂浮动入口 ----
             await ev("location.hash='#/lessons/%s'" % lesson_id)
             await _asyncio.sleep(3.0)
@@ -1499,6 +1526,26 @@ def main() -> int:
         check("9.12 帮助页含使用步骤 + DeepSeek 申请指引（离线渲染也正常）",
               "platform.deepseek.com" in hdom and "语音朗读" in hdom
               and "data-view-error" not in hdom, hdom[:200])
+
+        # ---- 原件预览依赖的两个端点（PDF 原页渲染 / 文本预览）----
+        # 自包含地取一份 PDF：不引用外层变量（上层可能嵌套在不同作用域里）
+        _docs = ((cli.get(f"{BASE}/api/documents?page=1&page_size=20", timeout=10).json()
+                  .get("data") or {}).get("items", []))
+        _pdf = next((x for x in _docs if x.get("fmt") == "pdf"), None)
+        if _pdf is None:
+            check("9.15 PDF 原页渲染的数据源可用（raw 端点返回真 PDF 字节）",
+                  False, "测试数据里没有 PDF 文档")
+        else:
+            raw_r = cli.get(f"{BASE}/api/courses/documents/{_pdf['id']}/raw", timeout=20)
+            check("9.15 PDF 原页渲染的数据源可用（raw 端点返回真 PDF 字节）",
+                  raw_r.status_code == 200
+                  and "pdf" in raw_r.headers.get("content-type", "").lower()
+                  and raw_r.content[:4] == b"%PDF",
+                  f"status={raw_r.status_code} ct={raw_r.headers.get('content-type')}")
+            pv_r = cli.get(f"{BASE}/api/documents/{_pdf['id']}/preview?page_no=1", timeout=20).json()
+            check("9.16 文本预览端点按页返回内容（非 PDF 材料走这条路）",
+                  bool((pv_r.get("data") or {}).get("pages")),
+                  f"{str(pv_r)[:150]}")
 
         check("2.1 课程页无渲染异常", 'data-view-error' not in dom, dom[:300])
         check("2.2 显示课程标题", "极限" in dom or "洛必达" in dom)

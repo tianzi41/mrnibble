@@ -21,7 +21,7 @@
     // 右栏三块面板的折叠状态（引用 / 记忆 / 文档预览）。收起后只留一条竖条，
     // 把横向空间让给聊天区 —— 三块全展开会把聊天区挤得很窄。
     fold: { cites: false, memory: false, preview: false },
-    previewDoc: null,      // 右栏正在预览的文档：{ id, title, text, loading }
+    previewDoc: null,      // 右栏正在预览的文档：{ id, title, doc }（渲染交给 DocPreview）
   };
 
   const el = (tag, cls, html) => {
@@ -244,13 +244,28 @@
     return card;
   }
 
-  /** 右栏面板标题栏：整条可点，用来折叠 / 展开该面板。 */
-  function foldHead(title, key, extra) {
+  /** 右栏面板标题栏：整条可点，用来折叠 / 展开该面板。
+   *
+   *  @param {string} title 展开态标题（可带计数）
+   *  @param {string} key   S.fold 里的键
+   *  @param {string} short 收起态显示的短标签（"引用来源" → "引用"）——
+   *                        收起后只有 44px 宽，全称竖排会拖得很长
+   *  @param {string} [extra] 展开态才显示的按钮 HTML
+   *
+   *  ⚠️ 收起态**不渲染** extra：早先想用 CSS 隐藏它，但这里写的是内联
+   *  `display:flex`，内联优先级压过样式表里的 `display:none` —— 结果「管理」按钮
+   *  在收起态被竖排露出来（用户截图反馈）。按钮要么不渲染，要么别用内联样式。
+   */
+  function foldHead(title, key, short, extra) {
     const folded = S.fold[key];
-    const h = el("div", "panel-head clickable",
-      `<span>${title}</span>` +
-      `<span style="display:flex;align-items:center;gap:6px">${extra || ""}` +
-      `<span class="fold" title="${folded ? "展开" : "收起"}">${folded ? "▸" : "◂"}</span></span>`);
+    const h = el("div", "panel-head clickable");
+    if (folded) {
+      h.innerHTML = `<span class="fold-label">${short}</span>` +
+        `<span class="fold" title="展开">▸</span>`;
+    } else {
+      h.innerHTML = `<span>${title}</span>` +
+        `<span class="ph-right">${extra || ""}<span class="fold" title="收起">◂</span></span>`;
+    }
     h.onclick = (e) => {
       if (e.target.closest("button")) return;   // 「管理」「关闭」这类按钮不触发折叠
       S.fold[key] = !S.fold[key];
@@ -265,7 +280,7 @@
     if (box) {
       box.className = "col col-right" + (S.fold.cites ? " folded" : "");
       box.innerHTML = "";
-      box.appendChild(foldHead(`引用来源（${S.citations.length}）`, "cites"));
+      box.appendChild(foldHead(`引用来源（${S.citations.length}）`, "cites", "引用"));
       const body = el("div", "panel-body");
       if (!S.citations.length) body.appendChild(el("div", "empty", "回答中的引用会显示在这里"));
       S.citations.forEach((c) => body.appendChild(citeCard(c)));
@@ -277,7 +292,7 @@
     if (mbox) {
       mbox.className = "col col-right" + (S.fold.memory ? " folded" : "");
       mbox.innerHTML = "";
-      mbox.appendChild(foldHead(`记忆（${S.memories.length}）`, "memory",
+      mbox.appendChild(foldHead(`记忆（${S.memories.length}）`, "memory", "记忆",
         `<button class="btn small" data-nav="#/memory">管理</button>`));
       const mbody = el("div", "panel-body");
       S.memories.forEach((m) => {
@@ -297,16 +312,15 @@
       if (d) {
         pbox.className = "col col-right" + (S.fold.preview ? " folded" : "");
         pbox.innerHTML = "";
-        pbox.appendChild(foldHead(`文档预览《${escapeHtml(d.title)}》`, "preview",
+        pbox.appendChild(foldHead(`文档预览《${escapeHtml(d.title)}》`, "preview", "预览",
           `<button class="btn small" id="pv-close">关闭</button>`));
         const pb = el("div", "panel-body");
-        // 用 textContent 而不是 innerHTML：原文里可能有 < > &，当 HTML 解析会显示错乱
-        const pre = el("pre", "doc-preview");
-        pre.textContent = d.loading ? "加载中…" : (d.text || "（这份文档没有可显示的文本）");
-        pb.appendChild(pre);
         pbox.appendChild(pb);
         const cb = pbox.querySelector("#pv-close");
         if (cb) cb.onclick = closeDocPreview;
+        // 渲染交给 DocPreview：PDF 用 pdf.js 画原页图像，其他格式按页取文本。
+        // 别再直接调 /api/documents/{id}/preview —— 那个端点只返回一页（引用定位用）。
+        if (d.doc && window.DocPreview) DocPreview.mount(pb, d.doc, { startPage: d.page || 1 });
       }
     }
   }
@@ -436,22 +450,11 @@
    和「点引用角标看原文」是两条路：那个只弹**引用命中的那一页**（浮层，看完就关）；
    这个把整份文档摊在右栏、边看边提问。
    打开时自动把「引用来源」「记忆」收起来 —— 否则三块全展开会把聊天区挤没。 */
-async function openDocPreview(d) {
-  S.previewDoc = { id: d.id, title: d.title, text: "", loading: true };
-  S.fold.cites = true; S.fold.memory = true;
+function openDocPreview(d, page) {
+  // 渲染与取数都在 DocPreview 组件里（PDF 原页 / 其他格式文本），这里只记状态
+  S.previewDoc = { id: d.id, title: d.title, doc: d, page: page || 1 };
+  S.fold.cites = true; S.fold.memory = true;   // 给预览腾地方
   renderRight();
-  let text = "";
-  try {
-    const r = await Api.get(`/api/documents/${d.id}/preview`);
-    text = (r.pages || []).map((pg) => `【第 ${pg.page_no} 页】\n${pg.text}`).join("\n\n");
-  } catch (e) {
-    text = "（无法加载原文：" + e.message + "）";
-  }
-  // 等待期间用户可能已切到别的文档 / 关掉了预览 → 只在还是同一份时才写回
-  if (S.previewDoc && S.previewDoc.id === d.id) {
-    S.previewDoc = { id: d.id, title: d.title, text, loading: false };
-    renderRight();
-  }
 }
 
 function closeDocPreview() {

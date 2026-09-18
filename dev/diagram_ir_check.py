@@ -352,6 +352,24 @@ def main() -> int:
           and "deepseek-reasoner" not in settings_code,
           "预设里的模型名过期 → 用户照它填会直接调用失败")
 
+    # 6.22/6.23 原件预览组件（2026-09-18 用户实测：预览 PDF 失败）。
+    #  根因是拿 `GET /api/documents/{id}/preview`（**只返回一页**，本是引用定位用的）
+    #  当整篇预览使 —— PDF 首页常无文字层 → 显示「没有可显示的文本」。
+    dp_src = (ROOT / "src" / "web" / "js" / "docpreview.js").read_text(encoding="utf-8")
+    check("6.22 原件预览：PDF 走 pdf.js 原页 + ready() 等动态 import + 文本路径按页取",
+          "PdfView.ready(" in dp_src                 # 不能只用 available()：ESM 是延迟执行的
+          and "PdfView.renderPage(" in dp_src
+          and "/api/courses/documents/" in dp_src    # raw 端点 = 原始 PDF 字节
+          and "?page_no=" in dp_src                  # 文本路径逐页取
+          and "window.DocPreview" in dp_src,
+          "原件预览组件实现不符约定（PDF 会退化成只看第 1 页）")
+
+    check("6.23 右栏收起态由 JS 不渲染按钮（不再依赖 CSS 隐藏 —— 内联样式会压过它）",
+          "fold-label" in wb_src
+          and 'class="ph-right"' in wb_src
+          and "display:flex;align-items:center;gap:6px" not in wb_src,
+          "折叠态标题栏结构不对：按钮可能又被内联样式露出来")
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

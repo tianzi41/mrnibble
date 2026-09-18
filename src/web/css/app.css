@@ -96,14 +96,26 @@ main { flex: 1; min-height: 0; display: flex; }
 .col-right { width: 290px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); transition: width .16s ease; }
 /* 右栏面板可折叠：收起时收窄成一条竖条，把横向空间让给聊天区 / 文档预览。
    三个面板（引用来源 / 记忆 / 文档预览）共用这套规则。 */
-.col-right.folded { width: 46px; }
+.col-right.folded { width: 44px; }
 .col-right.folded .panel-body { display: none; }
 .col-right.folded .panel-head {
   height: 100%; flex-direction: column; align-items: center;
-  justify-content: flex-start; gap: 10px; padding: 14px 0; border-bottom: 0;
+  justify-content: flex-start; gap: 8px; padding: 14px 0;
+  border-bottom: 0; letter-spacing: 0;
 }
-.col-right.folded .panel-head > span:last-child { display: none; }
-.col-right.folded .panel-head > span:first-child { writing-mode: vertical-rl; letter-spacing: .12em; }
+/* 收起态：只渲染「短标签 + 展开箭头」。
+   ⚠️ 用 CSS 去隐藏标题栏里的按钮是**不可靠的** —— foldHead 给按钮组写过内联
+   `display:flex`，内联优先级高于这里的类规则，结果「管理」按钮在收起态被竖排露出来
+   （用户截图反馈）。所以收起态由 JS 直接不渲染按钮，CSS 只负责排版。 */
+.col-right.folded .fold-label {
+  writing-mode: vertical-rl; letter-spacing: .2em;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.col-right.folded .panel-head:hover .fold-label { color: var(--text); }
+.col-right.folded .fold { font-size: 10px; opacity: .7; }
+
+/* 标题栏右侧的按钮组（原先写的是内联样式，改成类便于统一控制） */
+.panel-head .ph-right { display: flex; align-items: center; gap: 6px; }
 /* 左补白列与右栏（课堂提问，340px）同宽 → 主栏落在屏幕中央 */
 .col-spacer { width: 340px; flex-shrink: 0; }
 /* 窗口不够宽时隐藏补白列，避免主栏被挤扁 */
@@ -728,3 +740,21 @@ details.adv > .field { margin-top: 10px; }
 }
 /* 配图用的是 canvas（不是 svg），一并给它垫浅色底 */
 .q-figure canvas { background: var(--paper); border-radius: 6px; }
+
+/* ── 材料原件预览（工作台右栏 / 课程页原件栏共用）─────────
+   两条路径：PDF 用 pdf.js 画**原页图像**，其他格式按页取文本。
+   注意 .pv-stage 用的是 --paper：里面装的是 PDF 页面图像这类浅色产物，
+   暗色主题下也必须保持浅色底（这正是 --paper 的正确用法）。 */
+.pv { display: flex; flex-direction: column; gap: 8px; }
+.pv-bar {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted);
+}
+.pv-bar .pv-page { min-width: 58px; text-align: center; font-variant-numeric: tabular-nums; }
+.pv-bar .btn { padding: 2px 7px; }
+.pv-bar .btn.on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.pv-stage {
+  background: var(--paper); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px; overflow: auto; display: flex; justify-content: center;
+}
+.pv-stage canvas { max-width: 100%; height: auto; background: #fff; box-shadow: var(--shadow); }
