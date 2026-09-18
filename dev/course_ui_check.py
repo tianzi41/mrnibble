@@ -1735,7 +1735,10 @@ def main() -> int:
         check("2.35 课堂页含 lesson-pos 位置标签", "lesson-pos" in dom_lesson)
         check("2.36 lesson-pos 显示「第X单元·第Y课」",
               re.search(r'第 \d+ 单元 · 第 \d+ 课', pos_text) is not None, pos_text)
-        check("2.37 课堂页含左补白列 col-spacer", "col-spacer" in dom_lesson)
+        # 2026-09-18：这一列从「纯补白（.col-spacer）」改造成了「课本原件」栏。
+        # 断言必须跟着行为走 —— 否则它会一直红，而红久了的断言等于没有。
+        check("2.37 课堂页左列是「课本原件」栏（原补白列已改造成原件预览）",
+              'id="lesson-origin"' in dom_lesson and "col-spacer" not in dom_lesson)
         check("2.38 返回按钮在动作组之前",
               dom_lesson.index('id="b-back"') < dom_lesson.index('id="lesson-actions"'))
         check("2.39 仅存在一个返回按钮", dom_lesson.count('id="b-back"') == 1,
