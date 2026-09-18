@@ -370,6 +370,19 @@ def main() -> int:
           and "display:flex;align-items:center;gap:6px" not in wb_src,
           "折叠态标题栏结构不对：按钮可能又被内联样式露出来")
 
+    # 6.24 课程页原件栏（2026-09-18 用户提：讲解页最左列是留白，改成课本原件预览）。
+    #  原来那列是 `.col-spacer` —— 340px 纯补白，唯一作用是把讲义推到屏幕中央。
+    lesson_src = (ROOT / "src" / "web" / "js" / "views" / "lesson.js").read_text(encoding="utf-8")
+    check("6.24 课程页原件栏：复用 DocPreview + 引用角标联动 + 补白列退休",
+          'id="lesson-origin"' in lesson_src
+          and "function renderOrigin(" in lesson_src
+          and "function jumpOriginToCite(" in lesson_src
+          and "DocPreview.mount(" in lesson_src
+          and 'closest(".cite")' in lesson_src          # 讲义角标 → 左栏跳页
+          and ".col-origin {" in css_src
+          and ".col-spacer { width" not in css_src,      # 生效规则里不该再有它
+          "原件栏实现/样式缺失，或补白列规则没清干净")
+
     print("\n" + "=" * 60)
     print(f"架构化图示套件：通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     if FAIL:

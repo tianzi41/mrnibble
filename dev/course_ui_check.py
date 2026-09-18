@@ -636,6 +636,53 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                    f"{fold}")
             _check("9.14 收起态只显示短标签（44px 宽放不下「记忆（0）」这样的全称）",
                    bool(fold and fold.get("label") == "记忆"), f"{fold}")
+
+            # ---- 课程页左侧「课本原件」栏（原来是 340px 的纯补白列）----
+            await ev("location.hash='#/lessons/%s'" % lesson_id)
+            await _asyncio.sleep(3.0)
+            og = await ev("""(function(){
+                var box = document.getElementById('lesson-origin');
+                if (!box) return {exists:false, spacer: !!document.querySelector('.col-spacer')};
+                var btn = Array.prototype.find.call(box.querySelectorAll('button'),
+                          function(b){ return b.textContent.indexOf('收起') >= 0; });
+                return {
+                    exists: true,
+                    spacer: !!document.querySelector('.col-spacer'),
+                    title: box.textContent.indexOf('课本原件') >= 0,
+                    hasFold: !!btn,
+                    width: Math.round(box.getBoundingClientRect().width)
+                };
+            })()""")
+            _check("9.17 课程页左列由「纯补白」变成「课本原件」栏（有标题与收起按钮，.col-spacer 已退休）",
+                   bool(og and og.get("exists") and og.get("title") and og.get("hasFold")
+                        and og.get("spacer") is False
+                        and float(og.get("width") or 0) > 250),
+                   f"{og}")
+            await ev("""(function(){
+                var box = document.getElementById('lesson-origin');
+                if(!box) return false;
+                var btn = Array.prototype.find.call(box.querySelectorAll('button'),
+                          function(b){ return b.textContent.indexOf('收起') >= 0; });
+                if(btn){ btn.click(); return true; }
+                return false;
+            })()""")
+            await _asyncio.sleep(0.8)
+            ogf = await ev("""(function(){
+                var box = document.getElementById('lesson-origin');
+                if(!box) return null;
+                return {folded: box.className.indexOf('folded') >= 0,
+                        w: Math.round(box.getBoundingClientRect().width)};
+            })()""")
+            _check("9.18 原件栏可收起（宽度 340 → 44，把空间让给讲义）",
+                   bool(ogf and ogf.get("folded") and float(ogf.get("w") or 999) < 100),
+                   f"{ogf}")
+            await ev("""(function(){
+                var box = document.getElementById('lesson-origin');
+                var bar = box && box.querySelector('.panel-head');
+                if(bar) bar.click();
+                return true;
+            })()""")
+            await _asyncio.sleep(0.6)
             await ev("""(function(){var h=document.querySelector('#right-memory .panel-head');
                 if(h)h.click();return true;})()""")
             await _asyncio.sleep(0.5)
@@ -1528,21 +1575,26 @@ def main() -> int:
               and "data-view-error" not in hdom, hdom[:200])
 
         # ---- 原件预览依赖的两个端点（PDF 原页渲染 / 文本预览）----
-        # 自包含地取一份 PDF：不引用外层变量（上层可能嵌套在不同作用域里）
-        _docs = ((cli.get(f"{BASE}/api/documents?page=1&page_size=20", timeout=10).json()
-                  .get("data") or {}).get("items", []))
+        # 用模块级 httpx.get 现开现用：dump 段所在位置那个 cli 客户端**已经关闭**了
+        # （复用它会在 send 时抛 "client has been closed"）。
+        # trust_env=False 是必须的：本机访问 localhost 不能被系统代理劫持。
+        def _api(path):
+            return httpx.get(f"{BASE}{path}", timeout=20, trust_env=False)
+
+        _docs = ((_api("/api/documents?page=1&page_size=20").json().get("data") or {})
+                 .get("items", []))
         _pdf = next((x for x in _docs if x.get("fmt") == "pdf"), None)
         if _pdf is None:
             check("9.15 PDF 原页渲染的数据源可用（raw 端点返回真 PDF 字节）",
                   False, "测试数据里没有 PDF 文档")
         else:
-            raw_r = cli.get(f"{BASE}/api/courses/documents/{_pdf['id']}/raw", timeout=20)
+            raw_r = _api(f"/api/courses/documents/{_pdf['id']}/raw")
             check("9.15 PDF 原页渲染的数据源可用（raw 端点返回真 PDF 字节）",
                   raw_r.status_code == 200
                   and "pdf" in raw_r.headers.get("content-type", "").lower()
                   and raw_r.content[:4] == b"%PDF",
                   f"status={raw_r.status_code} ct={raw_r.headers.get('content-type')}")
-            pv_r = cli.get(f"{BASE}/api/documents/{_pdf['id']}/preview?page_no=1", timeout=20).json()
+            pv_r = _api(f"/api/documents/{_pdf['id']}/preview?page_no=1").json()
             check("9.16 文本预览端点按页返回内容（非 PDF 材料走这条路）",
                   bool((pv_r.get("data") or {}).get("pages")),
                   f"{str(pv_r)[:150]}")

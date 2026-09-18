@@ -96,9 +96,9 @@ main { flex: 1; min-height: 0; display: flex; }
 .col-right { width: 290px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); transition: width .16s ease; }
 /* 右栏面板可折叠：收起时收窄成一条竖条，把横向空间让给聊天区 / 文档预览。
    三个面板（引用来源 / 记忆 / 文档预览）共用这套规则。 */
-.col-right.folded { width: 44px; }
-.col-right.folded .panel-body { display: none; }
-.col-right.folded .panel-head {
+.col-right.folded, .col-origin.folded { width: 44px; }
+.col-right.folded .panel-body, .col-origin.folded .panel-body { display: none; }
+.col-right.folded .panel-head, .col-origin.folded .panel-head {
   height: 100%; flex-direction: column; align-items: center;
   justify-content: flex-start; gap: 8px; padding: 14px 0;
   border-bottom: 0; letter-spacing: 0;
@@ -107,20 +107,39 @@ main { flex: 1; min-height: 0; display: flex; }
    ⚠️ 用 CSS 去隐藏标题栏里的按钮是**不可靠的** —— foldHead 给按钮组写过内联
    `display:flex`，内联优先级高于这里的类规则，结果「管理」按钮在收起态被竖排露出来
    （用户截图反馈）。所以收起态由 JS 直接不渲染按钮，CSS 只负责排版。 */
-.col-right.folded .fold-label {
+.col-right.folded .fold-label, .col-origin.folded .fold-label {
   writing-mode: vertical-rl; letter-spacing: .2em;
   font-size: 12px; font-weight: 600; color: var(--muted);
 }
-.col-right.folded .panel-head:hover .fold-label { color: var(--text); }
-.col-right.folded .fold { font-size: 10px; opacity: .7; }
+.col-right.folded .panel-head:hover .fold-label,
+.col-origin.folded .panel-head:hover .fold-label { color: var(--text); }
+.col-right.folded .fold, .col-origin.folded .fold { font-size: 10px; opacity: .7; }
 
 /* 标题栏右侧的按钮组（原先写的是内联样式，改成类便于统一控制） */
 .panel-head .ph-right { display: flex; align-items: center; gap: 6px; }
-/* 左补白列与右栏（课堂提问，340px）同宽 → 主栏落在屏幕中央 */
-.col-spacer { width: 340px; flex-shrink: 0; }
+/* 课程页左侧「课本原件」栏。
+   它原来是 .col-spacer —— 340px 的**纯补白**，唯一作用是把讲义推到屏幕中央。
+   2026-09-18 用户提出把这块空间用起来：摊开本课材料的原件，讲义里点引用角标
+   还能自动翻到对应页（见 lesson.js 的 renderOrigin / jumpOriginToCite）。
+   ⚠️ 宽度**必须与右栏（课堂提问，340px）相等**：讲义/字幕的居中是按 `left: 50%`
+   算的，只有左右两栏等宽时主栏中心才落在屏幕中心。给 360 会让字幕整体偏 10px。
+   觉得挤就「收起」（收成 44px 竖条）—— 收起态同理不影响居中（那是居左对齐）。 */
+.col-origin {
+  width: 340px; flex-shrink: 0;
+  border-right: 1px solid var(--border); background: var(--panel);
+  transition: width .16s ease;
+}
+/* 材料切换下拉（一门课有多份材料时才出现） */
+.col-origin .panel-head .mini-sel {
+  max-width: 132px; padding: 2px 4px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); color: var(--text);
+}
 /* 窗口不够宽时隐藏补白列，避免主栏被挤扁 */
-@media (max-width: 1100px) {
-  .col-spacer { display: none; }
+/* 窗口不够宽就整个隐藏（讲义优先）。刻意**不做渐次收窄** ——
+   收窄会让左右栏不等宽，主栏中心偏离屏幕中心，字幕就得跟着补偿，多一处易错点。 */
+@media (max-width: 1080px) {
+  .col-origin { display: none; }
 }
 .panel-head {
   padding: 10px 14px; font-size: 12px; color: var(--muted); font-weight: 600;
@@ -409,11 +428,13 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 600; }
   display: flex; flex-direction: column; gap: 10px;
   z-index: 60; pointer-events: none;
 }
-/* 窄屏回退：补白列被隐藏（见文件上方 .col-spacer 的媒体查询）后主栏偏左，
-   字幕/互动框要跟着左移右栏宽度的一半，才能对齐主栏。
+/* 窄屏回退：左侧原件栏被隐藏（见文件上方 .col-origin 的媒体查询）后主栏偏左，
+   字幕/互动框要跟着左移右栏宽度的一半（340/2 = 170），才能对齐主栏。
    这条必须放在 .teach-stage 之后 —— 同优先级下靠后的规则胜出，
-   写在前面会被上面的 `left: 50%` 覆盖掉，窄屏就会偏右 170px。 */
-@media (max-width: 1100px) {
+   写在前面会被上面的 `left: 50%` 覆盖掉，窄屏就会偏右 170px。
+   ⚠️ 断点必须与 .col-origin 的隐藏断点**保持一致**（都是 1080）：
+   两者错开的那段宽度里，左栏没了但字幕还在按"有左栏"算，就会偏。 */
+@media (max-width: 1080px) {
   .teach-stage { left: calc(50% - 170px); }
 }
 .teach-stage[hidden] { display: none; }

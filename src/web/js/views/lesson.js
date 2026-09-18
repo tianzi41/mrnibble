@@ -21,6 +21,13 @@
     mode: "view",           // view | highlight | circle
     drag: null,
     saveTimer: null,
+    // 左侧「课本原件」栏（与上面「材料标注」tab 各自独立：那个是编辑标注用的，
+    // 这个只是把原件摊在旁边边看边听）
+    originDoc: null,        // 当前显示的材料 id；null = 自动选本讲引用最多的那份
+    originPage: 1,
+    originFolded: false,    // 收起后变成一条竖标签，把宽度让给讲义
+    originHandle: null,     // DocPreview 返回的跳页句柄
+    docMeta: null,          // id -> { fmt, page_count, title }；null = 还没拉
     // 单元总结
     unitSummary: null,
     // 上课流
@@ -87,11 +94,121 @@
   /** 课程绑定材料（标题优先取标注里带的，其次用引用里的）。 */
   function courseDocuments() {
     const ids = (S.course && S.course.document_ids) || [];
+    const meta = S.docMeta || {};
     return ids.map((id) => {
       const hit = S.marks.find((m) => m.document_id === id)
         || (S.lesson.citations || []).find((c) => c.document_id === id);
-      return { id, title: (hit && (hit.document_title || hit.document_title)) || "材料" };
+      const m = meta[id] || {};
+      // fmt / page_count 来自文档列表（原件预览靠 fmt 决定走 PDF 原页还是文本）
+      return {
+        id,
+        title: (hit && hit.document_title) || m.title || "材料",
+        fmt: m.fmt || "",
+        page_count: m.page_count || 0,
+      };
     });
+  }
+
+  /** 拉一次文档元信息（fmt / page_count）备用；失败也要置空对象 ——
+   *  否则 renderOrigin 每次渲染都会重新拉，形成循环。 */
+  async function ensureDocMeta() {
+    if (S.docMeta) return;
+    try {
+      const d = await Api.get("/api/documents?page=1&page_size=200");
+      const m = {};
+      (d.items || []).forEach((x) => {
+        m[x.id] = { fmt: x.fmt, page_count: x.page_count, title: x.title };
+      });
+      S.docMeta = m;
+    } catch (e) {
+      S.docMeta = {};
+    }
+  }
+
+  /** 左侧「课本原件」栏。 */
+  function renderOrigin() {
+    const box = document.getElementById("lesson-origin");
+    if (!box) return;
+    box.className = "col col-origin" + (S.originFolded ? " folded" : "");
+    box.innerHTML = "";
+    S.originHandle = null;
+
+    // 收起态：一条竖标签，点一下展开
+    if (S.originFolded) {
+      const bar = el("div", "panel-head clickable");
+      bar.innerHTML = '<span class="fold-label">课本</span><span class="fold" title="展开">▸</span>';
+      bar.onclick = () => { S.originFolded = false; renderOrigin(); };
+      box.appendChild(bar);
+      return;
+    }
+
+    const docs = courseDocuments();
+    // 选默认材料：用户显式选过就用它 → 否则本讲引用里出现的第一份 → 再否则第一份材料
+    let doc = docs.find((x) => x.id === S.originDoc);
+    if (!doc) {
+      const cited = ((S.lesson && S.lesson.citations) || []).find(
+        (c) => docs.some((x) => x.id === c.document_id));
+      doc = cited ? docs.find((x) => x.id === cited.document_id) : docs[0];
+      S.originDoc = doc ? doc.id : null;
+      if (cited && cited.page_no) S.originPage = cited.page_no;
+    }
+
+    const head = el("div", "panel-head");
+    head.appendChild(el("span", null, "课本原件"));
+    const right = el("span", "ph-right");
+    if (docs.length > 1) {
+      const sel = el("select", "mini-sel");
+      sel.title = "切换这门课的其他材料";
+      docs.forEach((x) => {
+        const o = document.createElement("option");
+        o.value = x.id;
+        o.textContent = x.title || "材料";
+        if (doc && x.id === doc.id) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.onchange = () => { S.originDoc = sel.value; S.originPage = 1; renderOrigin(); };
+      right.appendChild(sel);
+    }
+    const fold = el("button", "btn small", "收起");
+    fold.title = "收起原件栏，把宽度让给讲义";
+    fold.onclick = () => { S.originFolded = true; renderOrigin(); };
+    right.appendChild(fold);
+    head.appendChild(right);
+    box.appendChild(head);
+
+    const body = el("div", "panel-body");
+    box.appendChild(body);
+    if (!doc) {
+      body.appendChild(el("div", "empty", "这门课还没绑定材料。"));
+      return;
+    }
+    if (!window.DocPreview) {
+      body.appendChild(el("div", "empty", "预览组件未加载。"));
+      return;
+    }
+    // 元信息还没到（首次）→ 先渲染，拿到后自动重建一次
+    if (!S.docMeta) ensureDocMeta().then(() => { if (S.docMeta) renderOrigin(); });
+    DocPreview.mount(body, {
+      id: doc.id,
+      title: doc.title,
+      fmt: doc.fmt,
+      page_count: doc.page_count,
+    }, { startPage: S.originPage || 1 }).then((h) => { S.originHandle = h; });
+  }
+
+  /** 讲义里点引用角标 [N] → 左侧原件翻到那一页。
+   *  引用的可能是另一份材料 → 先切材料再跳页。 */
+  function jumpOriginToCite(n) {
+    const c = ((S.lesson && S.lesson.citations) || []).find((x) => String(x.n) === String(n));
+    if (!c) return;
+    S.originPage = c.page_no || 1;
+    if (c.document_id && c.document_id !== S.originDoc) {
+      S.originDoc = c.document_id;
+      renderOrigin();
+      return;
+    }
+    if (S.originFolded) { S.originFolded = false; renderOrigin(); return; }
+    if (S.originHandle && S.originHandle.goTo) S.originHandle.goTo(S.originPage);
   }
 
   async function ensureConversation() {
@@ -1573,7 +1690,7 @@
 
     host.innerHTML = `
       <div class="cols">
-        <div class="col col-spacer"></div>
+        <div class="col col-origin" id="lesson-origin"></div>
         <div class="col col-main" style="display:flex;flex-direction:column;min-width:0">
           <div class="lesson-head" id="lesson-head"></div>
         </div>
@@ -1598,8 +1715,19 @@
         <div class="teach-sub" id="teach-sub"></div>
       </div>`;
 
+    // 讲义里的引用角标 → 左栏原件翻到对应页。
+    // 委托绑在本次新建的 .cols 上：切页会重建 → 监听自动失效，不会累积。
+    const colsEl = host.querySelector(".cols");
+    if (colsEl) {
+      colsEl.addEventListener("click", (e) => {
+        const btn = e.target.closest(".cite");
+        if (btn && btn.dataset.cite) jumpOriginToCite(btn.dataset.cite);
+      });
+    }
+
     renderHead();
     renderStage();
+    renderOrigin();
     document.getElementById("b-send").onclick = send;
     document.getElementById("lesson-input").onkeydown = (e) => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }

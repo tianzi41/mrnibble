@@ -47,8 +47,7 @@
 
     if (pdfOk) {
       try {
-        await mountPdf(host, doc, opts);
-        return;
+        return await mountPdf(host, doc, opts);
       } catch (e) {
         host.innerHTML = "";
         host.appendChild(el("div", "hint",
@@ -58,6 +57,7 @@
       host.appendChild(el("div", "hint", "PDF 渲染组件未加载，下面按文字显示。"));
     }
     await mountText(host, doc, opts);
+    return null;
   }
 
   /** PDF：原页图像 + 翻页 + 缩放（1 = 适应容器宽度）。 */
@@ -127,6 +127,16 @@
       const ro = new ResizeObserver(() => { if (zoom === 1) draw(); });
       ro.observe(stage);
     }
+
+    // 返回一个跳页句柄：调用方（课程页的引用角标）可以「翻到第 N 页」而**不用重建整个预览** ——
+    // 重建会重新拉 PDF、重新算布局，点一下角标闪一次，体验很差。
+    return {
+      goTo(p) {
+        const n = Math.max(1, Math.min(total, Number(p) || 1));
+        if (n !== page) { page = n; draw(); }
+      },
+      current() { return page; },
+    };
   }
 
   /** 非 PDF：逐页取文本拼起来（边拉边显示，不用等全部完成）。 */
