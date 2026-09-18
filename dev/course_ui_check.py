@@ -22,6 +22,30 @@ import httpx
 from make_pdf import make_text_pdf
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# ── 测试用的 Chrome 用户数据目录 ────────────────────────────────
+# 硬约束：必须**纯 ASCII**（中文路径下 Chrome 行为不稳定），因此不能放项目内
+# （本项目路径含中文）。历史上写死在 C 盘的临时目录，每跑一次留 4 个约 15MB 的 profile、
+# 且从不清理 → 累积 3.6 GB 把 C 盘吃满（2026-09-18 用户清理 C 盘时发现）。
+# 现在统一落到 Q 盘纯 ASCII 目录；ui_profile() 每次启动还会清掉 24 小时前的旧目录。
+UI_TMP = Path(os.environ.get("ZHIBAN_TEST_TMP") or "Q:/zhiban_tmp")
+
+
+def ui_profile(kind: str) -> str:
+    """返回一个新的 Chrome 用户数据目录（绝对路径、纯 ASCII）。
+
+    顺手清理**24 小时前**的旧目录：只删老的，正在跑的这次不会被误伤。
+    清理失败一律忽略 —— 沙箱有批量删除护栏，被拦下只是留着占地方，不影响测试。
+    """
+    UI_TMP.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - 24 * 3600
+    for old in UI_TMP.glob("ui-%s-*" % kind):
+        try:
+            if old.stat().st_mtime < cutoff:
+                shutil.rmtree(old, ignore_errors=True)
+        except OSError:
+            pass
+    return str(UI_TMP / ("ui-%s-%d" % (kind, int(time.time()))))
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
 DATA = ROOT / ".tmp" / "test-data-courseui"
 BASE = "http://127.0.0.1:8764"
@@ -70,7 +94,7 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
 
     chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
     # 纯 ASCII 路径；每次用独立 profile，避免跨运行复用 HTTP 缓存导致拿到旧 JS
-    ud = "C:/tmp/zhiban_cdp_%d" % int(time.time())
+    ud = ui_profile("cdp")
     try: os.makedirs(ud, exist_ok=True)
     except Exception: pass
     port = 9223
@@ -610,7 +634,7 @@ def cdp_settings_tts(base: str) -> None:
     import websockets
 
     chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-    ud = "C:/tmp/zhiban_tts_%d" % int(time.time())
+    ud = ui_profile("tts")
     try:
         os.makedirs(ud, exist_ok=True)
     except Exception:
@@ -874,7 +898,7 @@ def cdp_visuals(base: str) -> None:
     import websockets
 
     chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-    ud = "C:/tmp/zhiban_viz_%d" % int(time.time())
+    ud = ui_profile("viz")
     try:
         os.makedirs(ud, exist_ok=True)
     except Exception:
@@ -1041,7 +1065,7 @@ def cdp_regen(base: str) -> None:
     import websockets
 
     chrome = r"C://Program Files//Google//Chrome//Application//chrome.exe"
-    ud = "C:/tmp/zhiban_regen_%d" % int(time.time())
+    ud = ui_profile("regen")
     try:
         os.makedirs(ud, exist_ok=True)
     except Exception:

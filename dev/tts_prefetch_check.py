@@ -43,7 +43,10 @@ ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
 DATA = ROOT / ".tmp" / "test-data-prefetch"
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-UD = "C:/tmp/zhiban_prefetch"
+# 用户数据目录放 Q 盘**纯 ASCII** 路径（中文路径下 Chrome 行为不稳定）；
+# 详见 course_ui_check.py 里 UI_TMP / ui_profile() 的说明。本脚本用固定目录 + 主动清理。
+UI_TMP = Path(os.environ.get("ZHIBAN_TEST_TMP") or "Q:/zhiban_tmp")
+UD = str(UI_TMP / "ui-prefetch")
 APPPORT = 8769
 CDP_PORT = 9229
 SYNTH_DELAY = 0.8          # 假端点单次合成耗时
