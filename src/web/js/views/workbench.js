@@ -64,6 +64,9 @@
   /* ── 渲染 ─────────────────────────────── */
   function renderSide() {
     const docs = document.getElementById("side-docs");
+    // 重建前记下列表滚动位置，建完还原：上传 / 重新解析会整体重建列表，
+    // 不还原的话用户滚到一半就被弹回顶部（与「选中跳顶」同一类问题）。
+    const prevScroll = (docs.querySelector(".panel-body") || {}).scrollTop || 0;
     docs.innerHTML = "";
     const head = el("div", "panel-head",
       `<span>资料库（${S.documents.length}）</span><button class="btn small primary" id="btn-upload">＋ 上传</button>`);
@@ -119,12 +122,24 @@
       item.onclick = () => {
         const i = S.selectedDocs.indexOf(d.id);
         if (i >= 0) S.selectedDocs.splice(i, 1); else S.selectedDocs.push(d.id);
-        renderSide();
+        // ⚠️ 就地更新这一项的选中态，**不要整列表重建**：重建会把滚动容器清空，
+        // 列表长了以后每选一份就被弹回顶部，得反复下滑（用户实测反馈）。
+        const on = S.selectedDocs.includes(d.id);
+        item.classList.toggle("active", on);
+        const mark = item.querySelector(".picked");
+        if (on && !mark) {
+          const m = el("span", "picked", "✓");
+          item.insertBefore(m, item.querySelector("small"));
+        } else if (!on && mark) {
+          mark.remove();
+        }
+        updateScope();      // 底部「范围：已选 N 份」随份数变化
       };
       item.title = d.warning || d.title;
       body.appendChild(item);
     });
     docs.appendChild(body);
+    if (prevScroll) body.scrollTop = prevScroll;
 
     const convs = document.getElementById("side-convs");
     convs.innerHTML = "";
@@ -314,14 +329,26 @@
       const d = S.previewDoc;
       pbox.style.display = d ? "" : "none";
       if (d) {
-        pbox.className = "col col-right" + (S.fold.preview ? " folded" : "");
+        const folded = !!S.fold.preview;
+        pbox.className = "col col-right col-preview" + (folded ? " folded" : "");
+        // 展开时用「记住的宽度」（默认 440，见 CSS 注释）；收起时交回 CSS 的 28px
+        pbox.style.width = folded ? "" : previewWidth() + "px";
         pbox.innerHTML = "";
+        // 拖拽把手：贴在面板左边缘（绝对定位，不占列宽）
+        const rz = el("div", "pv-resizer");
+        rz.title = "拖动调整预览宽度；双击复位";
+        rz.onmousedown = startPreviewDrag;
+        rz.ondblclick = () => { setPreviewWidth(PREVIEW_W_DEFAULT); renderRight(); };
+        pbox.appendChild(rz);
         pbox.appendChild(foldHead(`文档预览《${escapeHtml(d.title)}》`, "preview", "预览",
-          `<button class="btn small" id="pv-close">关闭</button>`));
+          `<button class="btn small" id="pv-full" title="全屏预览（PDF 原页放大看）">⤢</button>`
+          + `<button class="btn small" id="pv-close">关闭</button>`));
         const pb = el("div", "panel-body");
         pbox.appendChild(pb);
         const cb = pbox.querySelector("#pv-close");
         if (cb) cb.onclick = closeDocPreview;
+        const fb = pbox.querySelector("#pv-full");
+        if (fb) fb.onclick = () => openFullPreview(d.doc);
         // 渲染交给 DocPreview：PDF 用 pdf.js 画原页图像，其他格式按页取文本。
         // 别再直接调 /api/documents/{id}/preview —— 那个端点只返回一页（引用定位用）。
         if (d.doc && window.DocPreview) DocPreview.mount(pb, d.doc, { startPage: d.page || 1 });
@@ -450,7 +477,76 @@
     });
   }
 
-  /* ── 右栏文档预览（点资料库里的 👁）──────────────────
+  /* ── 预览面板宽度（可拖拽，记住选择）────────── */
+// 为什么可调：窗口大小、材料类型（单栏 PDF / 双栏 PDF / md 文本）差异很大，
+// 一个固定宽度必然有人嫌窄 —— 用户实测「预览窗口太小、PDF 看不清」。
+const PREVIEW_W_DEFAULT = 440;
+const PREVIEW_W_KEY = "zhiban-preview-w";
+let previewW = null;                    // 懒读 localStorage
+
+function previewWidth() {
+  if (previewW == null) {
+    const v = parseInt(localStorage.getItem(PREVIEW_W_KEY) || "", 10);
+    previewW = Number.isFinite(v) && v >= 260 ? v : PREVIEW_W_DEFAULT;
+  }
+  return previewW;
+}
+function setPreviewWidth(w) {
+  const max = Math.max(320, window.innerWidth - 400);   // 给左侧聊天区留出可读宽度
+  previewW = Math.max(260, Math.min(max, Math.round(w)));
+  try { localStorage.setItem(PREVIEW_W_KEY, String(previewW)); } catch (e) { /* 隐私模式等，忽略 */ }
+}
+/** 拖预览面板左边缘改宽度：面板在最右侧，鼠标往左移 = 变宽。 */
+function startPreviewDrag(ev) {
+  ev.preventDefault();
+  const startX = ev.clientX;
+  const startW = previewWidth();
+  const bar = ev.currentTarget;
+  bar.classList.add("dragging");
+  document.body.style.cursor = "col-resize";
+  const move = (e) => {
+    const box = document.getElementById("right-preview");
+    if (!box) return;
+    setPreviewWidth(startW + (startX - e.clientX));
+    box.style.width = previewWidth() + "px";
+  };
+  const up = () => {
+    bar.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+}
+/** 全屏预览：小面板里 PDF 原页再宽也就 400 多像素，看不清时一次性放大到近全屏。
+ *  ESC / 点空白 / 「关闭」都可退出。 */
+function openFullPreview(doc) {
+  if (!doc || !window.DocPreview) return;
+  const old = document.getElementById("pv-full-box");
+  if (old) old.remove();
+  const back = el("div", "pv-full");
+  back.id = "pv-full-box";
+  const card = el("div", "pv-full-card");
+  card.innerHTML = `<div class="panel-head"><span>《${escapeHtml(doc.title || "材料")}》</span>`
+    + `<button class="btn small" id="pv-full-x">关闭（Esc）</button></div>`;
+  const body = el("div", "panel-body");
+  card.appendChild(body);
+  back.appendChild(card);
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  function close() {
+    document.removeEventListener("keydown", onKey);
+    back.remove();
+  }
+  back.onclick = (e) => { if (e.target === back) close(); };
+  document.body.appendChild(back);
+  const x = document.getElementById("pv-full-x");
+  if (x) x.onclick = close;
+  document.addEventListener("keydown", onKey);
+  DocPreview.mount(body, doc, { startPage: 1 });
+}
+
+/* ── 右栏文档预览（点资料库里的 👁）──────────────────
    和「点引用角标看原文」是两条路：那个只弹**引用命中的那一页**（浮层，看完就关）；
    这个把整份文档摊在右栏、边看边提问。
    打开时自动把「引用来源」「记忆」收起来 —— 否则三块全展开会把聊天区挤没。 */

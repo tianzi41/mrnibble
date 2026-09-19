@@ -94,21 +94,36 @@ main { flex: 1; min-height: 0; display: flex; }
 .col-side { width: 250px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--panel); }
 .col-main { flex: 1; }
 .col-right { width: 290px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); transition: width .16s ease; }
+/* 「文档预览」面板比其它右栏面板宽：看原文 / 看 PDF 原页都需要横向空间，
+   290px 下 A4 页面只能缩到很小（用户实测「看不清」）。宽度还可以用左边缘
+   的把手拖拽调整（JS 写内联 width，见 workbench.js），所以这里只给默认值。 */
+.col-right.col-preview { width: 440px; transition: none; position: relative; }
+.col-right.col-preview.folded { width: 28px; }
+/* 拖拽把手：贴在预览面板左边缘（绝对定位，不占列宽），按住左右拖动改宽度。 */
+.pv-resizer {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 7px;
+  cursor: col-resize; z-index: 6; background: transparent;
+}
+.pv-resizer:hover, .pv-resizer.dragging { background: var(--primary-ring); }
+.col-right.folded .pv-resizer { display: none; }
 /* 右栏面板可折叠：收起时收窄成一条竖条，把横向空间让给聊天区 / 文档预览。
    三个面板（引用来源 / 记忆 / 文档预览）共用这套规则。 */
-.col-right.folded, .col-origin.folded { width: 44px; }
+.col-right.folded, .col-origin.folded { width: 28px; }
 .col-right.folded .panel-body, .col-origin.folded .panel-body { display: none; }
 .col-right.folded .panel-head, .col-origin.folded .panel-head {
   height: 100%; flex-direction: column; align-items: center;
-  justify-content: flex-start; gap: 8px; padding: 14px 0;
+  justify-content: flex-start; gap: 6px; padding: 12px 0;
   border-bottom: 0; letter-spacing: 0;
 }
+/* 收起态的竖条要「细而干净」：早期是 44px + 12px 字 + 大间距，两条并排占掉近 90px 且显得笨重。
+   现在 28px、单字竖排、悬停整条变色，一眼可认出可点。 */
+.col-right.folded .panel-head:hover, .col-origin.folded .panel-head:hover { background: var(--bg-soft); }
 /* 收起态：只渲染「短标签 + 展开箭头」。
    ⚠️ 用 CSS 去隐藏标题栏里的按钮是**不可靠的** —— foldHead 给按钮组写过内联
    `display:flex`，内联优先级高于这里的类规则，结果「管理」按钮在收起态被竖排露出来
    （用户截图反馈）。所以收起态由 JS 直接不渲染按钮，CSS 只负责排版。 */
 .col-right.folded .fold-label, .col-origin.folded .fold-label {
-  writing-mode: vertical-rl; letter-spacing: .2em;
+  writing-mode: vertical-rl; letter-spacing: .08em;
   font-size: 12px; font-weight: 600; color: var(--muted);
 }
 .col-right.folded .panel-head:hover .fold-label,
@@ -776,6 +791,40 @@ details.adv > .field { margin-top: 10px; }
 .pv-bar .btn.on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .pv-stage {
   background: var(--paper); border: 1px solid var(--border); border-radius: 8px;
-  padding: 8px; overflow: auto; display: flex; justify-content: center;
+  padding: 8px; overflow: auto;
 }
-.pv-stage canvas { max-width: 100%; height: auto; background: #fff; box-shadow: var(--shadow); }
+/* ⚠️ canvas 的显示尺寸由 pdfview.renderPage 用**内联** width/height 精确给出（含 DPR）。
+   这里**绝不能**再写 max-width:100% / height:auto：
+   内联 height 会压过 `height:auto`，于是「宽度被限制回容器内 + 高度仍是放大后的大值」
+   → 画面被横向压扁变形（2026-09-18 用户实测）。放大后超出容器交给上面的 overflow 滚动。
+   margin:0 auto 负责「窄于容器时居中」；它不会像 flex 居中那样，在内容超宽时把
+   左侧裁掉、导致滚不到最左边。 */
+.pv-stage canvas { display: block; margin: 0 auto; background: #fff; box-shadow: var(--shadow); }
+/* 文本路径（md/txt/docx/html）：每页一个块，点引用角标可滚到对应页（见 docpreview.js）。
+   页与页之间用细分隔线断开，长文一次性摊开也不糊成一片。 */
+.pv-text-page + .pv-text-page {
+  border-top: 1px dashed var(--border); margin-top: 10px; padding-top: 10px;
+}
+/* 引用定位命中的原文（docpreview 的 goToSnippet 会包一层 <mark>）：
+   给一个主题安全的高亮 —— 用 warn 系变量，暗色下也读得清。 */
+.pv-hit {
+  background: var(--warn-soft); color: var(--text);
+  box-shadow: 0 0 0 2px var(--warn-border); border-radius: 3px;
+}
+/* 点引用角标时原件栏闪一下：引用大多没有页码、跳页看不出变化，
+   用一次短暂的描边确认「点到了」。 */
+.col-origin.flash { box-shadow: inset 0 0 0 2px var(--primary-ring); }
+/* 全屏预览（预览面板标题栏的「⤢」触发）：小面板看不清时的一次性放大。
+   PDF 在原页路径下按容器宽自适应，容器变宽 → 页面直接变大、可读性随之解决。 */
+.pv-full {
+  position: fixed; inset: 0; z-index: 9998; background: var(--overlay);
+  display: flex; align-items: center; justify-content: center; padding: 22px;
+}
+.pv-full-card {
+  width: min(1500px, 96vw); height: 92vh; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow-modal); overflow: hidden;
+}
+.pv-full-card .panel-head { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.pv-full-card .panel-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; font-size: 14px; }
+.pv-full-card .doc-preview { font-size: 14px; line-height: 1.9; }

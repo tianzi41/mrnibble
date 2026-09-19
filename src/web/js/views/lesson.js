@@ -27,6 +27,7 @@
     originPage: 1,
     originFolded: false,    // 收起后变成一条竖标签，把宽度让给讲义
     originHandle: null,     // DocPreview 返回的跳页句柄
+    pendingCite: null,      // 点了引用角标但预览还没挂载完 → 挂起页码，挂载后补跳
     docMeta: null,          // id -> { fmt, page_count, title }；null = 还没拉
     // 单元总结
     unitSummary: null,
@@ -125,6 +126,37 @@
     }
   }
 
+  /** 「材料来源」一行：这门课备课依据了哪些文件。
+   *
+   *  用户明确要求（2026-09-19）：在「已生成课程结构、可以开始上课」的界面上要能看出
+   *  课程是用哪些材料生成的 —— 否则只能猜「AI 到底看了我哪几份文件」。
+   *  标题来自 /api/documents（docMeta），首次渲染时可能还没到 → 到货后重画一次头部。 */
+  function materialsLine() {
+    const docs = courseDocuments();
+    if (!docs.length) return "";
+    const names = docs.map((d) => `《${esc(d.title || "材料")}》`).join("、");
+    return `备课材料（${docs.length}）：${names}`;
+  }
+
+  /** 只刷新「备课材料」那一小块（**不要**整块 renderHead —— 那会重建 #tab-body、把当前页签内容清掉）。 */
+  function renderMaterials() {
+    const slot = document.getElementById("lesson-src-slot");
+    if (!slot) return;
+    const t = materialsLine();
+    slot.innerHTML = t ? `<div class="hint" id="lesson-src">${t}</div>` : "";
+  }
+
+  /** 转义文本并把 `[N]` 变成可点的引用角标。
+   *
+   *  为什么需要它：讲义的要点列表用的是**纯文本 + esc()**，角标只在走 Markdown 的地方
+   *  （课件正文、讲义回顾）才会被 markdown.js 变成按钮 —— 于是同为 `[1]`，在课件里能点、
+   *  在讲义要点里却是一串死文字（用户实测「课件里的 1 按钮点了没反应」，同源问题）。
+   *  esc() 先把 `<`/`>` 处理掉，再插按钮标签，注入风险不变。 */
+  function citeHtml(text) {
+    return esc(text).replace(/\[(\d{1,2})\]/g,
+      (m, n) => `<button class="cite" data-cite="${n}">${n}</button>`);
+  }
+
   /** 左侧「课本原件」栏。 */
   function renderOrigin() {
     const box = document.getElementById("lesson-origin");
@@ -187,28 +219,96 @@
       return;
     }
     // 元信息还没到（首次）→ 先渲染，拿到后自动重建一次
-    if (!S.docMeta) ensureDocMeta().then(() => { if (S.docMeta) renderOrigin(); });
+    // （材料标题也来自它 —— 头部那行「备课材料」同样要跟着刷新）
+    if (!S.docMeta) ensureDocMeta().then(() => { if (S.docMeta) { renderOrigin(); renderMaterials(); } });
     DocPreview.mount(body, {
       id: doc.id,
       title: doc.title,
       fmt: doc.fmt,
       page_count: doc.page_count,
-    }, { startPage: S.originPage || 1 }).then((h) => { S.originHandle = h; });
+    }, { startPage: S.originPage || 1 }).then((h) => {
+      S.originHandle = h;
+      // 挂载期间用户点过引用角标 → 现在补跳（切材料 / 展开栏都会重建预览，跳页会晚于点击）
+      if (S.pendingCite) {
+        const job = S.pendingCite;
+        S.pendingCite = null;
+        runCiteJump(job);
+      }
+    });
   }
 
   /** 讲义里点引用角标 [N] → 左侧原件翻到那一页。
-   *  引用的可能是另一份材料 → 先切材料再跳页。 */
+   *  引用的可能是另一份材料 → 先切材料再跳页。
+   *
+   *  ⚠️ 两种「点了没反应」的成因（2026-09-19 用户实测）：
+   *  ① 正文里任何 `[数字]` 都会被 markdown.js 变成角标按钮 —— 有些并不是材料引用
+   *     （如示例里的 [1]），此前直接 `return` 静默 → 现在给一条明确提示；
+   *  ② md / txt 材料的预览原先是一整块文本、没有可跳的页节点 → 跳页函数不存在，
+   *     现在 DocPreview 文本路径也返回跳页句柄（见 docpreview.js），并且跳页要
+   *     **等挂载完成**（切材料 / 展开栏都会重建），所以用 pendingCite 挂起来。 */
   function jumpOriginToCite(n) {
     const c = ((S.lesson && S.lesson.citations) || []).find((x) => String(x.n) === String(n));
-    if (!c) return;
-    S.originPage = c.page_no || 1;
-    if (c.document_id && c.document_id !== S.originDoc) {
-      S.originDoc = c.document_id;
+    if (!c) {
+      Toast(`正文里的 [${n}] 不是材料引用（可能只是普通方括号数字），没有对应原文可跳`, true);
+      return;
+    }
+    const meta = (S.docMeta || {})[c.document_id] || {};
+    const job = {
+      name: c.document_title || meta.title || "原件",
+      page: c.page_no != null ? c.page_no : null,
+      snippet: c.snippet || "",
+      docId: c.document_id || null,
+    };
+    // 要换材料 / 原件栏是收起态 → 必须先重建预览，跳页交给重建完成后的回调
+    if ((job.docId && job.docId !== S.originDoc) || S.originFolded) {
+      if (job.docId) S.originDoc = job.docId;
+      S.originFolded = false;
+      S.pendingCite = job;
       renderOrigin();
       return;
     }
-    if (S.originFolded) { S.originFolded = false; renderOrigin(); return; }
-    if (S.originHandle && S.originHandle.goTo) S.originHandle.goTo(S.originPage);
+    if (!S.originHandle) {           // 预览还在挂载 → 挂起，好了再跳
+      S.pendingCite = job;
+      return;
+    }
+    runCiteJump(job);
+  }
+
+  /** 执行「跳 + 反馈」。
+   *
+   *  ⚠️ 关键事实：本项目里引用**绝大多数没有页码**（`page_no` 为 null —— AI 写的材料
+   *  只有 1 页，切片也不带页码）。早先只认页码，于是点角标即使代码执行了也毫无变化，
+   *  用户看到的就是「点了没反应」。现在：
+   *    ① 有页码 → 翻页；
+   *    ② 没页码 → 用引用片段（citation.snippet）在原文里搜，命中就滚过去 + 高亮；
+   *    ③ 无论如何都给一条 Toast + 原件栏闪一下，保证「点了有反馈」。 */
+  async function runCiteJump(job) {
+    const h = S.originHandle;
+    if (job.page != null && h && h.goTo) {
+      h.goTo(job.page);
+      Toast(`已翻到《${job.name}》第 ${job.page} 页`, false);
+      flashOrigin();
+      return;
+    }
+    if (job.snippet && h && h.goToSnippet) {
+      Toast(`正在《${job.name}》里定位引用原文…`, false);
+      let found = false;
+      try { found = await h.goToSnippet(job.snippet); } catch (e) { found = false; }
+      Toast(found ? `已在《${job.name}》中定位并高亮引用原文`
+                  : `没能在《${job.name}》里找到这段原文（材料可能已更新）`, !found);
+      flashOrigin();
+      return;
+    }
+    Toast(`已切到《${job.name}》（这条引用没有页码与原文片段，无法精确跳转）`, false);
+    flashOrigin();
+  }
+
+  /** 原件栏闪一下：跳页可能「看不出变化」（引用都在第 1 页）时，用反馈确认点到了。 */
+  function flashOrigin() {
+    const box = document.getElementById("lesson-origin");
+    if (!box) return;
+    box.classList.add("flash");
+    setTimeout(() => box.classList.remove("flash"), 1200);
   }
 
   async function ensureConversation() {
@@ -269,7 +369,7 @@
       const box = el("div", "board-sec");
       box.appendChild(el("div", "sec-title", "本讲要点"));
       const ol = el("ol");
-      outline.forEach((o) => ol.appendChild(el("li", null, esc(o))));
+      outline.forEach((o) => ol.appendChild(el("li", null, citeHtml(o))));
       box.appendChild(ol);
       wrap.appendChild(box);
     }
@@ -283,7 +383,7 @@
       const tb = el("tbody");
       kps.forEach((k) => {
         const tr = el("tr");
-        tr.innerHTML = `<td><b>${esc(k.term)}</b></td><td>${esc(k.desc)}</td>`;
+        tr.innerHTML = `<td><b>${esc(k.term)}</b></td><td>${citeHtml(k.desc)}</td>`;
         tb.appendChild(tr);
       });
       tbl.appendChild(tb);
@@ -1451,6 +1551,7 @@
       </div>
       <div class="tabs" id="lesson-tabs"></div>
       <div class="hint">${esc(l.objective || "")}</div>
+      <div id="lesson-src-slot"></div>
       ${descHtml(l.desc)}
       <div id="tab-body"></div>`;
     renderActions();
@@ -1726,6 +1827,7 @@
     }
 
     renderHead();
+    renderMaterials();     // 备课材料（标题要等 docMeta，到货后 renderOrigin 的 then 会再刷一次）
     renderStage();
     renderOrigin();
     document.getElementById("b-send").onclick = send;

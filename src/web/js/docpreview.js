@@ -29,6 +29,37 @@
   /** 文本路径一次最多拉多少页（防极端文档把界面拖死）。 */
   const TEXT_PAGE_CAP = 60;
 
+  /** 引用片段 → 搜索正则。
+   *
+   *  为什么不能直接 indexOf：引用片段是服务端从**切片文本**里截的，与页面上渲染出来的
+   *  原文在空白 / 换行上并不一致（切片去掉过空白、材料里有换行）。所以按「去掉空白后的
+   *  前 24 个字、字间允许任意空白」来搜。
+   */
+  function snippetRe(snippet) {
+    const chars = Array.from(String(snippet || "").replace(/\s+/g, "")).slice(0, 24);
+    if (chars.length < 4) return null;
+    const esc = (c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(chars.map(esc).join("\\s*"), "i");
+  }
+
+  /** 在元素内高亮第一处命中（该元素的文本只有一个文本节点 → 直接按 index 切分是安全的）。 */
+  function markFirst(el, re) {
+    const txt = el.textContent || "";
+    const m = re.exec(txt);
+    if (!m) return false;
+    const before = txt.slice(0, m.index);
+    const hit = txt.slice(m.index, m.index + m[0].length);
+    const after = txt.slice(m.index + m[0].length);
+    el.textContent = "";
+    if (before) el.appendChild(document.createTextNode(before));
+    const mk = document.createElement("mark");
+    mk.className = "pv-hit";
+    mk.textContent = hit;
+    el.appendChild(mk);
+    if (after) el.appendChild(document.createTextNode(after));
+    return true;
+  }
+
   /** 把某份材料的预览挂到 host（会清空 host）。
    *
    * @param {HTMLElement} host 容器
@@ -56,8 +87,8 @@
     } else if (isPdf) {
       host.appendChild(el("div", "hint", "PDF 渲染组件未加载，下面按文字显示。"));
     }
-    await mountText(host, doc, opts);
-    return null;
+    // 文本路径同样返回跳页句柄（否则调用方的「跳原文」在 md/txt 材料上会静默失效）
+    return await mountText(host, doc, opts);
   }
 
   /** PDF：原页图像 + 翻页 + 缩放（1 = 适应容器宽度）。 */
@@ -69,10 +100,12 @@
     const label = el("span", "pv-page", "…");
     const zoomOut = el("button", "btn small", "−");
     const zoomIn = el("button", "btn small", "＋");
+    const zoomPct = el("span", "pv-page", "100%");
     const fit = el("button", "btn small on", "适宽");
     prev.title = "上一页"; next.title = "下一页";
     zoomOut.title = "缩小"; zoomIn.title = "放大"; fit.title = "适应容器宽度";
-    bar.append(prev, label, next, zoomOut, zoomIn, fit);
+    zoomPct.title = "当前缩放（100% = 按容器宽适配）";
+    bar.append(prev, label, next, zoomOut, zoomIn, zoomPct, fit);
 
     const stage = el("div", "pv-stage");
     const canvas = document.createElement("canvas");
@@ -91,15 +124,19 @@
 
     async function draw() {
       if (drawing) return;
-      const wide = stage.clientWidth - 16;      // 减去 padding
+      const wide = stage.clientWidth - 18;      // 减去 padding(8×2) 与边框(1×2)
       // 面板收起（宽度 0）或还没布局时不画：等它展开后会再调一次
       if (wide < 40) { label.textContent = `${page} / ${total}`; return; }
       drawing = true;
       try {
         const p = await pdf.getPage(page);
         const base = p.getViewport({ scale: 1 });
+        // 缩放 1 = 页宽正好等于容器内宽（适宽）；放大后 canvas 会超出容器，
+        // 由 .pv-stage 的 overflow:auto 滚动查看 —— 不再用 CSS max-width 去压它
+        // （压宽度、不压高度 = 画面被压扁变形）。
         await window.PdfView.renderPage(doc.id, page, canvas, (wide / base.width) * zoom);
         label.textContent = `${page} / ${total}`;
+        zoomPct.textContent = Math.round(zoom * 100) + "%";
         prev.disabled = page <= 1;
         next.disabled = page >= total;
       } finally {
@@ -135,31 +172,92 @@
         const n = Math.max(1, Math.min(total, Number(p) || 1));
         if (n !== page) { page = n; draw(); }
       },
+      /** 没有页码的引用：按片段在**前 40 页**里逐页搜文本（pdf.js 的 getTextContent），
+       *  命中即翻到该页。搜索是渐进的，找不到就返回 false（调用方会给出提示）。 */
+      async goToSnippet(snippet) {
+        const re = snippetRe(snippet);
+        if (!re) return false;
+        const cap = Math.min(total, 40);
+        for (let p = 1; p <= cap; p++) {
+          let txt = "";
+          try {
+            const pg = await pdf.getPage(p);
+            const tc = await pg.getTextContent();
+            txt = (tc.items || []).map((it) => it.str || "").join("");
+          } catch (e) { continue; }
+          if (re.test(txt)) { page = p; await draw(); return true; }
+        }
+        return false;
+      },
       current() { return page; },
     };
   }
 
-  /** 非 PDF：逐页取文本拼起来（边拉边显示，不用等全部完成）。 */
+  /** 非 PDF：逐页取文本，**每页一个独立块**（点引用角标才能滚到对应页）。
+   *
+   * 早期是一整块 <pre> 把所有页拼起来 —— 于是 md / txt 材料上「点角标看原文」根本
+   * 无处可跳：没有可定位的节点，跳页代码只能静默什么都不做（用户实测「点了没反应」）。
+   */
   async function mountText(host, doc, opts) {
     const total = Math.max(1, Math.min(Number(doc.page_count) || 1, TEXT_PAGE_CAP));
-    const pre = el("pre", "doc-preview");
-    pre.textContent = "加载中…";
-    host.appendChild(pre);
-
-    const parts = [];
+    const wrap = el("div", "pv-text");
+    const blocks = new Map();
     for (let p = 1; p <= total; p++) {
+      const blk = el("div", "pv-text-page");
+      blk.dataset.page = String(p);
+      const pre = el("pre", "doc-preview");
+      pre.textContent = total > 1 ? `【第 ${p} 页】加载中…` : "加载中…";
+      blk.appendChild(pre);
+      blocks.set(p, blk);
+      wrap.appendChild(blk);
+    }
+    host.appendChild(wrap);
+
+    let any = false;
+    for (let p = 1; p <= total; p++) {
+      const pre = blocks.get(p).querySelector("pre");
       try {
         const r = await Api.get(`/api/documents/${doc.id}/preview?page_no=${p}`);
         const pg = (r.pages || [])[0];
-        if (pg && pg.text) parts.push(total > 1 ? `【第 ${pg.page_no} 页】\n${pg.text}` : pg.text);
-      } catch (e) { /* 单页失败不阻断其余页 */ }
-      if (parts.length) pre.textContent = parts.join("\n\n");
+        const txt = (pg && pg.text) || "";
+        any = any || !!txt;
+        pre.textContent = txt
+          ? (total > 1 ? `【第 ${p} 页】\n${txt}` : txt)
+          : (total > 1 ? `【第 ${p} 页】（这一页没有可提取的文字）` : "（无文字层）");
+      } catch (e) {
+        pre.textContent = total > 1 ? `【第 ${p} 页】读取失败` : "读取失败";
+      }
     }
-    if (!parts.length) {
-      pre.textContent = "（这份材料没有可提取的文字）\n\n" +
-        "如果是扫描版 PDF（页面是图片、没有文字层），这是正常的 —— " +
-        "请用上方的「原页」方式查看，或直接看课程里的引用配图。";
+    if (!any) {
+      wrap.appendChild(el("div", "hint",
+        "（这份材料没有可提取的文字）如果是扫描版 PDF（页面是图片、没有文字层），" +
+        "这是正常的 —— 请用上面的「原页」方式查看，或直接看课程里的引用配图。"));
     }
+    let cur = Math.max(1, opts.page || opts.startPage || 1);
+    return {
+      goTo(p) {
+        const n = Math.max(1, Math.min(total, Number(p) || 1));
+        cur = n;
+        const blk = blocks.get(n);
+        if (blk && blk.scrollIntoView) blk.scrollIntoView({ block: "start", behavior: "smooth" });
+      },
+      /** 按引用片段定位（材料大多没有页码，见 lesson.js 的说明）：找到就滚过去 + 高亮。 */
+      goToSnippet(snippet) {
+        const re = snippetRe(snippet);
+        if (!re) return false;
+        for (const [p, blk] of blocks) {
+          const pre = blk.querySelector("pre");
+          if (re.test(pre.textContent || "")) {
+            cur = p;
+            markFirst(pre, re);
+            if (blk.scrollIntoView) blk.scrollIntoView({ block: "start", behavior: "smooth" });
+            return true;
+          }
+        }
+        return false;
+      },
+      current() { return cur; },
+    };
   }
 
   window.DocPreview = { mount };

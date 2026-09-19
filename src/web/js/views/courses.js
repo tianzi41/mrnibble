@@ -921,6 +921,18 @@
     const allLessons = [];
     (c.units || []).forEach((u) => (u.lessons || []).forEach((l) => allLessons.push(l)));
     const needDesc = allLessons.length > 0 && allLessons.some((l) => !l.desc);
+    // 这门课备课用了哪些材料 —— 用户要求结构页能看出依据了哪些文件。
+    // 标题从已加载的 S.documents 里查（课程详情只回 document_ids，不带标题）。
+    const srcIds = c.document_ids || [];
+    const srcNames = srcIds
+      .map((id) => (S.documents || []).find((x) => x.id === id))
+      .filter(Boolean)
+      .map((d) => `《${esc(d.title || "材料")}》`);
+    const srcHint = srcIds.length
+      ? `<div class="hint" id="c-src">材料来源（${srcIds.length}）：${
+          (srcNames.length > 4 ? srcNames.slice(0, 4).concat(`等 ${srcNames.length} 份`) : srcNames).join("、")
+          || "（标题待加载）"}</div>`
+      : "";
     const head = el("div", "card");
     head.innerHTML = `
       <div class="row" style="justify-content:space-between">
@@ -930,6 +942,7 @@
       <div class="hint">目标：${esc(c.goal)}</div>
       <div class="hint">基础 ${esc(c.level_name)} · 深度 ${esc(c.depth_name)} · 共 ${c.units.length} 个单元</div>
       ${c.intent ? `<div class="hint">课型：${esc(c.intent.primary_name)}${c.intent.assist_name ? " ＋ " + esc(c.intent.assist_name) + "（辅助）" : ""}${c.intent.note ? " ｜ " + esc(c.intent.note) : ""}</div>` : ""}
+      ${srcHint}
       ${c.summary ? `<div class="hint" style="margin-top:6px">${esc(c.summary)}</div>` : ""}
       <div class="bar" style="margin-top:10px"><i style="width:${p.percent || 0}%"></i></div>
       <div class="hint">进度：${p.done_lessons || 0}/${p.total_lessons || 0} 节（${p.percent || 0}%）</div>

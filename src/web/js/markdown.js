@@ -85,26 +85,67 @@
     el.querySelectorAll("a").forEach((a) => { a.target = "_blank"; a.rel = "noopener"; });
   }
 
+  /** 活着的 markmap 实例。
+   *  为什么要留着：markmap 会挂 ResizeObserver / 缩放监听，容器被切页重建（SVG 脱离文档）
+   *  之后这些回调仍可能触发一次，去读已脱离文档的 SVG 尺寸 → d3 抛
+   *  `NotSupportedError: SVGLength`（异步，逃出外层的 try/catch）。
+   *  所以每次新建前，先把**已经不在页面上**的旧实例 destroy 掉。 */
+  let mmAlive = [];
+
+  function pruneMindmaps() {
+    mmAlive = mmAlive.filter((m) => {
+      const el = m && m.__zbBox;
+      if (el && el.isConnected) return true;      // 还在页面上 → 留着
+      try { if (m && typeof m.destroy === "function") m.destroy(); } catch (e) { /* 忽略 */ }
+      return false;
+    });
+  }
+
   /** 用 markmap 渲染思维导图（依赖 d3 / markmap-view / markmap-lib 的加载顺序）。 */
   function mindmap(container, markdown) {
+    pruneMindmaps();
     container.innerHTML = "";
     const box = document.createElement("div");
     box.className = "markmap";
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     box.appendChild(svg);
     container.appendChild(box);
-    try {
-      const { Transformer, Markmap } = window.markmap;
-      const transformer = new Transformer();
-      const { root } = transformer.transform(normalize(markdown));
-      Markmap.create(svg, { autoFit: true, spacingVertical: 8, spacingHorizontal: 90, duration: 300 }, root);
-      return svg;
-    } catch (e) {
-      box.remove();
-      container.insertAdjacentHTML("beforeend",
-        `<div class="empty">思维导图渲染失败：${String(e.message || e)}</div>`);
-      return null;
-    }
+    const draw = () => {
+      try {
+        const { Transformer, Markmap } = window.markmap;
+        const transformer = new Transformer();
+        const { root } = transformer.transform(normalize(markdown));
+        // duration:0 —— 不给 markmap 留「异步过渡」这条路径：容器在过渡期间被切页
+        // 重建/移除时，它的 fit 会去读已脱离文档的 SVG 尺寸 → d3 抛
+        // NotSupportedError（逃出外层 try/catch，成为未捕获异常）。本项目的思维导图
+        // 只是结构预览，不需要入场动画，关掉最省事。
+        const inst = Markmap.create(svg,
+          { autoFit: true, spacingVertical: 8, spacingHorizontal: 90, duration: 0 }, root);
+        if (inst) {
+          inst.__zbBox = container;   // 记容器：下次新建时据此判断「已脱离页面」并 destroy
+          mmAlive.push(inst);
+        }
+        return svg;
+      } catch (e) {
+        box.remove();
+        container.insertAdjacentHTML("beforeend",
+          `<div class="empty">思维导图渲染失败：${String(e.message || e)}</div>`);
+        return null;
+      }
+    };
+    // ⚠️ 容器不可见（面板折叠、切页瞬间宽度为 0）时创建 markmap，autoFit 会去读 SVG 的
+    // 相对长度 → d3 抛 `NotSupportedError: Failed to read the 'value' property from
+    // 'SVGLength'`；而且它发生在 markmap 内部的异步 fit 里，**逃出上面的 try/catch**。
+    // 所以：容器还没有尺寸就先不画，等它真的有尺寸再画（最多等 12 秒，不无限轮询）。
+    if (container.clientWidth >= 40 && container.clientHeight >= 40) return draw();
+    let tries = 0;
+    const retry = () => {
+      tries += 1;
+      if (container.clientWidth >= 40 && container.clientHeight >= 40) { draw(); return; }
+      if (tries < 60) setTimeout(retry, 200);
+    };
+    setTimeout(retry, 200);
+    return null;
   }
 
   window.MD = { render, mount, mindmap, normalize, inline };
