@@ -25,8 +25,76 @@
     if (html !== undefined) n.innerHTML = html;
     return n;
   };
-  const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  /* ── 新建课程草稿（本地只存「最新一次未完成的创建」）─────────────
+   *
+   * 用户实测问题（2026-09-19）：创建到一半切到别的页再回来，向导被重建、进度全丢。
+   * 课程页原来唯一的「回来的路」是「AI 材料」区块，而它只认**后端材料任务** ——
+   * 用「我上传的材料」建课时根本没有材料任务，于是那块只剩一条很早以前、
+   * 永远不会收尾的旧记录（既不建课也不再更新），用户点到的是「上上次的进度」。
+   *
+   * 修法：向导里任何变化都写进**单键** localStorage（单键 = 最新天然覆盖更早，
+   * 不会越攒越多）；再进向导时自动填回，并在课程页给一条「未完成的创建」入口置顶。
+   * 只有三件事会清掉草稿：点「取消」、点「清空草稿，重新开始」、建课成功。
+   */
+  const DRAFT_KEY = "zhiban-create-draft";
+  const DRAFT_VER = 2;
+  let draftCollector = null;   // 向导渲染时把自己的「收集函数」挂进来
+  let draftTimer = null;
+
+  function saveDraft(o) {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: DRAFT_VER, at: Date.now(), ...o }));
+    } catch (e) { /* 隐私模式等，忽略 */ }
+  }
+  function loadDraft() {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      return (d && d.v === DRAFT_VER) ? d : null;
+    } catch (e) { return null; }
+  }
+  function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* 忽略 */ }
+  }
+  /** 草稿里有没有**实质内容**：全是默认值就不留草稿，免得每次进向导都弹一条「已恢复」。 */
+  function draftMeaningful(d) {
+    if (!d) return false;
+    const t = d.topic || {};
+    return !!(d.intentPrimary || String(d.goal || "").trim()
+      || (d.docIds || []).length || t.topic || t.gid || t.docId
+      || String(d.note || "").trim());
+  }
+  function draftTitle(d) {
+    const t = d.topic || {};
+    const s = t.topic || String(d.goal || "").split(/[。！？\n]/)[0] || "新建课程";
+    return s.length > 22 ? s.slice(0, 22) + "…" : s;
+  }
+  function draftTimeText(at) {
+    if (!at) return "";
+    const d = new Date(at);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  /** 延后保存（输入时连续触发，300ms 合并一次）。
+   *  写成函数声明是为了让向导内部的 paintSrc / paintChapters 等**任意位置都能安全调用**
+   *  （箭头函数的 TDZ 会让「先调用后定义」直接报错）。 */
+  function scheduleDraftSave() {
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraftNow, 300);
+  }
+  function saveDraftNow() {
+    if (!draftCollector) return;                 // 不在向导里（如结构编辑）→ 不动草稿
+    let d = null;
+    // 视图可能已被路由替换（向导 DOM 已不在页面上）→ 收集函数会读不到元素。
+    // 这种情况直接把这个失效的收集函数丢掉，别让定时器反复抛错。
+    try { d = draftCollector(); } catch (e) { draftCollector = null; return; }
+    if (!draftMeaningful(d)) { clearDraft(); return; }
+    saveDraft(d);
+  }
 
   /* ── 数据 ─────────────────────────────── */
   async function loadCourses() {
@@ -77,6 +145,24 @@
     });
     box.appendChild(body);
     document.getElementById("btn-new").onclick = openCreate;
+    // 「未完成的创建」入口：本地草稿永远只存**最新那一次**，所以它天然排在最前、
+    // 压过下面「AI 材料」里的旧记录（用户实测：以前这里只剩一条很早的旧任务，
+    // 点进去是上上次的进度，本次创建的进度反而找不回来）。
+    const d = loadDraft();
+    if (draftMeaningful(d)) {
+      const panel = el("div");
+      panel.style.marginTop = "10px";
+      panel.appendChild(el("div", "panel-head", "<span>未完成的创建</span>"));
+      const pbody = el("div", "panel-body");
+      const it = el("div", "item");
+      it.title = "点击回到新建向导，继续上次未完成的创建";
+      it.appendChild(el("span", "t", esc(draftTitle(d))));
+      it.appendChild(el("small", null, draftTimeText(d.at)));
+      it.onclick = () => openCreate();
+      pbody.appendChild(it);
+      panel.appendChild(pbody);
+      box.appendChild(panel);
+    }
     renderMaterialJobs(box);
   }
 
@@ -89,20 +175,46 @@
    *  目录 JSON 和「已写了几章」，所以切页、甚至关掉软件重开都能接上。
    */
   function renderMaterialJobs(box) {
-    const jobs = (S.materialJobs || []).filter(materialJobVisible);
+    // 最新在前（后端已 ORDER BY created_at DESC，这里再兜一次底，防以后改排序）
+    const jobs = (S.materialJobs || []).filter(materialJobVisible)
+      .slice()
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     if (!jobs.length) return;
     const panel = el("div");
     panel.style.marginTop = "10px";
     panel.appendChild(el("div", "panel-head", `<span>AI 材料（${jobs.length}）</span>`));
     const body = el("div", "panel-body");
-    jobs.forEach((j) => {
+    const row = (j) => {
       const it = el("div", "item");
       it.title = "点击继续 / 用它建课";
       it.appendChild(el("span", "t", esc(materialJobTitle(j))));
       it.appendChild(el("small", null, materialJobBadge(j)));
       it.onclick = () => { S.pendingMaterial = j; openCreate(); };
-      body.appendChild(it);
-    });
+      return it;
+    };
+    // 只展开**最新一条**：更早的多半是早就不再收尾的旧任务，全摊开会把最新的那条埋掉
+    // （用户实测：这里只剩一条很早的旧记录，点进去是上上次的进度）。
+    body.appendChild(row(jobs[0]));
+    if (jobs.length > 1) {
+      const n = jobs.length - 1;
+      const more = el("button", "btn small", `更早的 ${n} 条 ▾`);
+      more.type = "button";
+      more.style.marginTop = "6px";
+      let open = false;
+      more.onclick = () => {
+        open = !open;
+        more.textContent = open ? `收起更早的 ${n} 条 ▴` : `更早的 ${n} 条 ▾`;
+        Array.from(body.querySelectorAll(".item.older")).forEach((x) => x.remove());
+        if (open) {
+          jobs.slice(1).forEach((j) => {
+            const it = row(j);
+            it.classList.add("older");
+            body.insertBefore(it, more);
+          });
+        }
+      };
+      body.appendChild(more);
+    }
     panel.appendChild(body);
     box.appendChild(panel);
   }
@@ -155,14 +267,19 @@
     S.creating = true; S.course = null;
     if (!goHash("#/courses?new=1")) { renderList(); renderMain(); }
   }
-  /** 离开向导（取消、或进课程详情时都要清，否则向导会一直霸占主区）。 */
+  /** 离开向导（取消、或进课程详情时都要清，否则向导会一直霸占主区）。
+   *  点「取消」= 用户明确放弃这次创建 → 连本地草稿一起清掉；
+   *  （切页/进课程详情**不能**清草稿，那正是要恢复的场景。） */
   function closeCreate() {
     S.creating = false; S.pendingMaterial = null;
+    draftCollector = null;
+    clearDraft();
     if (!goHash("#/courses")) { renderList(); renderMain(); }
   }
   /** 打开某门课程详情。 */
   async function openCourse(id) {
     S.creating = false; S.pendingMaterial = null;
+    draftCollector = null;          // 向导已卸载 → 别再往草稿里写（DOM 已不在）
     // ⚠️ 必须**先**把 courseId 设上再改 hash：改 hash 触发的是 route() → render()，
     // 而 render() 是靠 `S.courseId` 去加载详情的 —— 顺序反了就会加载「上一门」课程。
     S.courseId = id; S.course = null;
@@ -189,6 +306,9 @@
 
   /* ── 新建课程（创建向导）───────────────── */
   function renderCreate(host) {
+    // 本地保存的草稿 = **最新一次未完成的创建**（单键覆盖，不会攒旧记录）。
+    // DOM 建好后再填回去（见下面 applyDraft），课型卡要等课型库拉回来才能选中。
+    const draft = loadDraft();
     // 每次进向导都从**干净状态**开始：S.topicMode 是模块级单例，不重置的话
     // 上一次的「✅ 材料已就绪：《…》」会残留到下一次新建课程
     // （用户实测：「回来重新点新建课程，发现有上次创建课程的残留」）。
@@ -357,7 +477,7 @@
         inp.oninput = () => { T.outline[i].title = inp.value; };
         const del = el("button", "btn small", "删");
         del.type = "button";
-        del.onclick = () => { T.outline.splice(i, 1); paintChapters(); };
+        del.onclick = () => { T.outline.splice(i, 1); paintChapters(); scheduleDraftSave(); };
         row.append(inp, del);
         tChapters.appendChild(row);
       });
@@ -381,8 +501,8 @@
       fail(new Error("生成超时，请稍后重试"));
     };
 
-    document.getElementById("src-docs").onclick = () => { T.on = false; paintSrc(); };
-    document.getElementById("src-topic").onclick = () => { T.on = true; paintSrc(); };
+    document.getElementById("src-docs").onclick = () => { T.on = false; paintSrc(); scheduleDraftSave(); };
+    document.getElementById("src-topic").onclick = () => { T.on = true; paintSrc(); scheduleDraftSave(); };
 
     const tOutlineBtn = document.getElementById("t-outline");
     tOutlineBtn.onclick = async () => {
@@ -391,10 +511,12 @@
       T.topic = topic;
       T.depth = document.getElementById("f-topic-depth").value;
       T.outline = []; T.docId = ""; paintChapters();
+      scheduleDraftSave();
       tOutlineBtn.disabled = true; tOutlineBtn.textContent = "生成目录中…";
       try {
         const r = await Api.post("/api/materials/outline", { topic, depth: T.depth });
         T.gid = r.generation_id;
+        scheduleDraftSave();          // 记下 gid：切页后靠它接回这条任务
         await pollGen(T.gid,
           () => { tHint.textContent = "正在规划材料结构…"; },
           applyOutline,
@@ -410,6 +532,7 @@
       tWriteBtn.disabled = true;
       try {
         await Api.post("/api/materials/chapters", { generation_id: T.gid, chapters: T.outline });
+        scheduleDraftSave();          // 记下「正在写正文」，切页回来能接回这条轮询
         await pollGen(T.gid, paintWriting, finishWriting, failWriting);
       } catch (e) { Toast(e.message, true); }
       finally { tWriteBtn.disabled = false; tWriteBtn.textContent = "② 确认目录，开始写正文"; }
@@ -417,6 +540,7 @@
     document.getElementById("t-add").onclick = () => {
       T.outline.push({ title: "", brief: "" });
       paintChapters();
+      scheduleDraftSave();
     };
 
     /** 目录就绪：填进界面等用户审阅（①生成目录、以及接回「出目录中」的任务时共用）。 */
@@ -426,6 +550,7 @@
       T.outline = (o.chapters || []).map((c) => ({ title: c.title, brief: c.brief }));
       tHint.textContent = `目录已生成（${T.outline.length} 章）。改好标题后点「② 确认目录，开始写正文」。`;
       paintChapters();
+      scheduleDraftSave();
     };
     /** 写正文的进度：数 content_md 里的 `## `（每章一个，是服务端逐章追加的）。 */
     const paintWriting = (d) => {
@@ -445,6 +570,7 @@
         : `✅ 材料已就绪：《${T.title}》（${dn || T.outline.length}/${tt || T.outline.length} 章）`
           + (part ? "，部分章节生成失败，可稍后重新生成材料" : "");
       if (T.docId) { loadDocuments(); loadMaterialJobs(); }
+      scheduleDraftSave();     // 材料写完 → 把 docId 记进草稿（切页回来直接能建课）
     };
     const failWriting = (e) => Toast("材料生成失败：" + e.message, true);
 
@@ -489,6 +615,7 @@
       }
     }
 
+
     document.getElementById("f-cancel").onclick = closeCreate;
 
     // 「单元数量 → 自定义…」时展开数字输入（1~12；留空 = 自动）
@@ -524,6 +651,7 @@
           chosen.primary = t.id;
           if (chosen.assist === t.id) chosen.assist = "";   // 辅助不能与主相同
           paintIntents(); paintAssist();
+          scheduleDraftSave();                              // 点卡片不触发 input/change → 显式存
           await autoGoal();                                 // 选课型即自动写目标
         };
         intentBox.appendChild(c);
@@ -569,6 +697,7 @@
         if (seq !== goalSeq) return;                   // 已被更新的一次选择 / 手改取代
         goalEl.value = r.goal || "";
         setGoalHint(r.goal ? "已按课型生成，可自由修改或清空" : "");
+        scheduleDraftSave();
       } catch (e) {
         if (seq !== goalSeq) return;
         setGoalHint("生成失败，可自己写一句，或留空让系统按课型决定");
@@ -589,6 +718,7 @@
         chosen.primary = r.primary || "";
         if (chosen.assist === chosen.primary) chosen.assist = "";  // 推荐结果可能撞上已选辅助
         paintIntents(); paintAssist();
+        scheduleDraftSave();
         const name = (intents.find((t) => t.id === chosen.primary) || {}).name || "";
         const alts = (r.alternatives || [])
           .map((id) => (intents.find((t) => t.id === id) || {}).name).filter(Boolean);
@@ -611,6 +741,7 @@
       goalSeq++;                       // 清空同样要作废在途请求，否则会被迟到的响应写回
       goalEl.value = "";
       setGoalHint("已清空 —— 留空时系统按课型决定这门课怎么讲");
+      scheduleDraftSave();
     };
 
     (async () => {
@@ -618,9 +749,16 @@
         const r = await Api.get("/api/courses/intents");
         intents = r.items || [];
       } catch (e) { intents = []; }
+      // 草稿里的课型要等课型库拉回来才能选中（否则 paintIntents 会把卡片画成「没选」）
+      const d0 = loadDraft();
+      if (d0 && d0.intentPrimary && intents.some((t) => t.id === d0.intentPrimary)) {
+        chosen.primary = d0.intentPrimary;
+        chosen.assist = (d0.intentAssist && d0.intentAssist !== d0.intentPrimary) ? d0.intentAssist : "";
+      }
       paintIntents(); paintAssist();
-      document.getElementById("intent-hint").textContent =
-        "点一张卡选课型；拿不准就点「分析材料并预选」。";
+      document.getElementById("intent-hint").textContent = chosen.primary
+        ? "已恢复上次选的课型；要换就点别的卡。"
+        : "点一张卡选课型；拿不准就点「分析材料并预选」。";
     })();
 
     document.getElementById("f-go").onclick = async () => {
@@ -657,12 +795,133 @@
             note: ((noteEl && noteEl.value) || "").trim() || null,
           },
         });
+        // 建课已发起 → 这份草稿的使命完成（后面的进度由大纲任务自己承载）
+        clearDraft();
         await pollOutline(r.course_id, r.job_id, host);
       } catch (e) {
         Toast(e.message, true);
         btn.disabled = false; btn.textContent = "生成大纲";
       }
     };
+
+    // ⚠️ 这段必须留在 renderCreate 的**末尾**：它读 goalEl / unitsSel / unitsCustom /
+    // chosen / paintPicked —— 这些都是本函数里稍后才声明的 const，插在它们前面
+    // 会直接踩 TDZ（ReferenceError: Cannot access 'goalEl' before initialization），
+    // 整个视图会停在「加载中…」（2026-09-19 实测，就是被这条坑到的）。
+    // 点了「AI 材料」里的任务 = 用户明确选定这条 → 立刻把它存成当前草稿，
+    // 免得下次回来又把更早的旧记录当成「最新的」。
+    if (pend) scheduleDraftSave();
+
+    // ── 草稿：收集（任何变化都存一次）──────────────────────
+    // 这一点是本次修复的核心：以前向导的进度只活在内存里，向导一重建就没了；
+    // 而课程页唯一的「回来的路」只认后端材料任务，用上传材料建课的人根本没有它。
+    const collectDraft = () => ({
+      mode: T.on ? "topic" : "docs",
+      docIds: [...pick.querySelectorAll("input:checked")].map((i) => i.value),
+      intentPrimary: chosen.primary,
+      intentAssist: chosen.assist,
+      goal: goalEl.value,
+      level: document.getElementById("f-level").value,
+      depth: document.getElementById("f-depth").value,
+      units: unitsSel.value,
+      unitsCustom: unitsCustom.value,
+      hands: document.getElementById("f-hands").value,
+      note: document.getElementById("f-note").value,
+      topic: {
+        // ⚠️ 优先读**输入框的实时值**：T.topic / T.depth 只在点「① 生成目录」时才写入，
+        // 若只读 T，用户手打了主题还没生成目录就切页 → 草稿里是空的（实测踩到）。
+        topic: (document.getElementById("f-topic").value || T.topic || ""),
+        depth: (document.getElementById("f-topic-depth").value || T.depth || "standard"),
+        gid: T.gid || "", docId: T.docId || "", title: T.title || "",
+        outline: (T.outline || []).map((c) => ({ title: c.title, brief: c.brief })),
+      },
+    });
+    draftCollector = collectDraft;
+    // 委托在卡片上：字段增删不用逐个绑定；程序改值的地方另外显式调一次
+    card.addEventListener("input", scheduleDraftSave);
+    card.addEventListener("change", scheduleDraftSave);
+
+    /** 接回一条材料任务（草稿里存着 gid 时用；「AI 材料」入口那条走上面的 pend 分支）。 */
+    const resumeMaterialJob = async (gid) => {
+      let d = null;
+      try { d = await Api.get("/api/generations/" + gid); } catch (e) { return; }
+      if (S.topicMode !== T) return;            // 已经离开向导 → 不写幽灵状态
+      const cj = d.content_json || {};
+      const o = cj.outline || {};
+      if (o.title) T.title = o.title;
+      if ((o.chapters || []).length) {
+        T.outline = o.chapters.map((c) => ({ title: c.title, brief: c.brief }));
+      }
+      if (cj.doc_id) T.docId = cj.doc_id;
+      paintSrc(); paintChapters();
+      if (d.status === "running") {
+        if (T.outline.length) {
+          tHint.textContent = "上次写正文的任务还在后台继续，正在接回…";
+          pollGen(gid, paintWriting, finishWriting, failWriting);
+        } else {
+          tHint.textContent = "上次的任务还在规划目录，正在接回…";
+          pollGen(gid, () => { tHint.textContent = "正在规划材料结构…"; }, applyOutline, failWriting);
+        }
+      } else if (d.status === "failed") {
+        tHint.textContent = "上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。";
+      } else if (T.docId) {
+        tHint.textContent = `✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`;
+      } else if (T.outline.length) {
+        tHint.textContent = "目录已就绪，点「② 确认目录，开始写正文」继续。";
+      }
+    };
+
+    /** 把草稿填回界面。字段类立刻填；课型卡要等课型库拉回来（见下面的异步块）。 */
+    const applyDraft = (d) => {
+      if (!d) return;
+      const t = d.topic || {};
+      T.on = d.mode === "topic";
+      T.topic = t.topic || "";
+      T.depth = t.depth || "standard";
+      T.gid = t.gid || "";
+      T.docId = t.docId || "";
+      T.title = t.title || "";
+      T.outline = (t.outline || []).map((c) => ({ title: c.title, brief: c.brief }));
+      document.getElementById("f-topic").value = T.topic;
+      document.getElementById("f-topic-depth").value = T.depth;
+      if ((d.docIds || []).length) {
+        pick.querySelectorAll("input").forEach((i) => { i.checked = d.docIds.includes(i.value); });
+      }
+      paintPicked();
+      goalEl.value = d.goal || "";
+      document.getElementById("f-level").value = d.level || "beginner";
+      document.getElementById("f-depth").value = d.depth || "standard";
+      if (d.units === "custom") {
+        unitsSel.value = "custom";
+        unitsCustom.style.display = "";
+        unitsCustom.value = d.unitsCustom || "";
+      } else {
+        unitsSel.value = d.units || "";
+      }
+      document.getElementById("f-hands").value = d.hands || "auto";
+      document.getElementById("f-note").value = d.note || "";
+      paintSrc(); paintChapters();
+      if (T.gid) resumeMaterialJob(T.gid);      // 上次在写正文 → 自动接回
+    };
+
+    // ── 恢复：没有点「AI 材料」入口时，用本地草稿把进度填回去 ──
+    if (!pend && draftMeaningful(draft)) {
+      applyDraft(draft);
+      const bar = el("div", "hint");
+      bar.style.marginTop = "8px";
+      bar.innerHTML = `↩ 已恢复上次未完成的创建（保存于 ${draftTimeText(draft.at)}）。`;
+      const clr = el("button", "btn small", "清空草稿，重新开始");
+      clr.type = "button";
+      clr.style.marginLeft = "8px";
+      clr.onclick = () => {
+        clearDraft();
+        S.topicMode = null;
+        renderMain();
+        Toast("已清空草稿，从头开始", false);
+      };
+      bar.appendChild(clr);
+      card.insertBefore(bar, card.firstChild);
+    }
   }
 
   /** 轮询大纲任务，完成后进入结构确认。 */
