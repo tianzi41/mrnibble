@@ -292,7 +292,12 @@ def main() -> int:
     #  症状二：S.topicMode 是不重置的单例 → 上次的「材料已就绪」残留到下一次新建。
     #  症状三：材料生成进度只活在内存里 → 切页回来就找不回来了。
     check("6.16 课程页入口一致：新建/取消/进课程三条路都走统一入口并同步 hash",
-          'item.onclick = () => openCourse(' in web_src
+          # 不再盯 'item.onclick = () => openCourse(' 这种**字面写法** —— 左栏点课程现在
+          # 会先看有没有未保存的结构改动（有就回结构编辑页 `?confirm=`，没有才进详情），
+          # 箭头函数因此展开成了多行块。不变量是「无改动时进详情仍走 openCourse」，
+          # 所以就断言这个调用存在 + 结构编辑分支用的 hash 形态。
+          "openCourse(c.id)" in web_src
+          and "#/courses?confirm=" in web_src
           and 'document.getElementById("btn-new").onclick = openCreate' in web_src
           and 'document.getElementById("f-cancel").onclick = closeCreate' in web_src
           and "function goHash(" in web_src
