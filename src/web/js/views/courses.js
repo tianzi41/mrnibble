@@ -100,6 +100,48 @@
     delete d.job; delete d.at; delete d.v;
     saveDraft(d);
   }
+
+  /* ── 「编辑课程结构」的未保存改动（本地保存）──────────────────
+   *
+   * 用户实测问题（2026-09-19）：在结构编辑页改到一半切到别的页，再从左栏点这门课
+   * → 进的是课程详情，那个结构页面不见了，**改过的内容也全丢了**。
+   * 原因：结构编辑页只挂在 `#/courses?confirm=<id>` 这条路由上（设计如此），
+   * 而改动只活在内存里（真缺陷）。
+   * 现在把改动按课程存成一份本地草稿：① 左栏点这门课直接回到结构编辑页；
+   * ② 课程页给一条「正在编辑结构：《…》」入口（带 ✕ 可丢弃）；③ 保存成功后清掉。
+   */
+  const CONFIRM_KEY = "zhiban-confirm-draft";
+  let confirmSaver = null;      // confirmOutline 渲染时把自己的「保存函数」挂上来
+  let confirmTimer = null;
+
+  function saveConfirmDraft(o) {
+    try {
+      localStorage.setItem(CONFIRM_KEY, JSON.stringify({ v: 1, at: Date.now(), ...o }));
+    } catch (e) { /* 隐私模式等，忽略 */ }
+  }
+  function loadConfirmDraft() {
+    try {
+      const raw = localStorage.getItem(CONFIRM_KEY);
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      return (d && d.v === 1 && d.courseId) ? d : null;
+    } catch (e) { return null; }
+  }
+  /** 清掉这份改动记录，**并取消在途的延时保存** —— 否则用户点 ✕ / 保存成功后，
+   *  400ms 前排队的那次保存会把刚清掉的草稿又写回来（表现为「删了又出现」）。 */
+  function clearConfirmDraft() {
+    if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null; }
+    confirmSaver = null;
+    try { localStorage.removeItem(CONFIRM_KEY); } catch (e) { /* 忽略 */ }
+  }
+  /** 结构编辑里的改动很碎（每个输入框 oninput 都触发）→ 400ms 合并一次。 */
+  function scheduleConfirmSave() {
+    if (!confirmSaver) return;
+    if (confirmTimer) clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(() => {
+      try { confirmSaver && confirmSaver(); } catch (e) { confirmSaver = null; }
+    }, 400);
+  }
   function saveDraftNow() {
     if (!draftCollector) return;                 // 不在向导里（如结构编辑）→ 不动草稿
     let d = null;
@@ -147,6 +189,11 @@
         ev.stopPropagation();
         if (!confirm(`删除课程《${c.title}》？单元、讲次与练习记录会一并删除。`)) return;
         await Api.del("/api/courses/" + c.id);
+        // 课程没了，别再留着指向它的「未保存改动 / 未完成创建」
+        const cd = loadConfirmDraft();
+        if (cd && cd.courseId === c.id) clearConfirmDraft();
+        const dr = loadDraft();
+        if (dr && dr.job && dr.job.courseId === c.id) dropDraftJob();
         if (S.courseId === c.id) { S.courseId = null; S.course = null; }
         await loadCourses(); renderList(); renderMain();
       };
@@ -154,7 +201,19 @@
       // ⚠️ 必须走 openCourse：它会清掉 S.creating。
       // 只调 renderMain() 的话，向导状态还在 → renderMain 又把向导顶出来 →
       // 用户点左侧任何课程都进不去，看起来就是「锁死在新建课程界面」（2026-09-17 实测）。
-      item.onclick = () => openCourse(c.id);
+      // ⚠️ 另外：这门课若有**未保存的结构改动**，点它要直接回结构编辑页 ——
+      // 用户实测「改到一半切页，再点课程进来是详情页，结构页不见了、改动也没了」。
+      item.onclick = () => {
+        const cd = loadConfirmDraft();
+        if (cd && cd.courseId === c.id) {
+          S.creating = false; S.pendingMaterial = null;
+          const h = "#/courses?confirm=" + c.id;
+          if (location.hash === h) renderMain();     // 同 hash 不会派发 hashchange
+          else location.hash = h;
+          return;
+        }
+        openCourse(c.id);
+      };
       body.appendChild(item);
     });
     box.appendChild(body);
@@ -172,14 +231,61 @@
       it.title = d.job ? "点击回到生成进度界面" : "点击回到新建向导，继续上次未完成的创建";
       it.appendChild(el("span", "t", esc(draftEntryTitle(d))));
       it.appendChild(el("small", null, d.job ? "生成中" : draftTimeText(d.at)));
+      // ✕：用户要求这条也能自己删掉（不自动删——删什么由用户决定）
+      const dx = el("button", "x", "✕");
+      dx.title = d.job
+        ? "删掉这条记录（课程已建好，左侧课程列表里还能找到它）"
+        : "删掉这条未完成的创建（已填的表单内容会一起清掉）";
+      dx.onclick = (ev) => {
+        ev.stopPropagation();
+        const msg = d.job
+          ? "删掉这条「正在生成大纲」记录？\n\n课程本身已经建好了，左侧课程列表里还能找到它；"
+            + "只是不再显示这条提示。"
+          : "删掉这条未完成的创建？\n\n你已经填的内容会一起清掉，无法恢复。";
+        if (!confirm(msg)) return;
+        clearDraft();
+        renderList();
+        Toast("已删掉这条未完成的创建", false);
+      };
+      it.appendChild(dx);
       it.onclick = () => openCreate();
       pbody.appendChild(it);
       panel.appendChild(pbody);
       box.appendChild(panel);
     }
-    // 有未完成的草稿时，「AI 材料」默认折叠：那块是**以前**留下的材料任务，
-    // 用户当前的工作在上一块里；摊开会让人误点（用户实测：点了旧的那条，
-    // 结果旧内容被灌进了未完成的创建里）。
+    // 「正在编辑结构」入口：结构页只挂在 ?confirm= 路由上，改动也只活在内存里 ——
+    // 不给入口 + 不存改动，用户切页后既回不去、改动也没了（用户实测）。
+    const cd = loadConfirmDraft();
+    if (cd && cd.courseId) {
+      const panel = el("div");
+      panel.style.marginTop = "10px";
+      panel.appendChild(el("div", "panel-head", "<span>正在编辑结构</span>"));
+      const pbody = el("div", "panel-body");
+      const it = el("div", "item");
+      it.title = "点击回到结构编辑页，继续改（改动已本地保留）";
+      it.appendChild(el("span", "t", esc(`《${cd.title || "课程"}》`)));
+      it.appendChild(el("small", null, draftTimeText(cd.at)));
+      const x = el("button", "x", "✕");
+      x.title = "丢弃这份未保存的结构改动";
+      x.onclick = (ev) => {
+        ev.stopPropagation();
+        if (!confirm("丢弃这份未保存的结构改动？\\n\\n课程本身不受影响，"
+          + "下次进结构编辑页会显示服务端已保存的版本。")) return;
+        clearConfirmDraft();
+        renderList();
+        Toast("已丢弃未保存的结构改动", false);
+      };
+      it.appendChild(x);
+      it.onclick = () => {
+        const h = "#/courses?confirm=" + cd.courseId;
+        if (location.hash === h) renderMain();
+        else location.hash = h;
+      };
+      pbody.appendChild(it);
+      panel.appendChild(pbody);
+      box.appendChild(panel);
+    }
+    // 有未完成的草稿时，「AI 材料」默认折叠：……
     renderMaterialJobs(box, { collapsed: draftMeaningful(d) });
   }
 
@@ -1101,6 +1207,14 @@
 
     // 已有讲次 id 说明这门课已经落库过 → 本次是「编辑结构」而不是首次确认。
     const editing = (c.units || []).some((u) => (u.lessons || []).some((l) => l.id));
+    // 上次改到一半切页了 → 用本地那份改动，而不是服务端版本（用户实测：改动全丢）
+    const saved = loadConfirmDraft();
+    const restored = !!(saved && saved.courseId === courseId
+      && Array.isArray(saved.units) && saved.units.length);
+    if (restored) {
+      draft.title = saved.title || draft.title;
+      draft.units = saved.units;
+    }
     const card = el("div", "card");
     card.innerHTML = `
       <div class="row" style="justify-content:space-between">
@@ -1108,6 +1222,8 @@
         <span class="pill">${editing ? "修改后保存即生效" : "第 2 步 / 共 2 步"}</span>
       </div>
       <div class="hint">左边改标题与学习目标、增删讲次；右边是同一份结构的思维导图，改完立即同步。</div>
+      ${restored ? `<div class="hint">↩ 已恢复你上次未保存的结构改动（保存于 ${draftTimeText(saved.at)}）。`
+        + "点「保存结构」才会写回课程；否则下次进来自动带出这份改动。</div>" : ""}
       <div class="sep"></div>
       <div class="tree-layout">
         <div id="tree" class="tree-edit"></div>
@@ -1132,6 +1248,12 @@
     host.appendChild(card);
 
     const tree = document.getElementById("tree");
+    // 结构改动**本地保留**：切页、点左栏课程回来接着改（用户实测「改动全丢」）。
+    // 保存成功后清掉，避免把已经生效的版本当成「未保存改动」反复带出来。
+    confirmSaver = () => saveConfirmDraft({
+      courseId: courseId, title: draft.title, units: draft.units,
+    });
+    scheduleConfirmSave();
     const paint = () => {
       tree.innerHTML = "";
       draft.units.forEach((u, ui) => {
@@ -1142,12 +1264,12 @@
           const row = el("div", "lesson-row");
           row.innerHTML = `<span class="pill">${l.kind === "practice" ? "练习" : "讲解"}</span>`;
           const t = el("input", null); t.type = "text"; t.value = l.title; t.style.flex = "1";
-          t.oninput = () => { l.title = t.value; drawMap(); };
+          t.oninput = () => { l.title = t.value; drawMap(); scheduleConfirmSave(); };
           const o = el("input", null); o.type = "text"; o.value = l.objective; o.style.flex = "1";
           o.placeholder = "学习目标";
-          o.oninput = () => { l.objective = o.value; drawMap(); };
+          o.oninput = () => { l.objective = o.value; drawMap(); scheduleConfirmSave(); };
           const x = el("button", "btn small", "删除");
-          x.onclick = () => { u.lessons.splice(li, 1); paint(); };
+          x.onclick = () => { u.lessons.splice(li, 1); paint(); scheduleConfirmSave(); };
           row.appendChild(t); row.appendChild(o); row.appendChild(x);
           box.appendChild(row);
           const dd = descHtml(l.desc);
@@ -1157,9 +1279,12 @@
         add.onclick = () => {
           u.lessons.push({ title: "新的讲次", objective: "", kind: "lecture" });
           paint();
+          scheduleConfirmSave();
         };
         box.appendChild(add);
-        box.querySelector(`[data-u="${ui}"]`).oninput = (e) => { u.title = e.target.value; drawMap(); };
+        box.querySelector(`[data-u="${ui}"]`).oninput = (e) => {
+          u.title = e.target.value; drawMap(); scheduleConfirmSave();
+        };
         tree.appendChild(box);
       });
       drawMap();
@@ -1205,8 +1330,9 @@
       const btn = document.getElementById("o-ok");
       btn.disabled = true; btn.textContent = "保存中…";
       try {
-        await Api.post(`/api/courses/${courseId}/outline:confirm`, { title: c.title, units });
-        S.creating = false;
+          await Api.post(`/api/courses/${courseId}/outline:confirm`, { title: c.title, units });
+          clearConfirmDraft();      // 已写回服务端 → 这份「未保存改动」的使命结束
+          S.creating = false;
         await loadCourses();
         await loadCourse(courseId);
         renderList();
