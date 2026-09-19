@@ -2,6 +2,9 @@
 (function () {
   "use strict";
 
+  const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
   const TYPES = [
     ["cheatsheet", "速查表", "把整学期课件压缩成一页可翻阅的重点"],
     ["notes", "学习笔记", "核心概念 / 简记口诀 / 易错点 / 章节框架"],
@@ -42,7 +45,10 @@
     renderDocs();
     updateCountVis();
     document.getElementById("gen-length").onchange = (e) => { S.lengths = e.target.value; };
-    document.getElementById("gen-count").onchange = (e) => { S.count = parseInt(e.target.value || "10", 10); };
+    document.getElementById("gen-count").onchange = (e) => {
+      const n = parseInt(e.target.value || "10", 10);
+      S.count = Number.isFinite(n) ? n : 10;
+    };
     document.getElementById("gen-go").onclick = start;
     showPreview(null);
   }
@@ -149,9 +155,9 @@
       (g.content_json.items || []).forEach((it, i) => {
         const q = document.createElement("div");
         q.className = "quiz-item";
-        q.innerHTML = `<b>${i + 1}. ${it.stem}</b>` +
-          it.options.map((o, j) => `<span class="opt ${j === it.answer_index ? "correct" : ""}">${"ABCD"[j] || j + 1}. ${o}${j === it.answer_index ? " ✓" : ""}</span>`).join("") +
-          `<div class="hint">解析：${it.explanation || "—"}</div>`;
+      q.innerHTML = `<b>${esc(i + 1)}. ${esc(it.stem || "")}</b>` +
+        (it.options || []).map((o, j) => `<span class="opt ${j === it.answer_index ? "correct" : ""}">${esc("ABCD"[j] || (j + 1))}. ${esc(o || "")}${j === it.answer_index ? " ✓" : ""}</span>`).join("") +
+        `<div class="hint">解析：${esc(it.explanation || "—")}</div>`;
         body.appendChild(q);
       });
       card.appendChild(body);

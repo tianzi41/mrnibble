@@ -94,7 +94,7 @@
     } catch (e) {
       // data-view-error：给自动化冒烟测试一个稳定的「视图渲染失败」标记，
       // 避免用中文文案做子串匹配（源码注释里也可能出现同样的词）。
-      host.innerHTML = `<div class="empty" data-view-error="1" style="width:100%;text-align:left;max-width:900px;margin:0 auto">加载失败：${e.message}
+      host.innerHTML = `<div class="empty" data-view-error="1" style="width:100%;text-align:left;max-width:900px;margin:0 auto">加载失败：${String(e.message || "").replace(/</g, "&lt;")}
         <pre style="white-space:pre-wrap;font-size:12px;color:#888">${String(e.stack || "").replace(/</g, "&lt;")}</pre></div>`;
     }
   }

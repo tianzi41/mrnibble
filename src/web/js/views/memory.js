@@ -2,6 +2,9 @@
 (function () {
   "use strict";
 
+  const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
   const S = { items: [], total: 0, page: 1, type: "", editing: null };
   const TYPE_NAMES = { preference: "偏好", progress: "进度", knowledge_gap: "知识盲区", fact: "事实" };
 
@@ -57,7 +60,7 @@
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><span class="pill ${m.type === "knowledge_gap" ? "warn" : ""}">${TYPE_NAMES[m.type] || m.type}</span></td>
-        <td data-content>${m.content}</td>
+        <td data-content>${esc(m.content)}</td>
         <td>${m.recall_count} 次</td>
         <td class="hint">${(m.updated_at || "").replace("T", " ").slice(0, 16)}</td>`;
       const ops = document.createElement("td");

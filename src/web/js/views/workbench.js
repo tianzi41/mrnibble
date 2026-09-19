@@ -83,7 +83,7 @@
       const item = el("div", "item" + (S.selectedDocs.includes(d.id) ? " active" : ""));
       const icon = { pdf: "📕", docx: "📘", pptx: "📙", md: "📗", txt: "📒", html: "🌐" }[d.fmt] || "📄";
       item.appendChild(el("span", null, icon));
-      item.appendChild(el("span", "t", `${d.title}`));
+      item.appendChild(el("span", "t", `${escapeHtml(d.title)}`));
       // 选中要有明确回执：一个对勾 + 左侧主色竖条（用户反馈「只是加深一点，提示不明显」）
       if (S.selectedDocs.includes(d.id)) item.appendChild(el("span", "picked", "✓"));
       item.appendChild(el("small", null, d.status === "ready" ? `${d.page_count || ""}` : d.status));
@@ -148,7 +148,7 @@
     const cbody = el("div", "panel-body");
     S.conversations.forEach((c) => {
       const item = el("div", "item" + (c.id === S.conversationId ? " active" : ""));
-      item.appendChild(el("span", "t", `${c.mode === "guided" ? "🎓 " : ""}${c.title || "新的会话"}`));
+      item.appendChild(el("span", "t", `${c.mode === "guided" ? "🎓 " : ""}${escapeHtml(c.title || "新的会话")}`));
       const del = el("button", "x", "✕");
       del.onclick = async (ev) => {
         ev.stopPropagation();

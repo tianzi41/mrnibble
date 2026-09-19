@@ -2,6 +2,9 @@
 (function () {
   "use strict";
 
+  const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
   const PRESETS = [
     // 模型名以官方当前值为准：deepseek-chat / deepseek-reasoner 已退役，
     // 现在直接用 deepseek-flash（Flash 无需再指定 4.0/4.1 这类版本号）。
@@ -34,18 +37,18 @@
             <option value="custom">自定义（手动填写）</option>
           </select></div>
         <div class="row">
-          <div class="field"><label>base_url</label><input type="text" id="st-base" value="${cfg.llm.base_url}" placeholder="https://api.deepseek.com"></div>
+          <div class="field"><label>base_url</label><input type="text" id="st-base" value="${esc(cfg.llm.base_url)}" placeholder="https://api.deepseek.com"></div>
           <div class="field" style="max-width:280px"><label>模型名</label>
-            <input type="text" id="st-model" value="${cfg.llm.model}" placeholder="deepseek-flash">
+            <input type="text" id="st-model" value="${esc(cfg.llm.model)}" placeholder="deepseek-flash">
             <button class="btn small" id="st-models" style="margin-top:6px">拉取可用模型</button>
             <div id="st-model-list" class="hint" style="margin-top:6px"></div>
           </div>
         </div>
         <div class="row">
           <div class="field"><label>API Key（本地加密存储，不会写入日志或下发到界面）</label>
-            <input type="password" id="st-key" placeholder="${cfg.llm.api_key_set ? "已配置（" + cfg.llm.api_key_masked + "），留空则不修改" : "sk-..."}"></div>
-          <div class="field" style="max-width:120px"><label>温度</label><input type="text" id="st-temp" value="${cfg.llm.temperature}"></div>
-          <div class="field" style="max-width:140px"><label>最大 tokens</label><input type="text" id="st-maxtok" value="${cfg.llm.max_tokens}"></div>
+            <input type="password" id="st-key" placeholder="${cfg.llm.api_key_set ? "已配置（" + esc(cfg.llm.api_key_masked) + "），留空则不修改" : "sk-..."}"></div>
+          <div class="field" style="max-width:120px"><label>温度</label><input type="text" id="st-temp" value="${esc(cfg.llm.temperature)}"></div>
+          <div class="field" style="max-width:140px"><label>最大 tokens</label><input type="text" id="st-maxtok" value="${esc(cfg.llm.max_tokens)}"></div>
         </div>
         <div class="field">
           <label>深度思考</label>
@@ -75,8 +78,8 @@
                  ["local", "本地（local）— 完全离线"]]
                 .map(([v, n]) => `<option value="${v}" ${cfg.embed.provider === v ? "selected" : ""}>${n}</option>`).join("")}
             </select></div>
-          <div class="field"><label>base_url（可留空，与对话模型相同）</label><input type="text" id="em-base" value="${cfg.embed.base_url}"></div>
-          <div class="field"><label>模型名</label><input type="text" id="em-model" value="${cfg.embed.model}" placeholder="text-embedding-3-small"></div>
+          <div class="field"><label>base_url（可留空，与对话模型相同）</label><input type="text" id="em-base" value="${esc(cfg.embed.base_url)}"></div>
+          <div class="field"><label>模型名</label><input type="text" id="em-model" value="${esc(cfg.embed.model)}" placeholder="text-embedding-3-small"></div>
         </div>
         <div class="row">
           <div class="field" style="max-width:220px"><label>本地引擎（默认 hash；bge = 本地语义模型）</label>
@@ -86,14 +89,14 @@
             </select>
             <div class="hint" id="em-bge-status" style="margin-top:4px"></div>
           </div>
-          <div class="field"><label>本地模型目录（相对随包 models/ 或绝对路径）</label><input type="text" id="em-local-dir" value="${cfg.embed.local_dir || "models/embed/bge-small-zh-v1.5"}"></div>
+          <div class="field"><label>本地模型目录（相对随包 models/ 或绝对路径）</label><input type="text" id="em-local-dir" value="${esc(cfg.embed.local_dir || "models/embed/bge-small-zh-v1.5")}"></div>
         </div>
         <div class="row">
           <button class="btn small" id="em-models">拉取可用模型</button>
           <div id="em-model-list" class="hint"></div>
         </div>
         <div class="row">
-          <div class="field"><label>嵌入 API Key（留空则沿用对话模型 Key）</label><input type="password" id="em-key" placeholder="${cfg.embed.api_key_set ? "已配置，留空则不修改" : ""}"></div>
+          <div class="field"><label>嵌入 API Key（留空则沿用对话模型 Key）</label><input type="password" id="em-key" placeholder="${esc(cfg.embed.api_key_set ? "已配置，留空则不修改" : "")}"></div>
           <button class="btn primary" id="em-save">保存嵌入配置</button>
         </div>
       </div>
@@ -126,9 +129,9 @@
             </div>
           </div>
           <div class="row" id="tts-cloud-row">
-            <div class="field" id="tts-cloud-wrap"><label>语音端点 base_url</label><input type="text" id="tts-base" value="${cfg.tts.base_url}" placeholder="留空 = 沿用对话模型端点"></div>
-            <div class="field" id="tts-cloud-model"><label>语音模型名</label><input type="text" id="tts-model" value="${cfg.tts.model}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
-            <div class="field" id="tts-voice-wrap"><label>音色 voice</label><input type="text" id="tts-voice" value="${cfg.tts.voice || ""}" placeholder="留空=服务商默认"><span class="hint" id="tts-voice-meta"></span></div>
+            <div class="field" id="tts-cloud-wrap"><label>语音端点 base_url</label><input type="text" id="tts-base" value="${esc(cfg.tts.base_url)}" placeholder="留空 = 沿用对话模型端点"></div>
+            <div class="field" id="tts-cloud-model"><label>语音模型名</label><input type="text" id="tts-model" value="${esc(cfg.tts.model)}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
+            <div class="field" id="tts-voice-wrap"><label>音色 voice</label><input type="text" id="tts-voice" value="${esc(cfg.tts.voice || "")}" placeholder="留空=服务商默认"><span class="hint" id="tts-voice-meta"></span></div>
           </div>
           <div class="row" id="tts-discover-row">
             <button class="btn small" id="tts-models">拉取模型</button>
@@ -143,7 +146,7 @@
           <div id="tts-model-list" class="hint"></div>
           <div id="tts-voice-list" class="hint"></div>
           <div class="row" id="tts-key-row">
-            <div class="field"><label>语音 Key（留空则沿用对话模型 Key）</label><input type="password" id="tts-key" placeholder="${cfg.tts.api_key_set ? "已配置，留空则不修改" : "与对话模型同一站点时可留空"}"></div>
+            <div class="field"><label>语音 Key（留空则沿用对话模型 Key）</label><input type="password" id="tts-key" placeholder="${esc(cfg.tts.api_key_set ? "已配置，留空则不修改" : "与对话模型同一站点时可留空")}"></div>
           </div>
           <p class="hint" id="tts-live"></p>
           <div class="row">
