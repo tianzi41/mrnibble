@@ -512,6 +512,53 @@ _TYPE_NAME = {
 }
 
 
+def sweep_stale_running() -> int:
+    """把「上次进程没跑完」的任务标记为 failed（启动时调用一次）。
+
+    为什么需要：生成任务跑在 ``threading.Thread(daemon=True)`` 里，应用被强杀/崩溃时
+    线程随之消失，但库里那行还是 ``status='running'`` —— 用户看到「一直在生成中」的
+    材料/课程，实际没有任何东西在跑，而且既不会失败也不会完成（2026-09-19 用户实测
+    「切页回来看不出到底跑完没」的一类脏状态）。启动清一次，任务重新变得可重试。
+
+    Returns:
+        被清扫的行数（generations + course_jobs）。
+    """
+    db = get_db()
+    now = now_iso()
+    total = 0
+    # (表, 状态列, 错误列, 时间戳列, 给用户看的说明)
+    # ⚠️ course_units 没有 updated_at 列（只有 created_at），时间戳列要按表可选，
+    # 否则 UPDATE 直接 OperationalError 被 try 吞掉 = 白写。
+    plans = (
+        ("generations", "status", "error", "updated_at",
+         "生成任务中断（应用已重启或被关闭），可重新生成"),
+        ("course_jobs", "status", "error", "updated_at",
+         "大纲/讲义任务中断（应用已重启或被关闭），可重新生成"),
+        # 单元总结用的是另一组列名（summary_status / summary_error）——漏掉它，
+        # 「单元总结」就会永远停在「生成中」（对抗核验时发现的同源漏洞）。
+        ("course_units", "summary_status", "summary_error", None,
+         "单元总结中断（应用已重启或被关闭），可重新生成"),
+    )
+    for table, col, err_col, ts_col, message in plans:
+        try:
+            sets = [f"{col} = 'failed'",
+                    f"{err_col} = COALESCE(NULLIF({err_col}, ''), ?)"]
+            params: list[Any] = [message]
+            if ts_col:
+                sets.append(f"{ts_col} = ?")
+                params.append(now)
+            cur = db.execute(
+                f"UPDATE {table} SET {', '.join(sets)} WHERE {col} = 'running'",
+                tuple(params),
+            )
+            total += int(getattr(cur, "rowcount", 0) or 0)
+        except Exception:  # noqa: BLE001 - 清扫失败绝不能影响启动（老库可能还没这张表）
+            logger.warning("启动清扫未完成任务失败：%s", table, exc_info=True)
+    if total:
+        logger.info("启动清扫：%d 条上次未完成的任务已标记为失败", total)
+    return total
+
+
 def get_generation_service() -> GenerationService:
     """返回生成服务单例。"""
     return GenerationService.get_instance()

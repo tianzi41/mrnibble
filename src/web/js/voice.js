@@ -238,14 +238,17 @@
         const url = URL.createObjectURL(blob);
         const a = new Audio(url);
         _audio = a;
-        const done = () => {
-          URL.revokeObjectURL(url);
-          if (_audio === a) _audio = null;
-          resolve();
-        };
-        a.onended = done;
-        a.onerror = done;
-        a.play().catch(done);
+          const done = () => {
+            URL.revokeObjectURL(url);
+            if (_audio === a) _audio = null;
+            resolve();
+          };
+          // 记在元素上：stop() 里要主动调它 —— 被 pause() 掐掉的音频不会触发
+          // onended/onerror，done() 就永不执行 → blob URL 泄漏 + 调用方的 await 永远挂着。
+          a.__zbDone = done;
+          a.onended = done;
+          a.onerror = done;
+          a.play().catch(done);
       } catch (e) { resolve(); }
     });
   }
@@ -356,11 +359,23 @@
       u.volume = 1.0;
       const v = pickZhVoice();
       if (v) u.voice = v;
-      u.onerror = (e) => {
-        if (myGen !== _gen) return;
-        const err = (e && e.error) || "未知原因";
-        if (err !== "interrupted" && err !== "canceled") fail("本地朗读失败：" + err);
-      };
+        let errTried = false;      // 本页是否已重试过（见下面 onerror）
+        u.onerror = (e) => {
+          if (myGen !== _gen) return;
+          const err = (e && e.error) || "未知原因";
+          if (err === "interrupted" || err === "canceled") return;   // stop()/切页的正常取消
+          if (!errTried) {
+            // 同页重试一次：偶发失败（引擎忙、丢事件）能自愈，不必惊动用户
+            errTried = true;
+            speakNext(idx);
+            return;
+          }
+          // 连续失败（例如本机没装中文语音包）：**明确停下来并告诉用户**，
+          // ⚠️ 绝不能顺手 speakNext(idx+1) —— 那会让每一页都"报错→翻页"，
+          // 整讲几秒钟刷完、还被标记成已讲完（实测把课堂页的三条状态断言全打红，
+          // 对用户更是假进度）。停下来 + 给出可操作的提示，才是诚实的处理。
+          fail("本地朗读失败：" + err + "；已停在本页，可在「设置」里换一个朗读引擎后重试");
+        };
       u.onend = () => {
         if (myGen === _gen) speakNext(idx + 1);
       };
@@ -376,11 +391,15 @@
     _prime.clear();   // 停止时清预热缓存，避免换讲次后误用旧内容
     _gen++;
     _hold = false;   // 停止时清掉暂停标志，否则下次朗读会被卡住
-    // melo 引擎：掐掉正在播放的音频；system 引擎：取消语音队列。
-    if (_audio) {
-      try { _audio.pause(); _audio.currentTime = 0; } catch (e) { /* 忽略 */ }
-      _audio = null;
-    }
+      // melo 引擎：掐掉正在播放的音频；system 引擎：取消语音队列。
+      if (_audio) {
+        const a = _audio;
+        _audio = null;
+        try { a.pause(); a.currentTime = 0; } catch (e) { /* 忽略 */ }
+        // pause() 不会触发 onended/onerror → 主动收尾，否则 blob URL 泄漏、
+        // 而且 playAudio 返回的 Promise 永远不 settle（调用方一直挂着）。
+        try { if (typeof a.__zbDone === "function") a.__zbDone(); } catch (e) { /* 忽略 */ }
+      }
     if (window.speechSynthesis) speechSynthesis.cancel();
   }
 

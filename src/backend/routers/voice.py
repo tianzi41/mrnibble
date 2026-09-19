@@ -175,12 +175,17 @@ def tts_local(payload: dict) -> Response:
     前端在 ``tts.local_engine=melo`` 时按句调用本端点，逐段播放。
     """
     text = str(payload.get("text") or "")
-    speed = payload.get("speed") or 1.0
+    # speed / speaker 都要在这里转：以前 float(speed) 写在 try 之外，
+    # 传个非数值（如 "fast"）就抛到路由外变成裸 500（2026-09-19 修）。
+    try:
+        speed = float(payload.get("speed") or 1.0)
+    except (TypeError, ValueError):
+        speed = 1.0
     try:
         speaker = int(payload.get("speaker") or 0)
     except (TypeError, ValueError):
         speaker = 0
     data, sample_rate = TTSService.get_instance().synth_local(
-        text, speed=float(speed), speaker=speaker)
+        text, speed=speed, speaker=speaker)
     return Response(content=data, media_type="audio/wav",
                     headers={"X-Sample-Rate": str(sample_rate)})

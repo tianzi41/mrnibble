@@ -51,13 +51,26 @@
       (async () => {
         let evName = "";
         try {
-          const resp = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-            signal: ctrl.signal,
-          });
-          const reader = resp.body.getReader();
+            const resp = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+              signal: ctrl.signal,
+            });
+            // ⚠️ 先判状态码：后端出错时返回的是 JSON 错误封套，**不是** SSE。
+            // 直接当流解析会把「{"code":2001,"message":"模型调用失败"}」当正文逐行喂给
+            // delta → 聊天气泡里混进一串 JSON 乱码（用户实测）。这里显式抛错，
+            // 交给下面的 catch 统一走 handlers.error。
+            if (!resp.ok) {
+              let msg = "HTTP " + resp.status;
+              try {
+                const j = await resp.json();
+                msg = (j && (j.message || j.detail)) || msg;
+              } catch (e) { /* 不是 JSON 就用状态码 */ }
+              throw new Error(msg);
+            }
+            if (!resp.body) throw new Error("响应没有可读的流（HTTP " + resp.status + "）");
+            const reader = resp.body.getReader();
           const dec = new TextDecoder("utf-8");
           let buf = "";
           for (;;) {

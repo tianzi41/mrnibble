@@ -17,8 +17,12 @@
 (function () {
   "use strict";
 
-  // 当前录音会话（没有则为 null）。
-  let session = null;
+    // 当前录音会话（没有则为 null）。
+    let session = null;
+    // 「正在取麦克风」标志：getUserMedia 要等用户点授权、可能几秒，
+    // 这段窗口里 session 还是 null —— 不挡住的话连点会开出第二个会话，
+    // 第一个麦克风流再也没人停（指示灯常亮、两份录音同时跑）。
+    let opening = false;
 
   function supported() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia
@@ -79,21 +83,27 @@
     const idle = opts.idleText || "🎙";
     const getEl = () => (typeof target === "function" ? target() : target);
 
-    if (session) { const s = session; session = null; await s.stop(); return; }
-    if (!supported()) {
-      toast("当前浏览器不支持录音；请用 Chrome / Edge 打开（本地地址或 https）", true);
-      return;
-    }
+      if (session) { const s = session; session = null; await s.stop(); return; }
+      if (opening) return;              // 正在取麦克风：这次点击直接忽略（防并发开会话）
+      if (!supported()) {
+        toast("当前浏览器不支持录音；请用 Chrome / Edge 打开（本地地址或 https）", true);
+        return;
+      }
 
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true },
-      });
-    } catch (e) {
-      toast("无法访问麦克风：" + (e && e.message || e), true);
-      return;
-    }
+      let stream;
+      opening = true;
+      if (btn) btn.disabled = true;      // 等待授权期间先锁住按钮，给出「在动了」的反馈
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true },
+        });
+      } catch (e) {
+        toast("无法访问麦克风：" + (e && e.message || e), true);
+        if (btn) btn.disabled = false;
+        return;
+      } finally {
+        opening = false;
+      }
 
     const Ctx = window.AudioContext || window.webkitAudioContext;
     const ctx = new Ctx();

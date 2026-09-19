@@ -196,12 +196,24 @@ class ExportService:
             AppError: 1000 非法路径 / 1001 文件不存在。
         """
         from ..errors import AppError
-        from ..paths import data_path
+        from ..paths import data_path, data_root
 
         rel = (relative or "").strip().lstrip("/")
         if ".." in rel or rel.startswith("\\"):
             raise AppError(1000, "非法路径")
         full = data_path(rel)
+        # ⚠️ 只查 ".." 与开头的 "\" 是不够的：Windows 上
+        # `data_root().joinpath("C:\\Windows\\win.ini")` 会**丢弃 data_root**、直接指向
+        # C:\Windows\win.ini（joinpath 遇到盘符绝对路径就换根）——实测能把 data/ 外的
+        # 任意可读文件（含 secret.key）发出去。所以再补一次「解析后必须仍在 data/ 内」
+        # 的归位校验，与 coursemedia._safe_path 同一套口径。
+        base = data_root().resolve()
+        try:
+            full.resolve().relative_to(base)
+        except (OSError, ValueError) as exc:
+            # ValueError = 最终路径确实跑到 base 外面；OSError = 符号链接成环 /
+            # 权限不足等无法解析的情况 —— 两种都按「非法路径」拒掉，不要放行。
+            raise AppError(1000, "非法路径") from exc
         if not full.exists() or not full.is_file():
             raise AppError(1001, "文件不存在")
         return full

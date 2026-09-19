@@ -24,6 +24,7 @@ from .errors import register_exception_handlers
 from .logging_setup import setup_logging
 from .paths import ensure_data_dirs, resource_path
 from .routers import register_routers
+from .services.generation import sweep_stale_running
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     db = get_database()
     db.migrate()
     _register_secret_masking()
+
+    # 清扫上次被强杀留下的「running」脏任务：否则界面上会一直显示「生成中」，
+    # 既不会完成也不会失败（生成任务跑在 daemon 线程里，进程没了线程也没了）。
+    try:
+        sweep_stale_running()
+    except Exception:  # noqa: BLE001 - 清扫失败不能挡住启动
+        logger.warning("启动清扫未完成任务时出错", exc_info=True)
 
     logger.info(
         "知伴服务启动完成",

@@ -3732,7 +3732,12 @@ class CourseService:
             feedback = str(obj.get("feedback") or "").strip()
         except Exception as exc:  # noqa: BLE001 - 判分失败不能卡住练习
             logger.warning("开放题判分失败", extra={"extra_fields": {"type": type(exc).__name__}})
-            score, correct, feedback = 0.6, True, "自动判分未成功，已按参考作答计分，建议自行复核。"
+            # 判分失败时**不能默认判对**（2026-09-19 修）：错题本只在 not correct 时收录，
+            # 判对等于把「没判过的题」从薄弱点里抹掉 —— 学生答错也永远看不到这道题。
+            # 也不能直接算错（可能本答对了）：给部分分 + 明确写「未判分待核对」，
+            # 让它照常进错题本由人复核。
+            score, correct = 0.6, False
+            feedback = "自动判分未成功（已按部分分 0.6 计），这道题未判对错，请对照参考作答自行核对。"
         return {
             "correct": correct, "score": round(score, 2),
             "feedback": feedback or (row["explanation"] or ""),

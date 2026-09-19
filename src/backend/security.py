@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import time
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -21,6 +22,15 @@ from .paths import data_path
 logger = logging.getLogger(__name__)
 
 __all__ = ["SecurityManager", "get_security_manager"]
+
+
+def _is_fernet_key(raw: bytes) -> bool:
+    """这段字节能不能被 Fernet 当成密钥用（32 字节 urlsafe-base64）。"""
+    try:
+        Fernet(raw)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 class SecurityManager:
@@ -46,8 +56,24 @@ class SecurityManager:
         """
         if self.key_path.exists():
             raw = self.key_path.read_bytes().strip()
-            if raw:
+            if raw and _is_fernet_key(raw):
                 return raw
+            # ⚠️ 文件「存在但内容为空/不是合法 Fernet 密钥」时**绝不能静默覆盖**：
+            # 旧密钥一旦没了，用它加密的 settings（API Key 等）就永久解不开 ——
+            # decrypt 只能返回空串，用户会以为"密钥丢了"，而且无从恢复。
+            # 所以：先把坏文件改名备份（哪怕只是空文件，也可能是被截断的），再生成新的，
+            # 并打一条明确的 error 日志告诉用户发生了什么、需要重新填哪些东西。
+            reason = "内容为空" if not raw else "不是合法的 Fernet 密钥"
+            broken = self.key_path.with_name(f"{self.key_path.name}.broken-{int(time.time())}")
+            try:
+                self.key_path.rename(broken)
+                logger.error(
+                    "主密钥文件%s，已备份为 %s 并重新生成新密钥；"
+                    "此前用它加密的设置（如 API Key）需要重新填写",
+                    reason, broken.name,
+                )
+            except OSError as exc:
+                logger.error("主密钥文件%s，且备份失败（%s）；将直接重新生成", reason, exc)
         key = Fernet.generate_key()
         self.key_path.parent.mkdir(parents=True, exist_ok=True)
         # 以二进制写入（不含换行），仅本机可读。

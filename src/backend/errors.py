@@ -11,12 +11,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ERROR_TABLE",
@@ -151,8 +154,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(status_code=exc.status_code, content=fail(9000, message))
 
     @app.exception_handler(Exception)
-    async def _handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
+    async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
         # 兜底：绝不把原始异常文本直接暴露（可能含敏感信息），仅给出类型名。
+        # 但**必须把堆栈写进日志** —— 否则线上出 500 时只剩一个类型名，
+        # 排查只能靠猜（用户实测报错时我们就是这样卡住的）。
+        logger.exception(
+            "未处理异常：%s %s", request.method, request.url.path,
+        )
         return JSONResponse(
             status_code=500,
             content=fail(9000, None, f"未处理异常：{type(exc).__name__}"),

@@ -51,7 +51,11 @@ def create_memory(payload: MemoryCreate) -> dict:
 def recall_memories(payload: dict) -> dict:
     """按查询召回记忆（调试/前端联想用）。"""
     query = str(payload.get("query") or "").strip()
-    limit = int(payload.get("limit") or 6)
+    # limit 也要防非数值：以前 int(...) 直接抛 → 裸 500（2026-09-19 修）
+    try:
+        limit = int(payload.get("limit") or 6)
+    except (TypeError, ValueError):
+        limit = 6
     items = MemoryService.get_instance().recall(query, limit=max(1, min(limit, 20)))
     return ok({"items": items})
 
