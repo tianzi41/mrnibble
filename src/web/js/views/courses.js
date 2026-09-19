@@ -64,9 +64,15 @@
   function draftMeaningful(d) {
     if (!d) return false;
     const t = d.topic || {};
-    return !!(d.intentPrimary || String(d.goal || "").trim()
+    return !!(d.job              // 大纲正在生成中（课程已建、只在等模型）
+      || d.intentPrimary || String(d.goal || "").trim()
       || (d.docIds || []).length || t.topic || t.gid || t.docId
       || String(d.note || "").trim());
+  }
+  /** 草稿条目的标题：正在生成大纲时显示课程，否则显示主题/目标首句。 */
+  function draftEntryTitle(d) {
+    if (d && d.job) return `正在生成大纲：《${(d.job.title || "新课程").slice(0, 18)}》`;
+    return draftTitle(d);
   }
   function draftTitle(d) {
     const t = d.topic || {};
@@ -85,6 +91,14 @@
   function scheduleDraftSave() {
     if (draftTimer) clearTimeout(draftTimer);
     draftTimer = setTimeout(saveDraftNow, 300);
+  }
+  /** 大纲生成失败时，把「正在生成」标记从草稿里摘掉 —— 表单内容原样留着，
+   *  用户重进向导就能直接改改再点「生成大纲」，而不会被那条死掉的 job 反复弹回进度页。 */
+  function dropDraftJob() {
+    const d = loadDraft();
+    if (!d || !d.job) return;
+    delete d.job; delete d.at; delete d.v;
+    saveDraft(d);
   }
   function saveDraftNow() {
     if (!draftCollector) return;                 // 不在向导里（如结构编辑）→ 不动草稿
@@ -155,15 +169,18 @@
       panel.appendChild(el("div", "panel-head", "<span>未完成的创建</span>"));
       const pbody = el("div", "panel-body");
       const it = el("div", "item");
-      it.title = "点击回到新建向导，继续上次未完成的创建";
-      it.appendChild(el("span", "t", esc(draftTitle(d))));
-      it.appendChild(el("small", null, draftTimeText(d.at)));
+      it.title = d.job ? "点击回到生成进度界面" : "点击回到新建向导，继续上次未完成的创建";
+      it.appendChild(el("span", "t", esc(draftEntryTitle(d))));
+      it.appendChild(el("small", null, d.job ? "生成中" : draftTimeText(d.at)));
       it.onclick = () => openCreate();
       pbody.appendChild(it);
       panel.appendChild(pbody);
       box.appendChild(panel);
     }
-    renderMaterialJobs(box);
+    // 有未完成的草稿时，「AI 材料」默认折叠：那块是**以前**留下的材料任务，
+    // 用户当前的工作在上一块里；摊开会让人误点（用户实测：点了旧的那条，
+    // 结果旧内容被灌进了未完成的创建里）。
+    renderMaterialJobs(box, { collapsed: draftMeaningful(d) });
   }
 
   /** 课程列表下方的「AI 材料」区块：只显示**还没收尾**的材料生成任务。
@@ -174,48 +191,75 @@
    *  这里改成**从后端任务行恢复**：`GET /api/generations?type=material` 的任务里有
    *  目录 JSON 和「已写了几章」，所以切页、甚至关掉软件重开都能接上。
    */
-  function renderMaterialJobs(box) {
+  function renderMaterialJobs(box, opts) {
+    opts = opts || {};
     // 最新在前（后端已 ORDER BY created_at DESC，这里再兜一次底，防以后改排序）
     const jobs = (S.materialJobs || []).filter(materialJobVisible)
       .slice()
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     if (!jobs.length) return;
+
     const panel = el("div");
     panel.style.marginTop = "10px";
-    panel.appendChild(el("div", "panel-head", `<span>AI 材料（${jobs.length}）</span>`));
+    const head = el("div", "panel-head");
+    head.appendChild(el("span", null, `AI 材料（${jobs.length}）`));
+    const foldBtn = el("button", "btn small", "");
+    foldBtn.type = "button";
+    head.appendChild(foldBtn);
+    panel.appendChild(head);
+
     const body = el("div", "panel-body");
+    panel.appendChild(body);
+
+    /** 一行材料任务：点它=继续/用它建课；右侧 ✕=删掉这条记录（用户自己点，不自动删）。 */
     const row = (j) => {
       const it = el("div", "item");
       it.title = "点击继续 / 用它建课";
       it.appendChild(el("span", "t", esc(materialJobTitle(j))));
       it.appendChild(el("small", null, materialJobBadge(j)));
+      const del = el("button", "x", "✕");
+      del.title = "删掉这条材料任务记录（已建课程引用的材料不受影响）";
+      del.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (!confirm(`删掉「${materialJobTitle(j)}」这条材料任务记录？\\n\\n`
+          + "只是去掉这条未收尾的记录；已经建好的课程与它用的材料不受影响。")) return;
+        try {
+          await Api.del("/api/generations/" + j.id);
+        } catch (e) { Toast("删除失败：" + e.message, true); return; }
+        await loadMaterialJobs();
+        renderList();
+        Toast("已删掉这条材料任务", false);
+      };
+      it.appendChild(del);
       it.onclick = () => { S.pendingMaterial = j; openCreate(); };
       return it;
     };
-    // 只展开**最新一条**：更早的多半是早就不再收尾的旧任务，全摊开会把最新的那条埋掉
-    // （用户实测：这里只剩一条很早的旧记录，点进去是上上次的进度）。
-    body.appendChild(row(jobs[0]));
-    if (jobs.length > 1) {
-      const n = jobs.length - 1;
-      const more = el("button", "btn small", `更早的 ${n} 条 ▾`);
-      more.type = "button";
-      more.style.marginTop = "6px";
-      let open = false;
-      more.onclick = () => {
-        open = !open;
-        more.textContent = open ? `收起更早的 ${n} 条 ▴` : `更早的 ${n} 条 ▾`;
-        Array.from(body.querySelectorAll(".item.older")).forEach((x) => x.remove());
-        if (open) {
-          jobs.slice(1).forEach((j) => {
-            const it = row(j);
-            it.classList.add("older");
-            body.insertBefore(it, more);
-          });
-        }
-      };
-      body.appendChild(more);
-    }
-    panel.appendChild(body);
+
+    let collapsed = !!opts.collapsed;      // 有未完成草稿时默认折叠（避免误点在旧记录上）
+    let showOlder = false;
+    const paint = () => {
+      body.innerHTML = "";
+      // 这块是干什么的：永远说清楚，不然用户看到一条孤零零的旧记录只会困惑
+      body.appendChild(el("div", "hint",
+        "之前让 AI 写出来的材料（还没用来建课的会留在这里）。点它 = 接着那条任务/用它建课；"
+        + "不需要了就点右侧 ✕ 删掉。"));
+      foldBtn.textContent = collapsed ? "展开 ▾" : "收起 ▴";
+      if (collapsed) return;
+      // 只默认展开**最新一条**：更早的多半是早已不再收尾的旧任务，全摊开会把最新的埋掉
+      body.appendChild(row(jobs[0]));
+      if (jobs.length > 1) {
+        const n = jobs.length - 1;
+        if (showOlder) jobs.slice(1).forEach((j) => body.appendChild(row(j)));
+        const more = el("button", "btn small",
+          showOlder ? `收起更早的 ${n} 条 ▴` : `更早的 ${n} 条 ▾`);
+        more.type = "button";
+        more.style.marginTop = "6px";
+        more.onclick = () => { showOlder = !showOlder; paint(); };
+        body.appendChild(more);
+      }
+    };
+    foldBtn.onclick = () => { collapsed = !collapsed; paint(); };
+    paint();
     box.appendChild(panel);
   }
 
@@ -309,6 +353,12 @@
     // 本地保存的草稿 = **最新一次未完成的创建**（单键覆盖，不会攒旧记录）。
     // DOM 建好后再填回去（见下面 applyDraft），课型卡要等课型库拉回来才能选中。
     const draft = loadDraft();
+    // 上次点了「生成大纲」还没出结果 → 直接回到那个进度界面并续上轮询
+    // （用户实测：点了生成大纲后切页，就再也回不到这个界面了）。
+    if (draft && draft.job && draft.job.courseId && draft.job.jobId) {
+      resumeOutlineJob(host, draft.job);
+      return;
+    }
     // 每次进向导都从**干净状态**开始：S.topicMode 是模块级单例，不重置的话
     // 上一次的「✅ 材料已就绪：《…》」会残留到下一次新建课程
     // （用户实测：「回来重新点新建课程，发现有上次创建课程的残留」）。
@@ -795,9 +845,15 @@
             note: ((noteEl && noteEl.value) || "").trim() || null,
           },
         });
-        // 建课已发起 → 这份草稿的使命完成（后面的进度由大纲任务自己承载）
-        clearDraft();
-        await pollOutline(r.course_id, r.job_id, host);
+        // 课程已建、大纲正在生成 → 把「这次创建」记进草稿（含 course_id / job_id）：
+        // 切到别的页、甚至关掉软件重开，都能回到进度界面继续等（用户实测：以前一
+        // 切走就再也找不回来，只能在课程列表里看到一条「生成中」）。
+        const d = collectDraft();
+        d.job = { courseId: r.course_id, jobId: r.job_id, at: Date.now(), title: goal || "新课程" };
+        saveDraft(d);
+        await pollOutline(r.course_id, r.job_id, host, null,
+          () => afterOutlineReady(host, r.course_id),
+          () => dropDraftJob());
       } catch (e) {
         Toast(e.message, true);
         btn.disabled = false; btn.textContent = "生成大纲";
@@ -808,9 +864,22 @@
     // chosen / paintPicked —— 这些都是本函数里稍后才声明的 const，插在它们前面
     // 会直接踩 TDZ（ReferenceError: Cannot access 'goalEl' before initialization），
     // 整个视图会停在「加载中…」（2026-09-19 实测，就是被这条坑到的）。
-    // 点了「AI 材料」里的任务 = 用户明确选定这条 → 立刻把它存成当前草稿，
-    // 免得下次回来又把更早的旧记录当成「最新的」。
-    if (pend) scheduleDraftSave();
+    // 从「AI 材料」接回一条旧任务时**不写草稿**：用户实测「点了那条旧记录，
+    // 结果它把课程内容复制到我未完成的创建中去了」—— 那是把别人的进度顶掉了。
+    // 改成只提示，并留一个「回到我未完成的创建」的出口（草稿一直原样留着）。
+    if (pend) {
+      const bar = el("div", "hint");
+      bar.style.marginTop = "8px";
+      bar.innerHTML = `↩ 正在继续 AI 材料《${esc(T.title || "材料")}》——它会作为这门课的学习材料。`;
+      if (draftMeaningful(draft)) {
+        const back = el("button", "btn small", "回到我未完成的创建");
+        back.type = "button";
+        back.style.marginLeft = "8px";
+        back.onclick = () => { S.topicMode = null; renderMain(); };
+        bar.appendChild(back);
+      }
+      card.insertBefore(bar, card.firstChild);
+    }
 
     // ── 草稿：收集（任何变化都存一次）──────────────────────
     // 这一点是本次修复的核心：以前向导的进度只活在内存里，向导一重建就没了；
@@ -939,6 +1008,12 @@
   async function pollOutline(courseId, jobId, host, stageBox, onReady, onFail) {
     let misses = 0;
     for (let i = 0; i < 600; i++) {
+      // 用户切页后向导会被重建（host 被替换、脱离文档）→ 旧轮询必须自己退出：
+      // ① 否则它会一直打接口、还会往已经不在页面上的节点写 DOM；
+      // ② 更糟的是「完成」时它会把草稿里的 job 标记清掉 —— 用户切页回来就
+      //    再也找不到这个进度界面了（2026-09-19 用户实测「找不回来」的真凶）。
+      // 停掉后草稿里的 job 标记会保留，回来点一下就能续上。
+      if (host && !host.isConnected) return;
       let job;
       try {
         job = await Api.get("/api/courses/jobs/" + jobId);
@@ -958,6 +1033,7 @@
         if (onReady) { await onReady(job); return; }
         await loadCourses();
         await loadMaterialJobs();   // 材料可能已被本课用掉 → 刷新「AI 材料」区块
+        if (!host || !host.isConnected) return;   // 已切走：只刷数据，别碰 DOM
         await loadCourse(courseId);
         renderList();
         S.creating = false;
@@ -965,6 +1041,7 @@
       }
       if (job.status === "failed") {
         if (onFail) { onFail(new Error(job.error || "生成失败")); return; }
+        if (!host || !host.isConnected) return;   // 已切走：别往卸载的视图里写
         host.innerHTML = `<div class="card"><b>大纲生成失败</b><div class="hint">${esc(job.error || "")}</div>
           <div class="row" style="margin-top:12px"><button class="btn primary" id="retry">重新生成</button></div></div>`;
         document.getElementById("retry").onclick = openCreate;
@@ -1348,6 +1425,49 @@
       box.appendChild(foot);
       host.appendChild(box);
     });
+  }
+
+  /**
+   * 大纲就绪后的收尾：**清草稿**（这次创建已经走完向导阶段）→ 刷新列表 → 进结构确认。
+   * 与 pollOutline 的默认分支等价，区别只是顺带把草稿清掉，所以显式传 onReady。
+   */
+  async function afterOutlineReady(host, courseId) {
+    clearDraft();
+    await loadCourses();
+    await loadMaterialJobs();     // 材料可能已被本课用掉 → 刷新「AI 材料」区块
+    if (!host || !host.isConnected) return;   // 已切走：只刷数据，别碰 DOM
+    await loadCourse(courseId);
+    renderList();
+    S.creating = false;
+    confirmOutline(host, courseId);
+  }
+
+  /** 回到「正在生成课程大纲…」界面并**续上轮询**。
+   *
+   *  用户实测问题：点了「生成大纲」之后切到别的页，就再也回不到这个界面了
+   *  （只能在课程列表里看到一条「生成中」的课程，点进去是空的详情页）。
+   *  草稿里存了 course_id + job_id，所以这里能把那个界面原样重建并接着等。
+   */
+  async function resumeOutlineJob(host, job) {
+    host.innerHTML = "";
+    const card = el("div", "card");
+    card.innerHTML = `<b>正在生成课程大纲…</b>
+      <div class="hint" style="margin-top:8px" id="rs-stage">正在接回上次的任务…</div>
+      <div class="bar"><i style="width:100%"></i></div>
+      <div class="hint">时间取决于模型速度，通常十几秒到一分钟。可以切到别的页，回来自动继续。</div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn small" id="rs-drop">不再等它，去看课程列表</button>
+      </div>`;
+    host.appendChild(card);
+    const drop = document.getElementById("rs-drop");
+    if (drop) {
+      // 「不再等」只清掉这条草稿记录：课程本身已经建好了，不会因为这条丢东西
+      drop.onclick = () => { clearDraft(); Toast("已收起这次创建，课程在左侧列表里", false); openCourse(job.courseId); };
+    }
+    const stage = document.getElementById("rs-stage");
+    await pollOutline(job.courseId, job.jobId, host, stage,
+      () => afterOutlineReady(host, job.courseId),
+      () => dropDraftJob());
   }
 
   /* ── 装配 ─────────────────────────────── */
