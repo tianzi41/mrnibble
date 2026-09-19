@@ -18,6 +18,9 @@
 
   const LEVELS = [["beginner", "零基础"], ["intermediate", "有基础"], ["advanced", "进阶"]];
   const DEPTHS = [["brief", "概览（快速过一遍）"], ["standard", "标准"], ["detailed", "深入（含推导与易错点）"]];
+  // 学习目标框占位文案（单一来源：HTML 模板与「正在生成」临时占位共用，避免多处字面量）
+  const GOAL_PLACEHOLDER = "选好课型后会自动写一句；也可以自己改，或清空让系统按课型决定";
+  const GOAL_WRITING = "正在按课型写目标…";
 
   const el = (tag, cls, html) => {
     const n = document.createElement(tag);
@@ -345,10 +348,6 @@
     let showOlder = false;
     const paint = () => {
       body.innerHTML = "";
-      // 这块是干什么的：永远说清楚，不然用户看到一条孤零零的旧记录只会困惑
-      body.appendChild(el("div", "hint",
-        "之前让 AI 写出来的材料（还没用来建课的会留在这里）。点它 = 接着那条任务/用它建课；"
-        + "不需要了就点右侧 ✕ 删掉。"));
       foldBtn.textContent = collapsed ? "展开 ▾" : "收起 ▴";
       if (collapsed) return;
       // 只默认展开**最新一条**：更早的多半是早已不再收尾的旧任务，全摊开会把最新的埋掉
@@ -507,9 +506,10 @@
           <div id="t-outline-wrap" style="display:none;margin-top:8px">
             <div class="hint">目录（可直接改标题、删掉不需要的章；改完再写正文）</div>
             <div id="t-chapters"></div>
-            <div class="row" style="margin-top:6px">
+            <div class="row" style="margin-top:6px;align-items:center">
               <button class="btn small" id="t-add" type="button">＋ 加一章</button>
               <button class="btn small primary" id="t-write" type="button">② 确认目录，开始写正文</button>
+              <span id="t-status" class="run-status"></span>
             </div>
           </div>
         </div>
@@ -523,7 +523,7 @@
       </div>
       <div class="field">
         <label>学习目标（一句话；AI 按课型写，可改、可清空）</label>
-        <textarea id="f-goal" rows="2" placeholder="选好课型后会自动写一句；也可以自己改，或清空让系统按课型决定"></textarea>
+        <textarea id="f-goal" rows="2" placeholder="${GOAL_PLACEHOLDER}"></textarea>
         <div class="row" style="margin-top:6px">
           <button class="btn small" id="f-gen-goal">按课型生成</button>
           <button class="btn small" id="f-clear-goal">清空</button>
@@ -610,6 +610,14 @@
     const tHint = document.getElementById("t-hint");
     const tWrap = document.getElementById("t-outline-wrap");
     const tChapters = document.getElementById("t-chapters");
+    const tStatus = document.getElementById("t-status");
+    /** 材料生成（写正文）的进度/结果反馈，统一收敛到 #t-status（按钮右侧）。
+     *  kind ∈ "writing" | "done" | "warn" | ""（空 = 不显示）。 */
+    const setStatus = (text, kind) => {
+      if (!tStatus) return;
+      tStatus.textContent = text || "";
+      tStatus.className = "run-status" + (kind ? " " + kind : "");
+    };
 
     const paintSrc = () => {
       paneDocs.style.display = T.on ? "none" : "";
@@ -617,7 +625,7 @@
       document.getElementById("src-docs").classList.toggle("on", !T.on);
       document.getElementById("src-topic").classList.toggle("on", T.on);
       if (T.docId) {
-        tHint.textContent = `✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`;
+        setStatus(`✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`, "done");
       }
     };
     const paintChapters = () => {
@@ -667,6 +675,7 @@
       T.topic = topic;
       T.depth = document.getElementById("f-topic-depth").value;
       T.outline = []; T.docId = ""; paintChapters();
+      setStatus("");   // 重开一轮：清掉上一轮残留的「材料已就绪」，免得新目录出来时顶着旧状态
       scheduleDraftSave();
       tOutlineBtn.disabled = true; tOutlineBtn.textContent = "生成目录中…";
       try {
@@ -712,7 +721,7 @@
     const paintWriting = (d) => {
       const total = T.outline.length || 1;
       const n = ((d.content_md || "").match(/^## /gm) || []).length;
-      tHint.textContent = `正在写材料 ${Math.min(n + 1, total)}/${total} 章…（可切到别的页，回来自动继续）`;
+      setStatus(`正在写材料 ${Math.min(n + 1, total)}/${total} 章…（可切到别的页，回来自动继续）`, "writing");
     };
     /** 材料写完：记下 doc_id（它会自动成为本课的材料）。 */
     const finishWriting = (d) => {
@@ -721,10 +730,10 @@
       T.title = cj.title || T.title;
       const dn = cj.chapters_done, tt = cj.chapters_total;
       const part = dn != null && tt != null && dn < tt;
-      tHint.textContent = cj.skip_reason
+      setStatus(cj.skip_reason
         ? "ℹ️ " + cj.skip_reason
         : `✅ 材料已就绪：《${T.title}》（${dn || T.outline.length}/${tt || T.outline.length} 章）`
-          + (part ? "，部分章节生成失败，可稍后重新生成材料" : "");
+          + (part ? "，部分章节生成失败，可稍后重新生成材料" : ""), "done");
       if (T.docId) { loadDocuments(); loadMaterialJobs(); }
       scheduleDraftSave();     // 材料写完 → 把 docId 记进草稿（切页回来直接能建课）
     };
@@ -755,19 +764,21 @@
       paintSrc(); paintChapters();
       if (pend.status === "running" && T.gid) {
         if (T.outline.length) {
-          tHint.textContent = "上次的任务还在后台继续，正在接回…";
+          setStatus("上次的任务还在后台继续，正在接回…", "writing");
           pollGen(T.gid, paintWriting, finishWriting, failWriting);
         } else {
+          // 目录还没出来时 #t-outline-wrap 是隐藏的（状态节点在它里面）→ 这条退回 tHint 才看得见
           tHint.textContent = "正在规划材料结构…（上次的任务还在后台跑）";
           pollGen(T.gid, () => { tHint.textContent = "正在规划材料结构…"; },
                   applyOutline, failWriting);
         }
       } else if (pend.status === "failed") {
-        tHint.textContent = "上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。";
+        setStatus("上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。", "warn");
       } else if (T.docId) {
-        tHint.textContent = `✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`;
+        setStatus(`✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`, "done");
       } else if (T.outline.length) {
         tHint.textContent = "目录已就绪，点「② 确认目录，开始写正文」继续。";
+        setStatus("");
       }
     }
 
@@ -844,6 +855,9 @@
       chosen.note = (noteEl && noteEl.value || "").trim();
       const seq = ++goalSeq;
       setGoalHint("正在按课型写目标…");
+      // 进入「正在生成」可视态：输入框主色描边 + 呼吸；空框时占位也提示「正在写」
+      goalEl.classList.add("loading");
+      if (!goalEl.value.trim()) goalEl.placeholder = GOAL_WRITING;
       try {
         const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
         const r = await Api.post("/api/courses/suggest-goal", {
@@ -857,10 +871,20 @@
       } catch (e) {
         if (seq !== goalSeq) return;
         setGoalHint("生成失败，可自己写一句，或留空让系统按课型决定");
+      } finally {
+        // 本次请求仍是「当前有效」的那一条才退 loading；被作废的由胜出方负责退
+        if (seq === goalSeq) {
+          goalEl.classList.remove("loading");
+          goalEl.placeholder = GOAL_PLACEHOLDER;
+        }
       }
     };
     // 用户手改目标 → 作废在途的自动写目标（程序赋值不触发 input，不会误伤自己）
-    goalEl.addEventListener("input", () => { goalSeq++; });
+    goalEl.addEventListener("input", () => {
+      goalSeq++;                                   // 手改作废在途自动写目标
+      goalEl.classList.remove("loading");          // 用户已亲自接手 → 退出「正在生成」态
+      goalEl.placeholder = GOAL_PLACEHOLDER;
+    });
 
     document.getElementById("f-analyze").onclick = async () => {
       const btn = document.getElementById("f-analyze");
@@ -896,6 +920,8 @@
     document.getElementById("f-clear-goal").onclick = () => {
       goalSeq++;                       // 清空同样要作废在途请求，否则会被迟到的响应写回
       goalEl.value = "";
+      goalEl.classList.remove("loading");
+      goalEl.placeholder = GOAL_PLACEHOLDER;
       setGoalHint("已清空 —— 留空时系统按课型决定这门课怎么讲");
       scheduleDraftSave();
     };
@@ -1031,18 +1057,20 @@
       paintSrc(); paintChapters();
       if (d.status === "running") {
         if (T.outline.length) {
-          tHint.textContent = "上次写正文的任务还在后台继续，正在接回…";
+          setStatus("上次写正文的任务还在后台继续，正在接回…", "writing");
           pollGen(gid, paintWriting, finishWriting, failWriting);
         } else {
+          // 同上：目录未出时 wrap 隐藏，状态写 #t-status 看不见
           tHint.textContent = "上次的任务还在规划目录，正在接回…";
           pollGen(gid, () => { tHint.textContent = "正在规划材料结构…"; }, applyOutline, failWriting);
         }
       } else if (d.status === "failed") {
-        tHint.textContent = "上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。";
+        setStatus("上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。", "warn");
       } else if (T.docId) {
-        tHint.textContent = `✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`;
+        setStatus(`✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`, "done");
       } else if (T.outline.length) {
         tHint.textContent = "目录已就绪，点「② 确认目录，开始写正文」继续。";
+        setStatus("");
       }
     };
 
@@ -1215,6 +1243,8 @@
       draft.title = saved.title || draft.title;
       draft.units = saved.units;
     }
+    // 当前单元数：决定「保持当前」选项的文案；不在 2~6 时默认选中「自定义…」
+    const curUnits = draft.units.length;
     const card = el("div", "card");
     card.innerHTML = `
       <div class="row" style="justify-content:space-between">
@@ -1241,11 +1271,38 @@
           placeholder="例如：单元再少一点，只保留 3 个；多放一些例题与易错点；先讲定义再讲计算"></textarea>
         <div class="hint">点「重新生成」时会把这段要求交给模型，新大纲会尽量按你的描述调整；留空则按当前目标重新生成。</div>
       </div>
+      <div class="field" style="margin-top:12px">
+        <label>单元数量（重新生成时）</label>
+        <select id="o-units">
+          <option value="">保持当前（${curUnits} 个单元）</option>
+          <option value="0">自动（按材料定）</option>
+          ${[2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n} 个单元</option>`).join("")}
+          <option value="custom">自定义…</option>
+        </select>
+        <input type="number" id="o-units-custom" min="1" max="12" placeholder="1 ~ 12"
+               style="display:none;margin-top:6px;max-width:110px">
+        <div class="hint">现在这门课是 ${curUnits} 个单元。改这里，或在上面的要求里写「生成 5 章」，点「重新生成」就会按新数量出纲。</div>
+      </div>
       <div class="row" style="justify-content:flex-end">
         <button class="btn" id="o-regen">重新生成</button>
         <button class="btn primary" id="o-ok">${editing ? "保存结构" : "确认，开始学习"}</button>
       </div>`;
     host.appendChild(card);
+
+    // 单元数量下拉：选「自定义…」展开数字框（1~12）；当前单元数不在 2~6 时默认选中自定义并预填 N
+    const oUnitsSel = document.getElementById("o-units");
+    const oUnitsCustom = document.getElementById("o-units-custom");
+    oUnitsSel.onchange = () => {
+      const custom = oUnitsSel.value === "custom";
+      oUnitsCustom.style.display = custom ? "" : "none";
+      if (custom) oUnitsCustom.focus();
+    };
+    // curUnits=0（结构为空）时不预选「自定义」，否则提交会被 clamp 成 1 个单元
+    if (curUnits >= 1 && (curUnits < 2 || curUnits > 6)) {
+      oUnitsSel.value = "custom";
+      oUnitsCustom.value = curUnits;
+      oUnitsCustom.style.display = "";
+    }
 
     const tree = document.getElementById("tree");
     // 结构改动**本地保留**：切页、点左栏课程回来接着改（用户实测「改动全丢」）。
@@ -1356,11 +1413,29 @@
       const btn = document.getElementById("o-regen");
       const noteEl = document.getElementById("o-regen-note");
       const note = (noteEl && noteEl.value || "").trim();
+      // 单元数量：默认「保持当前」= 不带 unit_count（后端沿用当前）；
+      // 「自动」=0；下拉数字 = 该数字；「自定义…」= 读数字框（1~12）。
+      const oUnitsSel = document.getElementById("o-units");
+      const oUnitsVal = oUnitsSel ? oUnitsSel.value : "";
+      const body = { note };
+      if (oUnitsVal !== "") {
+        let unitCount;
+        if (oUnitsVal === "custom") {
+          let cv = parseInt((document.getElementById("o-units-custom") || {}).value || "", 10);
+          if (!Number.isFinite(cv)) cv = curUnits;
+          unitCount = Math.max(1, Math.min(12, cv));
+        } else if (oUnitsVal === "0") {
+          unitCount = 0;
+        } else {
+          unitCount = parseInt(oUnitsVal, 10);
+        }
+        body.unit_count = unitCount;
+      }
       btn.disabled = true; btn.textContent = "重新生成中…";
       // 立刻给出反馈，避免「点了没反应」的错觉。
       showStage(host, note ? "正在按你的要求重新组织大纲…" : "正在重新生成大纲…");
       try {
-        const r = await Api.post(`/api/courses/${courseId}/outline:regenerate`, { note });
+        const r = await Api.post(`/api/courses/${courseId}/outline:regenerate`, body);
         await pollOutline(courseId, r.job_id, host);
       } catch (e) {
         Toast(e.message, true);
@@ -1377,6 +1452,8 @@
     // 出现新旧大纲上下并排（用户实测问题 1）。
     host.innerHTML = "";
     const c = S.course;
+    // 当前单元数：决定「保持当前」选项的文案；不在 2~6 时默认选中「自定义…」
+    const curUnits = (c.units || []).length;
     const p = c.progress || {};
     // 讲次教学设计 desc：旧课程（功能上线前建的）为 null，详情页给一条「只补 desc」
     // 的入口 —— 用户若走「重新生成大纲」会重建讲次、把已生成好的讲义一起丢掉。
@@ -1422,8 +1499,34 @@
         <textarea id="c-regen-note" rows="2"
           placeholder="例如：把单元拆得更细，每个单元只讲一个概念；多放一些典型例题"></textarea>
         <div class="hint">填写后点「重新生成大纲」，新大纲会按你的描述调整；留空则按当前目标重新生成。</div>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label>单元数量（重新生成时）</label>
+        <select id="c-units">
+          <option value="">保持当前（${curUnits} 个单元）</option>
+          <option value="0">自动（按材料定）</option>
+          ${[2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n} 个单元</option>`).join("")}
+          <option value="custom">自定义…</option>
+        </select>
+        <input type="number" id="c-units-custom" min="1" max="12" placeholder="1 ~ 12"
+               style="display:none;margin-top:6px;max-width:110px">
+        <div class="hint">现在这门课是 ${curUnits} 个单元。改这里，或在上面的要求里写「生成 5 章」，点「重新生成大纲」就会按新数量出纲。</div>
       </div>`;
     host.appendChild(head);
+    // 单元数量下拉：选「自定义…」展开数字框（1~12）；当前单元数不在 2~6 时默认选中自定义并预填 N
+    const cUnitsSel = document.getElementById("c-units");
+    const cUnitsCustom = document.getElementById("c-units-custom");
+    cUnitsSel.onchange = () => {
+      const custom = cUnitsSel.value === "custom";
+      cUnitsCustom.style.display = custom ? "" : "none";
+      if (custom) cUnitsCustom.focus();
+    };
+    // curUnits=0（结构为空）时不预选「自定义」，否则提交会被 clamp 成 1 个单元
+    if (curUnits >= 1 && (curUnits < 2 || curUnits > 6)) {
+      cUnitsSel.value = "custom";
+      cUnitsCustom.value = curUnits;
+      cUnitsCustom.style.display = "";
+    }
     document.getElementById("c-edit").onclick = () => {
       location.hash = "#/courses?confirm=" + c.id;
     };
@@ -1432,6 +1535,23 @@
       const btn = document.getElementById("c-regen");
       const noteEl = document.getElementById("c-regen-note");
       const note = (noteEl && noteEl.value || "").trim();
+      // 单元数量：默认「保持当前」= 不带 unit_count；「自动」=0；下拉数字=该数字；「自定义…」=读数字框
+      const cUnitsSel = document.getElementById("c-units");
+      const cUnitsVal = cUnitsSel ? cUnitsSel.value : "";
+      const body = { note };
+      if (cUnitsVal !== "") {
+        let unitCount;
+        if (cUnitsVal === "custom") {
+          let cv = parseInt((document.getElementById("c-units-custom") || {}).value || "", 10);
+          if (!Number.isFinite(cv)) cv = curUnits;
+          unitCount = Math.max(1, Math.min(12, cv));
+        } else if (cUnitsVal === "0") {
+          unitCount = 0;
+        } else {
+          unitCount = parseInt(cUnitsVal, 10);
+        }
+        body.unit_count = unitCount;
+      }
       btn.disabled = true; btn.textContent = "重新生成中…";
       if (stage) stage.textContent = note ? "正在按你的要求重新组织大纲…" : "正在重新生成大纲…";
       const resetBtn = () => {
@@ -1441,7 +1561,7 @@
         if (st) st.textContent = "";
       };
       try {
-        const r = await Api.post(`/api/courses/${c.id}/outline:regenerate`, { note });
+        const r = await Api.post(`/api/courses/${c.id}/outline:regenerate`, body);
         // 详情页的重新生成：完成后**原地刷新详情**（新大纲/进度直接可见），
         // 按钮复位 —— 不跳结构编辑器，避免「按钮停在生成中、状态却已完成」的不同步。
         await pollOutline(c.id, r.job_id, host, stage,

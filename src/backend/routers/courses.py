@@ -85,7 +85,9 @@ class OutlineUpdate(BaseModel):
     goal: str | None = None
     level: str | None = None
     depth: str | None = None
-    unit_count: int | None = None
+    unit_count: int | None = Field(
+        default=None, ge=0, le=12,
+        description="单元数量（0~12）；0=自动（按材料体量决定），不填=沿用课程旧值")
     note: str | None = Field(
         default=None,
         description="自定义要求（本次重新生成的额外说明，会作为补充要求写进提示词）",

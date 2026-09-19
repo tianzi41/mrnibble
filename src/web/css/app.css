@@ -758,6 +758,51 @@ details.adv > .field { margin-top: 10px; }
   background: var(--primary-soft); font-weight: 500;
 }
 
+/* ── 材料生成状态（按钮右侧；进度/结果反馈，加视觉权重）──
+   进度态：主色 + 旋转圆环 spinner + 呼吸；结果态：成功色一次性 pop；失败态：警示色。
+   全部走主题变量，暗色主题下自动可读。 */
+.run-status {
+  display: none;
+  margin-left: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  align-items: center;
+  gap: 6px;
+}
+.run-status:not(:empty) { display: inline-flex; }
+.run-status.writing { color: var(--primary); }
+.run-status.writing::before {
+  content: "";
+  width: 12px; height: 12px;
+  border: 2px solid var(--primary-ring);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: rs-spin .8s linear infinite, rs-breathe 1.6s ease-in-out infinite;
+}
+.run-status.done { color: var(--ok); animation: rs-pop .3s ease; }
+.run-status.warn { color: var(--bad); }
+@keyframes rs-spin { to { transform: rotate(360deg); } }
+@keyframes rs-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@keyframes rs-pop { 0% { transform: scale(.82); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .run-status.writing::before { animation: none; }
+  .run-status.done { animation: none; }
+}
+
+/* 学习目标框「正在生成」可视态：主色描边 + 呼吸光晕（同样走变量、尊重 reduced-motion） */
+#f-goal.loading {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+  animation: goal-breathe 1.4s ease-in-out infinite;
+}
+@keyframes goal-breathe {
+  0%, 100% { box-shadow: 0 0 0 3px var(--primary-ring); }
+  50% { box-shadow: 0 0 0 5px var(--primary-tint); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #f-goal.loading { animation: none; }
+}
+
 /* ── 右栏「文档预览」正文 ──────────────────────────────
    右栏只有 290px，正文用 pre-wrap 原样换行；字号比正文小一档。 */
 .doc-preview {

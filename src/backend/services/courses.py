@@ -58,6 +58,41 @@ _MAX_RETRY = 1
 # 大纲默认单元数 / 每单元讲次数（模型输出不足时用于兜底）。
 _DEFAULT_UNITS = 3
 _DEFAULT_LESSONS = 3
+
+# 从「重新生成」补充说明里解析用户写死的单元数量（见 regenerate_outline）。
+# 中文数字：零~九 + 十/两；必须紧跟单位词才算命中，clamp 1~12，取最后一个匹配。
+# 位置词（最后/前/后/第/这/那/每/上/下/某个）前缀的不算数量——「最后一个单元」
+# 是序数而非「1 个单元」，会被负向前查排除。
+_CN_UNIT_DIGITS = {
+    "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+}
+_UNIT_WORDS = r"(?:章|单元|部分|模块|块)"
+_UNIT_QUALIFIER = r"(?<![最后前第这那每上下某个])"
+_UNIT_RE_ARABIC = re.compile(_UNIT_QUALIFIER + r"(\d+)\s*(?:个)?\s*" + _UNIT_WORDS)
+_UNIT_RE_CN = re.compile(_UNIT_QUALIFIER + r"([零一二两三四五六七八九十])\s*(?:个)?\s*" + _UNIT_WORDS)
+
+
+def _unit_count_from_note(note: str) -> int | None:
+    """从用户的补充要求里解析写死的单元数（如「一共生成五章」）。
+
+    - 阿拉伯数字与中文数字都识别（零~九、十、两）；
+    - **必须紧跟单位词**（章/单元/部分/模块/块，允许中间夹「个」）才算命中，
+      因此「五」（无单位词）、「第十单元」（序数，带「第」）都不计入数量；
+    - clamp 到 1~12（与单元数域一致），**取最后一个匹配**
+      （用户可能写「不要 3 章，要 5 章」）；
+    - 解析不出返回 ``None``。
+    """
+    if not note:
+        return None
+    found: list[int] = []
+    for m in _UNIT_RE_ARABIC.finditer(note):
+        found.append(int(m.group(1)))
+    for m in _UNIT_RE_CN.finditer(note):
+        found.append(_CN_UNIT_DIGITS[m.group(1)])
+    if not found:
+        return None
+    return max(1, min(12, found[-1]))
 # 生成任务防重入：running 任务超过该时长（分钟）视为僵死（进程被杀等遗留），
 # 不再计入防重入 —— 否则用户会被永远挡住，只能靠重启进程解困。
 _JOB_REENTRY_STALE_MIN = 15
@@ -1008,12 +1043,24 @@ class CourseService:
         goal = str(payload.get("goal") or row["goal"] or "").strip()
         level = str(payload.get("level") or row["level"])
         depth = str(payload.get("depth") or row["depth"])
-        try:
-            unit_count = int(payload.get("unit_count") or row["unit_count"])
-        except (TypeError, ValueError):
-            unit_count = int(row["unit_count"] or _DEFAULT_UNITS)
         # 自定义要求：用户在「重新生成」前填写的额外说明，直接作为补充要求进提示词。
         note = str(payload.get("note") or "").strip()[:1000]
+        # 单元数优先级（从「重新生成」的实际调用路径出发）：
+        #   ① payload 显式给的 unit_count（含 0=自动，绝对不能被 `or` 当假值吃掉）
+        #   ② note 里解析出的数量（用户实际走「重新生成」时只提交 {note}，不带 unit_count）
+        #   ③ 课程旧值 row["unit_count"]（可能为 0=自动，绝不能回落到 _DEFAULT_UNITS）
+        if "unit_count" in payload and payload["unit_count"] is not None:
+            try:
+                unit_count = int(payload["unit_count"])
+            except (TypeError, ValueError):
+                unit_count = int(row["unit_count"] or 0)
+        else:
+            unit_count = int(row["unit_count"] or 0)
+        if "unit_count" not in payload or payload.get("unit_count") is None:
+            note_units = _unit_count_from_note(note)
+            if note_units is not None:
+                unit_count = note_units
+        unit_count = max(0, min(12, unit_count))
 
         db.execute(
             "UPDATE courses SET goal=?, level=?, depth=?, unit_count=?, status='drafting',"
@@ -1481,6 +1528,10 @@ class CourseService:
                     + "\n请在满足上述要求的前提下组织单元与讲次，"
                     "但不得偏离 [材料N] 的真实内容，也不得编造材料中没有的主题。"
                 )
+                # note 里可能写「五章」而本课程又固定了单元数，两条指令会冲突——
+                # 显式声明以固定单元数为准，避免模型被 note 带偏（note 为空不改文案）。
+                if unit_count >= 1:
+                    prompt += "（若上面的要求与本课程固定的单元数冲突，以单元数为准）"
             messages = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": self._material_user(goal, context)},

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 import zlib
 
@@ -442,6 +443,38 @@ def _outline_payload() -> str:
     }, ensure_ascii=False)
 
 
+def _outline_n_payload(n: int) -> str:
+    """可指定单元数的大纲桩（每单元 2 讲解 + 1 练习），供端到端验证固定单元数生效。"""
+    n = max(1, min(12, n))
+    return json.dumps({
+        "title": f"课程（{n} 单元）",
+        "summary": f"共 {n} 个单元，每单元讲解 + 练习。",
+        "units": [
+            {"title": f"单元{i}", "summary": f"第 {i} 单元简介",
+             "lessons": [
+                 {"title": f"单元{i}·讲解1", "objective": "能运用核心概念解题",
+                  "kind": "lecture", "depth": "define"},
+                 {"title": f"单元{i}·讲解2", "objective": "能完成典型例题",
+                  "kind": "lecture", "depth": "derive"},
+                 {"title": f"单元{i}·练习", "objective": "巩固本节内容",
+                  "kind": "practice", "depth": "apply"},
+             ]}
+            for i in range(1, n + 1)
+        ],
+    }, ensure_ascii=False)
+
+
+def _parse_units_from_body(body: dict) -> int | None:
+    """从大纲提示词的 system 消息里解析「单元数固定为 N 个」，找不到（自动模式）返回 None。"""
+    for m in (body.get("messages") or []):
+        if str(m.get("role")) != "system":
+            continue
+        mm = re.search(r"单元数固定为\s*(\d+)\s*个", str(m.get("content") or ""))
+        if mm:
+            return int(mm.group(1))
+    return None
+
+
 def _outline_dirty(kind: str) -> str:
     """**故意违规**的大纲：kind=obj → objective 带禁词；kind=depth → depth 用脏值。"""
     obj = json.loads(_outline_payload())
@@ -795,6 +828,11 @@ def _pick(body: dict) -> str:
                 for i in range(1, 6)
             ],
         }, ensure_ascii=False)
+    if model == "mock-outline-units":
+        # 端到端验证「固定单元数真的生效」：从大纲提示词解析「单元数固定为 N 个」，
+        # 返回 N 个单元（自动模式返回默认 3 个）。绝不改动 mock-outline 的既有输出。
+        n = _parse_units_from_body(body)
+        return _outline_n_payload(n if n else 3)
     if model == "mock-echo-flags":
         # 用于验证 LLM 请求参数（如 enable_thinking）是否被正确下发。
         return json.dumps({
@@ -819,6 +857,7 @@ def health() -> dict:
 MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-empty-hits",
                "mock-echo-context", "mock-echo-guided", "mock-good-guided", "mock-stall-guided",
                "mock-outline", "mock-lecture", "mock-practice", "mock-grade",
+               "mock-outline-units",
                "mock-summary", "mock-goals", "mock-spy-goals", "mock-outline-5", "mock-echo-flags",
                "mock-lecture-p1", "mock-lecture-plain", "mock-practice-hands",
                "mock-lecture-ir", "mock-lecture-ir-bad", "mock-lecture-ir-stubborn",

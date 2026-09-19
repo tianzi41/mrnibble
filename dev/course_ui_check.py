@@ -1426,6 +1426,11 @@ def main() -> int:
         check("1.8b 有课型区（「分析材料并预选」按钮 + 课型卡容器）",
               "分析材料并预选" in dom and "intent-cards" in dom)
         check("1.8c 有自动单元数选项", "自动" in dom and "按材料定" in dom)
+        # 改动1：材料生成状态节点 #t-status 紧挨「② 确认目录，开始写正文」(#t-write) 右侧
+        check("1.8d 材料生成状态节点 #t-status 位于 #t-write 之后且带 run-status 类",
+              ('id="t-write"' in dom and 'id="t-status"' in dom
+               and dom.index('id="t-write"') < dom.index('id="t-status"')
+               and 'class="run-status"' in dom), dom[:200])
 
         print("\n[2] 造一门课并检查课程页 / 课堂页 / 练习页")
         with httpx.Client(trust_env=False) as cli:
@@ -1615,6 +1620,12 @@ def main() -> int:
         check("2.5 有思维导图容器", "tree-map" in dom and 'id="map"' in dom)
         check("2.6 导图已渲染 SVG", "<svg" in dom)
         check("2.7 有保存按钮", "保存结构" in dom or "确认，开始学习" in dom)
+        # 改动3（结构编辑页）：重新生成时可选显式单元数量，默认「保持当前（N 个单元）」
+        check("2.7b 结构编辑页有单元数量下拉 #o-units（+自定义输入）",
+              'id="o-units"' in dom and 'id="o-units-custom"' in dom)
+        check("2.7c #o-units 默认显示当前单元数（保持当前 N 个单元）",
+              "保持当前（2 个单元）" in dom,
+              "未找到保持当前选项（本门课应=2 个单元）")
 
         dom = dump(f"{BASE}/#/lessons/{lesson_id}")
         check("2.8 课堂页无渲染异常", 'data-view-error' not in dom, dom[:300])
