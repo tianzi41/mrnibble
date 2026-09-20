@@ -290,6 +290,99 @@ def _mirror_lecture() -> str:
     return json.dumps(base, ensure_ascii=False)
 
 
+def _lecture_dup_payload() -> str:
+    """**故意违规**：第 2 讲生成与第 1 讲（mock-lecture 已落库）**同标题**的课件页。
+
+    与 ``_lecture_payload`` 的区别：slide-1 / slide-2 改成第 2 讲独有标题，只有 slide-3
+    的标题与第 1 讲 slide-1 完全相同（「极限的直觉」），制造**单一**跨讲重复，
+    用来验证跨讲去重护栏能定位并改写这一页（而不是误伤其他页）。
+    """
+    base = json.loads(_lecture_payload())
+    base["slides"][0] = {
+        "id": "slide-1", "kind": "concept", "title": "第 2 讲的新切入点",
+        "bullets": ["换个视角看同一主题", "不再重复第 1 讲的叙述"],
+        "body": "", "citation_refs": [1],
+    }
+    base["slides"][1] = {
+        "id": "slide-2", "kind": "quote", "title": "本讲引用的另一句材料",
+        "bullets": ["材料强调先验证类型", "避免误用法则"],
+        "body": "", "citation_refs": [2],
+    }
+    base["slides"][2] = {
+        "id": "slide-3", "kind": "concept", "title": "极限的直觉",  # 与第 1 讲 slide-1 同标题
+        "bullets": ["这一页容易和第 1 讲混淆", "只点本讲边界"],
+        "body": "", "citation_refs": [1],
+    }
+    base["scripts"] = [
+        {"slide_id": "slide-1",
+         "text": "这一页我们从第 2 讲的角度重新切入。和第 1 讲不同的是，我们不再重述直觉本身，"
+                 "而是把它当成后面推导的已知前提来用 [[c:1]]。"},
+        {"slide_id": "slide-2",
+         "text": "材料里另一句关键表述是：使用洛必达法则前必须先验证类型 [[c:2]]。"
+                 "这一页我们就把这个提醒单独拎出来，提醒自己别一上来就求导。"},
+        {"slide_id": "slide-3",
+         "text": "这一页标题和第 1 讲一样，是故意制造的重复。真正讲的时候要换成第 2 讲"
+                 "才该讲的内容 [[c:1]]。"},
+    ]
+    return json.dumps(base, ensure_ascii=False)
+
+
+def _dedup_ok_payload() -> str:
+    """跨讲去重重写请求的合格响应：把命中的 slide-3 改写成第 2 讲独有标题。
+
+    只回带命中页（id 保持 slide-3），标题改为兄弟讲次未覆盖的内容，
+    之后护栏再做一次命中检查应通过（不再重复）。
+    """
+    return json.dumps({
+        "slides": [
+            {"id": "slide-3", "kind": "example",
+             "title": "本讲专有的课前检查清单",
+             "bullets": ["列出本讲要验证的三件事", "区分已讲与未讲", "只覆盖本讲边界"],
+             "body": "", "citation_refs": [2]},
+        ]
+    }, ensure_ascii=False)
+
+
+def _dedup_badkind_payload() -> str:
+    """去重重写**故意违规**：把命中页改成 kind=diagram 但不带 ir/diagram 字段。
+
+    验证服务端「去重只改内容、不改页型」—— 重写给的 kind 应被忽略，
+    最终页面 kind 不被改成 diagram（且重跑 _sanitize_visuals 不会留下无 IR 的坏图页）。
+    """
+    return json.dumps({
+        "slides": [
+            {"id": "slide-3", "kind": "diagram",
+             "title": "本讲专有的课前检查清单",
+             "bullets": ["检查一", "检查二"]},
+        ]
+    }, ensure_ascii=False)
+
+
+def _dedup_dirty_payload() -> str:
+    """去重重写**故意违规**：超量长 bullets + 编造的 citation_refs 编号。
+
+    验证字段卫生：bullets 应被裁到 5 条×每条 ≤25 字；citation_refs 只保留
+    本页原有编号集合之内（编造的 99 应被丢弃，回退到原值）。
+    """
+    return json.dumps({
+        "slides": [
+            {"id": "slide-3", "kind": "example",
+             "title": "本讲专有的课前检查清单",
+             "bullets": [
+                 "第一条这是一段明显超过二十五字长度的要点用来验证截断",
+                 "第二条这也是一段明显超过二十五字长度的要点用于测试",
+                 "第三条同样是很长很长的要点内容以确保被截断到上限之内",
+                 "第四条继续提供一段超长的要点文本来触发二十五字的上限",
+                 "第五条再来一段超长要点文本确保裁切逻辑正确执行到位",
+                 "第六条冗余要点不参与落库因为最多只保留五条要点",
+                 "第七条同样应被丢弃因为超过了五条的上限约束条件",
+                 "第八条这是最后一条超长要点同样会被裁掉不会落库",
+             ],
+             "citation_refs": [99]},
+        ]
+    }, ensure_ascii=False)
+
+
 def _spy_dump(body: dict) -> None:
     """把收到的 messages 原样落到 ZHIBAN_MOCK_SPY 文件（测试用：看提示词注入实况）。
 
@@ -627,6 +720,20 @@ def _pick(body: dict) -> str:
         # → 明确报失败」；默认桩完整补全。
         partial = model == "mock-desc-partial"
         return _desc_fill_payload(_users, partial=partial)
+    # 「跨讲去重重写」是 _dedup_lecture 在检测到本讲课件页与同课程其他讲次重复时
+    # **另发起的一次调用**，按提示词独有词识别（「其他讲次已经讲过」）。
+    # 不同桩对这次请求有不同响应：
+    #   mock-lecture-dup / mock-lecture-dedup-ok → 返回合法改写页（验证护栏真的改写）
+    #   mock-lecture-dedup-bad                → 故意返回非法 JSON（验证护栏非阻塞、不崩）
+    if "其他讲次已经讲过" in _systems:
+        _spy_dump(body)
+        if model == "mock-lecture-dedup-bad":
+            return '{"slides":['          # 故意非法 JSON（缺右括号）
+        if model == "mock-lecture-dup-badkind":
+            return _dedup_badkind_payload()   # 改写给 kind=diagram 无 ir（验证不改页型）
+        if model == "mock-lecture-dup-dirty":
+            return _dedup_dirty_payload()     # 改写给超量长 bullets + 编造引用（验证字段卫生）
+        return _dedup_ok_payload()
     # 「课型推荐」与「按课型写目标」同样是另发的调用，按提示词特征识别。
     if "你是课程顾问" in _systems:
         _spy_dump(body)
@@ -740,6 +847,18 @@ def _pick(body: dict) -> str:
         if asked_rewrite and model == "mock-lecture-mirror":
             return _lecture_payload()
         return _mirror_lecture()
+    if model == "mock-lecture-dup":
+        # 第 2 讲故意生成与第 1 讲同标题的课件页 → 触发跨讲去重护栏改写。
+        return _lecture_dup_payload()
+    if model in ("mock-lecture-dup-badkind", "mock-lecture-dup-dirty"):
+        # 初始生成产生跨讲重复（触发去重）；去重重写返回违规内容，由内容分支接管。
+        return _lecture_dup_payload()
+    if model == "mock-lecture-dedup-ok":
+        # 初始生成用正常讲义；去重重写（提示词含「其他讲次已经讲过」）由内容分支接管。
+        return _lecture_payload()
+    if model == "mock-lecture-dedup-bad":
+        # 初始生成产生跨讲重复；去重重写返回非法 JSON（验证护栏非阻塞、不崩、数据不变）。
+        return _lecture_dup_payload()
     if model == "mock-summary":
         return json.dumps({
             "recap": "本单元先建立极限的直觉与定义，再进入洛必达法则的适用前提。",
@@ -861,7 +980,9 @@ MOCK_MODELS = ("mock-normal", "mock-violate-first-turn", "mock-bad-json", "mock-
                "mock-summary", "mock-goals", "mock-spy-goals", "mock-outline-5", "mock-echo-flags",
                "mock-lecture-p1", "mock-lecture-plain", "mock-practice-hands",
                "mock-lecture-ir", "mock-lecture-ir-bad", "mock-lecture-ir-stubborn",
-               "mock-lecture-mirror", "mock-lecture-stubborn", "mock-desc-partial")
+               "mock-lecture-mirror", "mock-lecture-stubborn", "mock-desc-partial",
+               "mock-lecture-dup", "mock-lecture-dedup-ok", "mock-lecture-dedup-bad",
+               "mock-lecture-dup-badkind", "mock-lecture-dup-dirty")
 
 
 @app.get("/v1/models")

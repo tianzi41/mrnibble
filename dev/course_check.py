@@ -1683,6 +1683,164 @@ def main() -> int:
               str(post("/api/materials/outline", {"topic": "   "}))[:120])
         _cleanup_courses(cid_m)
 
+        # ── DD. 跨讲课件去重（讲义提示词讲次地图 + 服务端去重护栏）──
+        # 复现用户 bug：第 2 讲课件页与第 1 讲重复。验证两层防护：
+        #   提示词层 —— 讲义 prompt 注入「本单元讲次地图」+ 跨讲边界硬规则；
+        #   服务端层 —— 落库前用同课程其他讲次已落库标题做重复拦截（非阻塞改写）。
+        print("\n[DD] 跨讲课件去重（讲次地图 + 去重护栏）")
+        set_model("mock-outline")
+        r = post("/api/courses", {"goal": "跨讲去重测试", "document_ids": [doc_id],
+                                  "unit_count": 2})
+        cid_dd = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        course_dd = get(f"/api/courses/{cid_dd}")["data"]
+        u1 = course_dd["units"][0]["lessons"]
+        check("DD0 单元1含3个讲次（讲解/讲解/练习）", len(u1) == 3, str(len(u1)))
+        lec1 = u1[0]   # 第 1 讲
+        lec2 = u1[1]   # 第 2 讲（本讲）
+        # lec3 = u1[2] 第 3 讲（练习，后续）—— 用于让讲次地图列出「第 3 讲」
+
+        # DD-P1/P2：第 1 讲 prompt 必须含讲次地图 + 首讲禁导览。
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-lecture")
+        r = post(f"/api/courses/lessons/{lec1['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy1 = _read_spy()
+        sys1 = " ".join(str(m.get("content") or "") for m in spy1 if m.get("role") == "system")
+        check("DD-P1 第1讲 prompt 含【本单元讲次地图】", "【本单元讲次地图】" in sys1, "")
+        check("DD-P2 第1讲 prompt 含「首讲不做全景导览」", "首讲不做全景导览" in sys1, "")
+        check("DD-P3 第1讲 prompt 标「你只讲第 1 讲」", "你只讲第 1 讲" in sys1, "")
+
+        # DD-P4/P5/P6：第 2 讲 prompt 必须标出本讲、列出后续第 3 讲、
+        # 且 transition 的「引向」被约束为「严禁展开」。
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-lecture")
+        r = post(f"/api/courses/lessons/{lec2['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy2 = _read_spy()
+        sys2 = " ".join(str(m.get("content") or "") for m in spy2 if m.get("role") == "system")
+        check("DD-P4 第2讲 prompt 含【本单元讲次地图】", "【本单元讲次地图】" in sys2, "")
+        check("DD-P5 第2讲 prompt 标「你只讲第 2 讲」+「← **本讲**」",
+              "你只讲第 2 讲" in sys2 and "← **本讲**" in sys2, "")
+        check("DD-P6 第2讲 prompt 列出「第 3 讲」（后续讲次）", "第 3 讲" in sys2, "")
+        check("DD-P7 transition「引向」被约束为「严禁展开」",
+              "引向只在最后一页一句话预告" in sys2 and "严禁展开" in sys2, "")
+
+        # DD-D1：服务端去重护栏真正拦截并改写重复页。
+        # 第 1 讲（mock-spy-lecture）已落库，标题 ["极限的直觉","材料中的关键表述","使用前检查"]。
+        SPY.unlink(missing_ok=True)
+        set_model("mock-lecture-dup")   # 第 2 讲故意产出与第 1 讲同标题的「极限的直觉」
+        r = post(f"/api/courses/lessons/{lec2['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy_d = _read_spy()
+        sys_d = " ".join(str(m.get("content") or "") for m in spy_d if m.get("role") == "system")
+        check("DD-D1 命中重复时发起去重重写（第 2 次模型调用）",
+              "其他讲次已经讲过" in sys_d, "未检测到去重重写调用")
+        lec1_after = get(f"/api/courses/lessons/{lec1['id']}")["data"]
+        sib_titles = {str(s.get("title") or "").strip()
+                      for s in (lec1_after.get("slides") or [])}
+        lec2_after = get(f"/api/courses/lessons/{lec2['id']}")["data"]
+        lec2_titles = [str(s.get("title") or "").strip() for s in (lec2_after.get("slides") or [])]
+        check("DD-D2 落库后第 2 讲无与第 1 讲重复标题",
+              lec2_titles and not any(t in sib_titles for t in lec2_titles),
+              f"第2讲={lec2_titles} 第1讲={sorted(sib_titles)}")
+        check("DD-D3 第 2 讲生成成功（未因去重阻断）",
+              lec2_after.get("status") == "lecture_ready", str(lec2_after.get("status")))
+
+        # DD-N1：负向/证伪 —— 去重重写返回非法 JSON 时，流程不崩、数据不变。
+        set_model("mock-outline")
+        r = post("/api/courses", {"goal": "去重负向测试", "document_ids": [doc_id],
+                                  "unit_count": 2})
+        cid_neg = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        u_n = get(f"/api/courses/{cid_neg}")["data"]["units"][0]["lessons"]
+        set_model("mock-lecture")
+        r = post(f"/api/courses/lessons/{u_n[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        set_model("mock-lecture-dedup-bad")  # 重写返回非法 JSON
+        r = post(f"/api/courses/lessons/{u_n[1]['id']}/lecture")
+        job_neg = wait_job(r["data"]["job_id"])
+        neg = get(f"/api/courses/lessons/{u_n[1]['id']}")["data"]
+        neg_titles = [str(s.get("title") or "").strip() for s in (neg.get("slides") or [])]
+        check("DD-N1 去重重写非法 JSON 时流程不崩（任务成功）",
+              job_neg.get("status") == "ready" and neg.get("status") == "lecture_ready",
+              f"status={neg.get('status')}")
+        check("DD-N2 非阻塞：重复标题仍保留（数据未改动）",
+              "极限的直觉" in neg_titles, f"第2讲标题={neg_titles}")
+
+        # DD-N3：`_title_dup` 短标题不误伤（纯函数矩阵，直接调静态方法）。
+        # 旧阈值 0.6 会把「极限 ⊂ 极限值」（2/3=0.667）判成重复 → 乱改用户内容。
+        try:
+            if str(ROOT / "src") not in sys.path:
+                sys.path.insert(0, str(ROOT / "src"))
+            from backend.services.courses import CourseService as _CS
+            matrix = [
+                ("极限", "极限值", False),
+                ("概念", "概念论", False),
+                ("极限", "极限", True),
+                ("极限的直觉", "极限值", False),
+                ("什么是MCP？", "什么是MCP本质", False),
+            ]
+            bad_m = [(a, b, _CS._title_dup(a, b), want)
+                     for a, b, want in matrix if _CS._title_dup(a, b) != want]
+            check("DD-N3 _title_dup 短标题不误伤（5 组矩阵）", not bad_m, str(bad_m))
+        except Exception as exc:  # noqa: BLE001
+            check("DD-N3 _title_dup 短标题不误伤（5 组矩阵）", False, repr(exc))
+
+        # DD-N4：比对范围只含「本讲之前」——
+        # 先落库**较晚**讲次，再生成**较早**讲次且与其同名 → 不许改写（否则重新生成
+        # 较早讲次时，合法内容会被后续讲次误判成重复）。
+        set_model("mock-outline")
+        r = post("/api/courses", {"goal": "去重时序测试", "document_ids": [doc_id],
+                                  "unit_count": 2})
+        cid_order = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        u_o = get(f"/api/courses/{cid_order}")["data"]["units"][0]["lessons"]
+        lec_early, lec_late = u_o[0], u_o[1]
+        set_model("mock-lecture")            # 较晚讲次先落库（含「极限的直觉」）
+        r = post(f"/api/courses/lessons/{lec_late['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        SPY.unlink(missing_ok=True)
+        set_model("mock-lecture-dup")        # 较早讲次的 slide-3 与较晚讲次同标题
+        r = post(f"/api/courses/lessons/{lec_early['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        spy_o = _read_spy()
+        sys_o = " ".join(str(m.get("content") or "") for m in spy_o if m.get("role") == "system")
+        early_titles = [str(s.get("title") or "").strip() for s in
+                        (get(f"/api/courses/lessons/{lec_early['id']}")["data"].get("slides") or [])]
+        check("DD-N4 后续讲次不参与比对：重新生成较早讲次不被误改",
+              "其他讲次已经讲过" not in sys_o and "极限的直觉" in early_titles,
+              f"触发改写={'是' if '其他讲次已经讲过' in sys_o else '否'} 标题={early_titles}")
+
+        # DD-N5：去重只改内容、不改页型 —— 重写给 kind=diagram（且不带 ir）应被忽略，
+        # 否则会落库渲染不了的坏图页、并突破「可视化页 ≤2」上限。
+        set_model("mock-lecture-dup-badkind")
+        r = post(f"/api/courses/lessons/{u_n[1]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        n5 = get(f"/api/courses/lessons/{u_n[1]['id']}")["data"]
+        s5 = next((s for s in (n5.get("slides") or []) if s.get("id") == "slide-3"), None)
+        check("DD-N5 去重不改页型（badkind 被忽略、不留无 ir 坏图页）",
+              bool(s5) and s5.get("kind") != "diagram" and not s5.get("diagram"),
+              f"kind={s5.get('kind') if s5 else None} has_ir={bool(s5 and s5.get('diagram'))}")
+        check("DD-N5b 落库后可视化页仍 ≤2",
+              len([s for s in (n5.get("slides") or [])
+                   if s.get("kind") in ("diagram", "chart", "table")]) <= 2, "")
+
+        # DD-N6：字段卫生 —— 超量长 bullets 裁到 5×25；编造的 citation_refs 编号被丢弃。
+        set_model("mock-lecture-dup-dirty")
+        r = post(f"/api/courses/lessons/{u_n[1]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        n6 = get(f"/api/courses/lessons/{u_n[1]['id']}")["data"]
+        s6 = next((s for s in (n6.get("slides") or []) if s.get("id") == "slide-3"), None)
+        bl = [str(b) for b in ((s6 or {}).get("bullets") or [])]
+        refs = list((s6 or {}).get("citation_refs") or [])
+        check("DD-N6 字段卫生：bullets ≤5 条且每条 ≤25 字",
+              bool(s6) and 0 < len(bl) <= 5 and all(len(b) <= 25 for b in bl), f"bullets={bl}")
+        check("DD-N6b 字段卫生：编造的 citation_refs 编号被丢弃",
+              bool(s6) and 99 not in refs, f"refs={refs}")
+
+        _cleanup_courses(cid_dd, cid_neg, cid_order)
+
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")
         with httpx.Client(trust_env=False) as cli:

@@ -504,6 +504,13 @@ _LECTURE_PROMPT = """你是课堂讲师，正在给一门真实课程备课。�
 学习目标（学完这一讲能做到什么）：__OBJECTIVE__
 所属单元：__UNIT__
 __DESC__
+__SIBLINGS__
+
+**跨讲边界（硬要求）**：
+- 讲次地图里其他讲次的专属主题，在本讲**最多用一句话点到**（形如「这里先记住结论，第 3 讲会展开」），**不得**为它安排课件页或展开讲解；
+- 「引向」字段提到的主题属于**后续讲次**，只允许出现在最后一页的一句话预告里，不得作为任何页的主要内容；
+- 若某一页其实是在讲别的讲次的主题，把它换成「本讲边界内、本讲尚未覆盖」的内容；
+- 本讲没有新内容可讲时，宁可把页数压到【深度与篇幅】的下限，**也不要重复或稀释**。
 
 【深度与篇幅】
 __DEPTH__
@@ -570,7 +577,7 @@ __DIAGRAM_SPEC__
 diagram 的写法是 "diagram":{"ir":{...}}（**只给 IR 对象，不要给 svg/html/坐标**）；
 
 质量要求：
-1. 叙事结构：第 1 页做引入（承接上一讲的结尾，或点出本讲要解决的问题），最后一页做小结，中间由浅入深；
+1. 叙事结构：第 1 页**点出本讲要解决的问题**为主，确需承接上一讲时只用一句话回扣、**不得重述上一讲的背景或课件内容**；最后一页做小结，中间由浅入深；
 2. **讲稿 ≠ 课件文字（最重要）**。禁止把课件标题与要点原样念一遍。
    每段讲稿满足【深度与篇幅】里的字数要求之外，至少包含「解释为什么」「举一个例子」「和上一页衔接」中的两类。
    反例（禁止）：slide 写「洛必达法则适用于 0/0 型」，script 也写「洛必达法则适用于 0/0 型」。
@@ -581,6 +588,7 @@ diagram 的写法是 "diagram":{"ir":{...}}（**只给 IR 对象，不要给 svg
    keypoints 至少 2 条，term 必须是本讲 slides 或 scripts 里实际出现过的术语/公式；
 5. 讲稿口语化，但不得加入材料与课件都没有的具体数字或结论；拿不准的量只转述材料原文并标 [[c:N]]；
 6. 引用一律 [[c:N]]，N 只能是材料实际给出的编号；citation_refs 只写本页用到的编号。
+7. **首讲不做全景导览**：若本讲是课程或单元的第 1 讲，不得逐一预告后续各讲主题、不得把后续讲次的核心内容提前讲完；最多一句话说明「本单元分几块、后面依次展开」。（可结合讲次地图判断自己是不是第 1 讲。）
 
 marks 是**材料标注意图**：n 必须是本讲用过的 [[c:N]] 编号，kind 取 highlight（黄底高亮）或 circle（红圈），
 text 是写在旁边的一句旁注。没有把握就返回空数组，不要编造 n。
@@ -615,6 +623,23 @@ _SCRIPT_REWRITE_PROMPT = """你是课堂讲师。下面列出的课件页，对�
 __PAYLOAD__
 
 只输出 JSON：{"scripts":[{"slide_id":"原始 slide id","text":"重写后的讲稿"}]}
+不要输出 JSON 以外的任何文字。
+"""
+
+# 跨讲去重：检测到本讲课件页标题与同课程其他已落库讲次重复时，定向重写命中的页。
+# 结构照抄 _SCRIPT_REWRITE_PROMPT（只重写有问题的页、只输出有限 JSON）。
+_DEDUP_REWRITE_PROMPT = """你是课堂讲师。这一讲在生成后，发现以下课件页的**标题**
+与同一门课里其他讲次已经讲过的页面**完全重合**（重复课件，学员会看到一模一样的内容）。
+
+请在不改变本讲主题与结构的前提下，把这些重复的页**改写到本讲边界内、其他讲次尚未覆盖**的内容：
+- 换标题与要点，使其只讲本讲该讲的东西；
+- 不得把其他讲次的主题拉进来凑数；
+- 改写后字数、引用规则与正常课件页一致，引用仍用 [[c:N]]。
+
+待改写的页：
+__PAYLOAD__
+
+只输出 JSON：{"slides":[{"id":"原始 slide id","kind":"concept|example|formula|quote|note|diagram|chart|table|takeaway","title":"改写后的课件页标题","bullets":["短要点1","短要点2"],"body":"可选补充短句，可含 [[c:N]]","citation_refs":[1]}]}
 不要输出 JSON 以外的任何文字。
 """
 
@@ -2340,6 +2365,8 @@ class CourseService:
                 .replace("__OBJECTIVE__", lesson["objective"] or lesson["title"])
                 .replace("__UNIT__", unit_title)
                 .replace("__DESC__", self._desc_block(lesson))
+                .replace("__SIBLINGS__", self._siblings_block(
+                    lesson["course_id"], lesson["unit_id"], lesson_id))
                 .replace("__DIAGRAM_SPEC__", diagram_mod.prompt_spec())
             )
             messages = [
@@ -2380,6 +2407,11 @@ class CourseService:
             obj = self._compile_diagrams(obj, job_id)
             # §可视化契约：落库前净化 diagram/chart（限页数、剥非法字段、数字转 float）
             obj = self._sanitize_visuals(obj)
+            # §跨讲去重护栏：落库前用同课程其他讲次已落库课件标题做重复拦截（非阻塞）。
+            obj = self._dedup_lecture(
+                lesson["course_id"], lesson_id, obj,
+                set_stage=lambda msg: self._set_stage(job_id, msg),
+            )
             board, citations = self._resolve_board(obj, table)
             # §四 观察点（第一条）：检索有命中但讲义未引用任何材料 → 记录，不阻断
             if not citations and hits:
@@ -3032,6 +3064,208 @@ class CourseService:
 
         obj["scripts"] = [by_id[s["id"]] for s in slides if s["id"] in by_id]
         return obj
+
+    @staticmethod
+    def _norm_title(title: str) -> str:
+        """课件页标题归一化：去空白与常见标点、转小写，用于跨讲重复判定。"""
+        if not title:
+            return ""
+        s = str(title)
+        for ch in " \t\n\r，。、；：,.;:！？!?“”‘’\"'（）()【】[]《》<>·…—-_/\\|｜~`*+=":
+            s = s.replace(ch, "")
+        return s.lower().strip()
+
+    @staticmethod
+    def _title_dup(a: str, b: str) -> bool:
+        """跨讲重复判定（可单测，不再藏在闭包里）。
+
+        规则（保守取向：宁可漏判也不要误判）：
+        - 任一为空 → False；
+        - 归一化后相等 → True（精确命中）；
+        - 否则短标题（≤3 字）**只认精确相等**，防止「极限⊂极限值」「概念⊂概念论」误伤；
+        - 长标题允许包含关系，但短者占长者必须 **>0.8** 才算命中。
+        """
+        na, nb = CourseService._norm_title(a), CourseService._norm_title(b)
+        if not na or not nb:
+            return False
+        if na == nb:
+            return True
+        shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+        if len(shorter) <= 3:
+            return False
+        return shorter in longer and (len(shorter) / len(longer)) > 0.8
+
+    _DEDUP_KINDS = (
+        "concept", "example", "formula", "quote", "note",
+        "diagram", "chart", "table", "takeaway",
+    )
+
+    def _dedup_lecture(
+        self, course_id: str, lesson_id: str, obj: dict[str, Any], set_stage
+    ) -> dict[str, Any]:
+        """跨讲去重护栏：本讲课件页标题与同课程其他已落库讲次重复时，定向重写命中的页。
+
+        **非阻塞**：调用失败 / 超时 / JSON 非法 / 重写后仍命中，一律静默跳过或仅 set_stage
+        提示，绝不阻断落库主流程。
+
+        Args:
+            course_id: 课程 id（去重范围为同课程其他讲次）。
+            lesson_id: 当前讲次 id（自身不计入 sibling）。
+            obj: 已通过结构校验、即将落库的课堂内容包（含 ``slides``）。
+            set_stage: 阶段播报回调（异常时静默吞掉）。
+        """
+        try:
+            slides = list(obj.get("slides") or [])
+            if not slides:
+                return obj
+
+            # 1) 收集「本讲之前」已落库讲次的课件标题（比对范围 = 已讲过的内容）。
+            #    用 global_ordinal < 当前讲次：跨单元也管（用户看到的重复就是重复），
+            #    但不许拿**后续**讲次约束本讲（否则重新生成较早讲次会把合法同名页误改）。
+            try:
+                rows = get_db().query_all(
+                    "SELECT slides_json FROM course_lessons "
+                    "WHERE course_id=? AND id!=? AND slides_json IS NOT NULL AND status!='pending' "
+                    "AND global_ordinal < (SELECT global_ordinal FROM course_lessons WHERE id=?)",
+                    (course_id, lesson_id, lesson_id),
+                )
+                rows = [dict(r) for r in rows]   # sqlite3.Row 无 .get，转 dict 统一取值
+            except Exception:
+                return obj
+            sib_titles: list[str] = []
+            for r in rows:
+                raw = r.get("slides_json")
+                if not raw:
+                    continue
+                try:
+                    sib = json.loads(raw)
+                except Exception:
+                    continue
+                if not isinstance(sib, list):
+                    continue
+                for sl in sib:
+                    if isinstance(sl, dict):
+                        t = self._norm_title(sl.get("title"))
+                        if t:
+                            sib_titles.append(t)
+            if not sib_titles:
+                return obj
+
+            # 2) 判定命中：交给可单测的 _title_dup（短标题只精确、长标题占比 >0.8）。
+            def _hit(t: str) -> bool:
+                if not t:
+                    return False
+                return any(CourseService._title_dup(t, st) for st in sib_titles)
+
+            bad = [sl for sl in slides if _hit(self._norm_title(sl.get("title")))]
+            if not bad:
+                return obj
+
+            logger.info(
+                "跨讲去重：本讲 %d 页标题命中其他讲次", len(bad),
+                extra={"extra_fields": {"lesson": lesson_id}},
+            )
+            try:
+                set_stage("检测到与之前讲次重复的课件页，正在改写为本讲内容")
+            except Exception:
+                pass
+
+            payload = {
+                "slides": [
+                    {"id": sl["id"], "title": sl.get("title"), "bullets": sl.get("bullets")}
+                    for sl in bad
+                ]
+            }
+            prompt = _DEDUP_REWRITE_PROMPT.replace(
+                "__PAYLOAD__", json.dumps(payload, ensure_ascii=False)[:4000]
+            )
+            try:
+                raw = self._chat(
+                    [
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": "请改写这些重复的课件页，只输出 JSON。"},
+                    ],
+                    max_tokens=4096,
+                )
+            except Exception as exc:  # noqa: BLE001 - 重写失败不阻断
+                logger.warning(
+                    "跨讲去重重写调用失败，跳过",
+                    extra={"extra_fields": {"type": type(exc).__name__}},
+                )
+                return obj
+
+            parsed = self._safe_json(raw) or {}
+            fixed = parsed.get("slides") if isinstance(parsed, dict) else None
+            if not isinstance(fixed, list) or not fixed:
+                return obj
+            by_fixed: dict[str, dict[str, Any]] = {}
+            for it in fixed:
+                if not isinstance(it, dict):
+                    continue
+                sid = str(it.get("id") or "")
+                title = str(it.get("title") or "").strip()
+                # 字段校验：只要求 title 非空（kind 已不再用于改写，见下方替换逻辑）。
+                if not title:
+                    continue
+                by_fixed[sid] = it
+
+            replaced = 0
+            for sl in slides:
+                sid = sl.get("id")
+                if sid not in by_fixed:
+                    continue
+                new = by_fixed[sid]
+                # 只改内容、不改页型：重写给的 kind 一律忽略（避免借改名突破
+                # 「可视化页 ≤2 / takeaway ≤1」等上限，或塞入无 IR 的坏图页）。
+                sl["title"] = new.get("title")
+                # bullets：裁到 5 条、每条 ≤25 字（与提示词约束一致）。
+                raw_b = new.get("bullets") or []
+                clean_b: list[str] = []
+                for b in raw_b[:5]:
+                    b = str(b).strip()
+                    if len(b) > 25:
+                        b = b[:25]
+                    if b:
+                        clean_b.append(b)
+                if clean_b:
+                    sl["bullets"] = clean_b
+                if new.get("body"):
+                    sl["body"] = new.get("body")
+                # citation_refs：只接受本页原有编号集合之内（其余丢弃），
+                # 防止重写编造 [[c:N]] 绕过「引用必须来自材料」防伪；
+                # 若重写给的全不在集合内，则保留原值。
+                orig_refs = set(sl.get("citation_refs") or [])
+                new_refs = new.get("citation_refs")
+                if isinstance(new_refs, list):
+                    kept = [r for r in new_refs if r in orig_refs]
+                    sl["citation_refs"] = kept if kept else list(orig_refs)
+                replaced += 1
+
+            # 3) 替换完成后重跑一次净化：确保字段自洽、非法图页退化为 note、
+            #    并重新受「可视化页 ≤2 / takeaway ≤1」上限约束（去重只改内容、不改页型）。
+            obj = self._sanitize_visuals(obj)
+
+            # 4) 重写后仍命中 → 不阻断，只提示。
+            still = [sl for sl in (obj.get("slides") or [])
+                     if _hit(self._norm_title(sl.get("title")))]
+            if still:
+                logger.info(
+                    "跨讲去重：重写后仍有 %d 页疑似重复，未阻断落库",
+                    len(still), extra={"extra_fields": {"lesson": lesson_id}},
+                )
+                try:
+                    set_stage("部分课件页与其他讲次仍可能重复，已尽量改写，请人工复核")
+                except Exception:
+                    pass
+            elif replaced:
+                logger.info("跨讲去重：已改写 %d 页", replaced)
+            return obj
+        except Exception as exc:  # noqa: BLE001 - 整段护栏非阻塞
+            logger.warning(
+                "跨讲去重护栏异常，跳过",
+                extra={"extra_fields": {"type": type(exc).__name__}},
+            )
+            return obj
 
     @staticmethod
     def _validate_lecture(obj: dict[str, Any]) -> dict[str, Any] | None:
@@ -4021,6 +4255,9 @@ class CourseService:
             rules.append("知识点只讲边界清单内的内容")
         if not is_practice and (d.get("transition") or {}).get("avoid"):
             rules.append("avoid 点名的部分留给相邻讲次")
+        if not is_practice and ((d.get("transition") or {}).get("prev")
+                               or (d.get("transition") or {}).get("next")):
+            rules.append("引向/承接只做一句话衔接，不作为课件内容")
         head = ("【本讲教学设计】（大纲阶段已规划，本讲必须遵守：" + "；".join(rules) + "）"
                 if rules else "【本讲教学设计】（大纲阶段已规划）")
         lines = [head]
@@ -4042,7 +4279,12 @@ class CourseService:
             if tr.get("avoid"):
                 seg.append("避免展开——" + tr["avoid"])
             if seg:
-                lines.append("讲间衔接：" + "；".join(seg))
+                lines.append(
+                    "讲间衔接（这三项都是**边界**，不是本讲内容）：\n"
+                    + "\n".join(f"- {s}" for s in seg)
+                    + "\n  - 承接只在第一页用一句话回扣，不要重述上一讲背景；"
+                    "引向只在最后一页一句话预告、**严禁展开**；避免展开是硬禁止，任何页都不得以其为主内容"
+                )
             if d.get("visual") and d["visual"] != "无":
                 lines.append("可视化提示：" + d["visual"])
         else:
@@ -4055,6 +4297,57 @@ class CourseService:
         if len(lines) == 1:
             return ""
         return "\n".join(lines) + "\n"
+
+    def _siblings_block(self, course_id: str, unit_id: str, lesson_id: str) -> str:
+        """本单元讲次地图：让模型看清相邻讲次的地盘，避免跨讲重复（根因 A）。
+
+        返回形如「【本单元讲次地图】（本单元共 N 讲；**你只讲第 k 讲**）…」的文本；
+        单讲单元 / 取不到同单元其他讲次时返回空串（不报错）。
+        """
+        try:
+            rows = get_db().query_all(
+                "SELECT id,global_ordinal,kind,title,objective,desc_json "
+                "FROM course_lessons WHERE unit_id=? ORDER BY global_ordinal",
+                (unit_id,),
+            )
+            rows = [dict(r) for r in rows]   # sqlite3.Row 无 .get，转 dict 统一取值
+        except Exception:  # noqa: BLE001 - 旧数据/缺表一律当无地图
+            return ""
+        if not rows or len(rows) <= 1:
+            return ""
+        ordered = sorted(rows, key=lambda r: int(r.get("global_ordinal") or 0))
+        idx_of = {r["id"]: i + 1 for i, r in enumerate(ordered)}
+        cur_idx = idx_of.get(lesson_id, 0)
+        n = len(ordered)
+        lines = [f"【本单元讲次地图】（本单元共 {n} 讲；**你只讲第 {cur_idx} 讲**，"
+                 f"其余各讲的专属内容不许在本讲展开）"]
+        for i, r in enumerate(ordered):
+            idx = i + 1
+            if idx < cur_idx:
+                tag = "（已讲）"
+            elif idx == cur_idx:
+                tag = "← **本讲**"
+            else:
+                tag = "（后续）"
+            lines.append(f"- 第 {idx} 讲 {tag} {r['title']} ｜ {self._lesson_summary_kp(r)}")
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _lesson_summary_kp(row: dict[str, Any]) -> str:
+        """取讲次摘要：desc.knowledge_points 前 3 条（每条 ≤20 字，；连接）；无则退回 objective/标题。"""
+        kp: list[str] = []
+        raw = row.get("desc_json")
+        if raw:
+            try:
+                d = json.loads(raw)
+                if isinstance(d, dict):
+                    kp = (d.get("knowledge_points") or [])[:3]
+            except Exception:  # noqa: BLE001
+                pass
+        if kp:
+            return "；".join(str(s)[:20] for s in kp)
+        alt = (row.get("objective") or "").strip() or (row.get("title") or "").strip()
+        return alt[:20]
 
     @staticmethod
     def _lesson_user(lesson: dict[str, Any], query: str, context: str) -> str:
