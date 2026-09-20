@@ -85,6 +85,14 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("tts.local_engine", "system", False, "str"),
     # 本地 MeloTTS 模型目录（相对项目根 / exe 同级 / data 均可，见 TTSService.model_dir）。
     SettingSpec("tts.local_dir", "models/tts/melo-zh_en", False, "str"),
+    # 自定义 HTTP 语音服务（本地部署的 TTS 项目，自定义协议）：
+    # URL 模板 + 请求方法 + body 模板三要素。`{text}` 是唯一占位符 ——
+    # URL 里按 URL 编码替换，body 里按 JSON 转义替换。
+    SettingSpec("tts.custom_url", "", False, "str"),
+    SettingSpec("tts.custom_method", "GET", False, "str"),
+    SettingSpec("tts.custom_body", '{"text":"{text}"}', False, "str"),
+    SettingSpec("tts.custom_format", "wav", False, "str"),
+    SettingSpec("tts.custom_timeout", "60", False, "int"),
     SettingSpec("asr.model_dir", "models/asr/sense-voice-small", False, "str"),
     SettingSpec("asr.language", "zh", False, "str"),
     SettingSpec("ui.guided_default", "false", False, "bool"),

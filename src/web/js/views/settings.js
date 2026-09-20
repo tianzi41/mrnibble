@@ -121,7 +121,8 @@
           <label>朗读（TTS）— 默认关闭</label>
           <div class="row">
             <select id="tts-mode" class="tts-mode-sel" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px">
-              ${[["off", "关闭"], ["local", "本地朗读（离线，零外发）"], ["cloud", "云端 API"]]
+              ${[["off", "关闭"], ["local", "本地朗读（离线，零外发）"], ["cloud", "云端 API"],
+                 ["custom", "自定义服务（本地/自建的 TTS 端口）"]]
                 .map(([v, n]) => `<option value="${v}" ${tts.mode === v ? "selected" : ""}>${n}</option>`).join("")}
             </select>
             <div class="field" id="tts-local-wrap">
@@ -150,6 +151,43 @@
                音色里是 livelybreezy-female 时 8 个内置音色一个都不显示。 -->
           <div id="tts-model-list" class="hint"></div>
           <div id="tts-voice-list" class="hint"></div>
+          <div id="tts-custom-wrap" style="display:none">
+            <div class="field">
+              <label>地址模板（必填，含 <code>{text}</code> 占位符）</label>
+              <input type="text" id="tts-custom-url" value="${esc(cfg.tts.custom_url || "")}"
+                     placeholder="http://127.0.0.1:9880/tts?text={text}&text_lang=zh&media_type=wav">
+              <div class="hint">文字会按 URL 编码替换进 <code>{text}</code>。与「云端 API」不同，这里可填任意自定义协议 —— 你本地跑的那个 TTS 端口就填这儿。</div>
+            </div>
+            <div class="row">
+              <div class="field" style="max-width:150px">
+                <label>请求方法</label>
+                <select id="tts-custom-method">
+                  ${[["GET", "GET（参数写网址里）"], ["POST", "POST（JSON body）"]]
+                    .map(([v, n]) => `<option value="${v}" ${(cfg.tts.custom_method || "GET") === v ? "selected" : ""}>${n}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field" style="max-width:150px">
+                <label>返回格式</label>
+                <select id="tts-custom-format">
+                  ${[["wav", "wav"], ["mp3", "mp3"], ["ogg", "ogg"]]
+                    .map(([v, n]) => `<option value="${v}" ${(cfg.tts.custom_format || "wav") === v ? "selected" : ""}>${n}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field" style="max-width:130px">
+                <label>读超时（秒）</label>
+                <input type="text" id="tts-custom-timeout" value="${esc(String(cfg.tts.custom_timeout || 60))}">
+              </div>
+            </div>
+            <div class="field">
+              <label>POST body 模板（仅 POST 时用，含 <code>{text}</code>）</label>
+              <input type="text" id="tts-custom-body" value="${esc(cfg.tts.custom_body || '{"text":"{text}"}')}">
+              <div class="hint">例：<code>{"text":"{text}","text_lang":"zh","ref_audio_path":"D:/voice/ref.wav"}</code></div>
+            </div>
+            <div class="row">
+              <button class="btn small" id="tts-custom-test">试听一句（验证连通）</button>
+              <span class="hint" id="tts-custom-test-result"></span>
+            </div>
+          </div>
           <div class="row" id="tts-key-row">
             <div class="field"><label>语音 Key（留空则沿用对话模型 Key）</label><input type="password" id="tts-key" placeholder="${esc(cfg.tts.api_key_set ? "已配置，留空则不修改" : "与对话模型同一站点时可留空")}"></div>
           </div>
@@ -264,6 +302,44 @@
 
     document.getElementById("tts-mode").onchange = (e) => updateTTSVis(e.target.value);
     updateTTSVis(cfg.tts.mode);
+
+    // 自定义服务的「试听一句」：先把当前填的参数存下来（否则后端读到的还是旧配置），
+    // 再直接打 /api/tts/speech —— 不用另开后端接口，还能顺带验证地址模板真的对。
+    const cusTest = document.getElementById("tts-custom-test");
+    if (cusTest) cusTest.onclick = async () => {
+      const out = document.getElementById("tts-custom-test-result");
+      const url = val("tts-custom-url");
+      if (!url) return Toast("请先填写地址模板（含 {text}）", true);
+      cusTest.disabled = true;
+      if (out) out.textContent = "合成中…（本地模型可能慢，多等几秒）";
+      try {
+        await Api.put("/api/settings", { tts: {
+          enabled: true, mode: "custom", custom_url: url,
+          custom_method: ((document.getElementById("tts-custom-method") || {}).value) || "GET",
+          custom_body: val("tts-custom-body"),
+          custom_format: ((document.getElementById("tts-custom-format") || {}).value) || "wav",
+          custom_timeout: parseInt(val("tts-custom-timeout"), 10) || 60,
+        }});
+        const resp = await fetch("/api/tts/speech", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: "你好，这是语音测试。" }),
+        });
+        if (!resp.ok) {
+          let msg = "HTTP " + resp.status;
+          try {
+            const j = await resp.json();
+            msg = [j.message, (j.error && j.error.detail) || j.detail].filter(Boolean).join(" —— ") || msg;
+          } catch (e) { /* 非 JSON 就用状态码 */ }
+          throw new Error(msg);
+        }
+        const blob = await resp.blob();
+        await new Audio(URL.createObjectURL(blob)).play();
+        if (out) out.textContent = "✓ 已播放，服务连通";
+      } catch (e) {
+        if (out) out.textContent = "";
+        Toast("试听失败：" + e.message, true);
+      } finally { cusTest.disabled = false; }
+    };
     const engSel = document.getElementById("tts-engine");
     if (engSel) engSel.onchange = updateEngineHint;
 
@@ -277,6 +353,12 @@
           base_url: val("tts-base"), model: val("tts-model"),
           voice: val("tts-voice"),
           local_engine: eng ? eng.value : "system",
+          // 自定义服务（自定义协议）：地址模板 + 方法 + body 模板。
+          custom_url: val("tts-custom-url"),
+          custom_method: ((document.getElementById("tts-custom-method") || {}).value) || "GET",
+          custom_body: val("tts-custom-body"),
+          custom_format: ((document.getElementById("tts-custom-format") || {}).value) || "wav",
+          custom_timeout: parseInt(val("tts-custom-timeout"), 10) || 60,
         },
       };
       const key = val("tts-key");
@@ -289,7 +371,11 @@
       const live = document.getElementById("tts-live");
       if (!live) return;
       let txt = "当前生效：已关闭";
-      if (tts.enabled && tts.mode === "cloud") {
+      if (tts.enabled && tts.mode === "custom") {
+        txt = tts.custom_configured
+          ? "当前生效：自定义语音服务"
+          : "当前生效：无 —— 自定义服务尚未配置（地址模板为空）";
+      } else if (tts.enabled && tts.mode === "cloud") {
         txt = tts.cloud_configured ? "当前生效：云端朗读" : "当前生效：无 —— 云端尚未配置（端点或模型名为空）";
       } else if (tts.enabled && tts.mode === "local") {
         if ((tts.local_engine || "system") === "melo" && tts.local_model_available) {
@@ -597,6 +683,8 @@
     if (discRes) discRes.style.display = cloud ? "" : "none";
     const local = document.getElementById("tts-local-wrap");
     if (local) local.style.display = mode === "local" ? "" : "none";
+    const cus = document.getElementById("tts-custom-wrap");
+    if (cus) cus.style.display = mode === "custom" ? "" : "none";
     updateEngineHint();
   }
 

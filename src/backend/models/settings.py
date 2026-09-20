@@ -53,7 +53,7 @@ class TTSSettings(BaseModel):
     """语音朗读设置（默认关闭）。"""
 
     enabled: bool | None = None
-    mode: Literal["off", "local", "cloud"] | None = None
+    mode: Literal["off", "local", "cloud", "custom"] | None = None
     base_url: str | None = None
     model: str | None = None
     voice: str | None = None
@@ -63,6 +63,22 @@ class TTSSettings(BaseModel):
     )
     local_dir: str | None = Field(
         default=None, description="MeloTTS 本地模型目录"
+    )
+    # ── 自定义 HTTP 语音服务（本地部署的 TTS 项目，自定义协议）──
+    custom_url: str | None = Field(
+        default=None, description="地址模板，含 {text} 占位符"
+    )
+    custom_method: Literal["GET", "POST"] | None = Field(
+        default=None, description="请求方法：GET 或 POST"
+    )
+    custom_body: str | None = Field(
+        default=None, description="POST 的 body 模板（JSON 文本，含 {text}）"
+    )
+    custom_format: str | None = Field(
+        default=None, description="返回音频格式（wav / mp3）"
+    )
+    custom_timeout: int | None = Field(
+        default=None, description="读超时秒数（本地模型可能很慢）"
     )
 
 

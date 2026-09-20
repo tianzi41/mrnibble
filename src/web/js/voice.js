@@ -170,12 +170,14 @@
   async function syncFromServer() {
     try {
       const st = (await Api.get("/api/tts/status")) || {};
-      if (st.enabled && st.mode === "cloud") {
-        // 云端模式：引擎就是 cloud。缺配置时**只记原因，不换引擎**——
-        // 静默改用系统语音正是用户这次抱怨的根源。
-        _engine = "cloud";
-        _cloudReason = st.cloud_configured ? "" : "云端朗读尚未配置（缺少语音端点或模型名）";
-      } else if (st.enabled && st.mode === "local"
+        if (st.enabled && (st.mode === "cloud" || st.mode === "custom")) {
+          // 云端 / 自定义服务都走 /api/tts/speech（由后端按 mode 分流）。
+          // 缺配置时**只记原因、不换引擎** —— 静默改用系统语音正是用户抱怨过的根源。
+          _engine = "cloud";
+          _cloudReason = st.mode === "custom"
+            ? (st.custom_configured ? "" : "自定义语音服务尚未配置（缺少地址模板）")
+            : (st.cloud_configured ? "" : "云端朗读尚未配置（缺少语音端点或模型名）");
+        } else if (st.enabled && st.mode === "local"
                  && st.local_engine === "melo" && st.local_model_available) {
         _engine = "melo"; _cloudReason = "";
       } else {

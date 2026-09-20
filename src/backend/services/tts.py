@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import sys
 import time
 import wave
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import numpy as np
@@ -84,8 +86,10 @@ class TTSService:
             engine = "system"
         return {
             "enabled": enabled and mode != "off",
-            "mode": mode if mode in ("off", "local", "cloud") else "off",
-            "cloud_configured": cloud_configured,
+              "mode": mode if mode in ("off", "local", "cloud", "custom") else "off",
+              "cloud_configured": cloud_configured,
+              # 自定义服务只看地址模板填没填 —— 它不需要模型名与 Key。
+              "custom_configured": bool((s.get("tts.custom_url") or "").strip()),
             "voice": s.get("tts.voice"),
             "local_available": True,
             "local_engine": engine,
@@ -221,8 +225,13 @@ class TTSService:
             AppError: 4002 未配置 / 4003 合成失败。
         """
         s = get_settings_service()
-        if (s.get("tts.mode") or "off") != "cloud":
-            raise AppError(4002, None, "当前未启用云端朗读（tts.mode != cloud）")
+        mode = (s.get("tts.mode") or "off").strip().lower()
+        # 「自定义 HTTP 语音服务」走同一条「非本地引擎」通路：前端只认 /tts/speech，
+        # 由这里按 mode 决定背后是 OpenAI 兼容端点还是用户自建的服务。
+        if mode == "custom":
+            return self.synth_custom(text, meta=meta)
+        if mode != "cloud":
+            raise AppError(4002, None, "当前未启用云端朗读（tts.mode 需为 cloud 或 custom）")
         base_url, model, api_key = s.tts_effective()
         if not base_url or not model:
             raise AppError(4002, "云端朗读未配置",
@@ -291,6 +300,90 @@ class TTSService:
                     extra={"extra_fields": {"ms": int((time.perf_counter() - started) * 1000),
                                             "bytes": len(data), "chars": len(text)}})
         return data, content_type
+
+    # ── 自定义 HTTP 语音服务（本地部署的 TTS 项目，自定义协议）──────
+    def synth_custom(self, text: str, *, meta: dict[str, Any] | None = None
+                     ) -> tuple[bytes, str]:
+        """调用用户自建的 TTS 服务（GPT-SoVITS / Bert-VITS2 / fish-speech 这类）。
+
+        设计：**URL 模板 + 请求方法 + body 模板**三要素就够了 —— GET 类服务把参数
+        写进查询串、POST 类把参数写成 JSON，两类自定义协议都能覆盖。``{text}`` 是唯一
+        占位符：URL 里按 URL 编码替换，body 里按 JSON 转义替换。响应只接受**真音频流**，
+        不对响应结构做任何假设。
+
+        Raises:
+            AppError: 4002 未配置 / 4003 合成失败（含「返回的不是音频」这种明确诊断）。
+        """
+        s = get_settings_service()
+        url_tpl = (s.get("tts.custom_url") or "").strip()
+        if not url_tpl:
+            raise AppError(4002, "自定义朗读未配置",
+                           "请在「设置 → 语音朗读 → 自定义服务」里填写地址模板（含 {text}）")
+        text = (text or "").strip()
+        if not text:
+            raise AppError(1000, "朗读内容为空")
+
+        method = (s.get("tts.custom_method") or "GET").strip().upper()
+        if method not in ("GET", "POST"):
+            method = "GET"
+        body_tpl = s.get("tts.custom_body") or '{"text":"{text}"}'
+        fmt = (s.get("tts.custom_format") or "wav").strip().lower()
+        try:
+            read_timeout = float(s.get("tts.custom_timeout") or 60)
+        except (TypeError, ValueError):
+            read_timeout = 60.0
+        read_timeout = max(5.0, min(read_timeout, 600.0))   # 本地模型可能很慢
+
+        url = url_tpl.replace("{text}", quote(text, safe=""))
+        headers: dict[str, str] = {}
+        kwargs: dict[str, Any] = {}
+        if method == "POST":
+            # body 里要的是**原文本**（JSON 里不该 URL 编码），只做 JSON 转义：
+            # json.dumps 去掉首尾引号，正好是可嵌进 JSON 字符串的形式。
+            headers["Content-Type"] = "application/json; charset=utf-8"
+            raw = body_tpl.replace("{text}", json.dumps(text, ensure_ascii=False)[1:-1])
+            kwargs["content"] = raw.encode("utf-8")
+
+        started = time.perf_counter()
+        logger.info("TTS 合成中（自定义服务，%s 字，%s）", len(text), method,
+                    extra={"extra_fields": {"chars": len(text), "method": method}})
+        try:
+            with make_client(url, timeout=httpx.Timeout(
+                    connect=_CONNECT_TIMEOUT, read=read_timeout,
+                    write=30.0, pool=10.0)) as client:
+                resp = client.request(method, url, headers=headers or None, **kwargs)
+        except httpx.HTTPError as exc:
+            logger.warning("自定义语音服务请求失败",
+                           extra={"extra_fields": {"type": type(exc).__name__}})
+            raise AppError(4003, None,
+                           f"无法连接自定义语音服务（{type(exc).__name__}）。"
+                           f"请确认服务已启动、地址模板正确：{url_tpl[:120]}") from exc
+
+        if resp.status_code >= 400:
+            hint = upstream_hint(resp)
+            raise AppError(4003, None,
+                           f"自定义语音服务返回 HTTP {resp.status_code}"
+                           + (f"：{hint}" if hint else ""))
+
+        data = resp.content
+        if not data:
+            raise AppError(4003, "自定义语音服务返回了空内容")
+        ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+        if not ctype.startswith("audio/"):
+            # 回来的不是音频，多半是地址或参数不对（返回了 JSON 报错 / HTML 页面）。
+            # 把真实 content-type 与字节数报出来，省得用户猜。
+            raise AppError(4003, None,
+                           "自定义语音服务返回的不是音频（Content-Type="
+                           f"{ctype or '空'}，{len(data)} 字节）。"
+                           "请确认地址模板直接返回音频流，而不是 JSON 包装。")
+        if meta is not None:
+            meta.update({"provider": "custom", "custom_url": url_tpl,
+                         "dropped": [], "clipped": [], "voice_sent": "（自定义服务）"})
+        logger.info("TTS 合成完成（自定义服务，%s ms，%s 字节）",
+                    int((time.perf_counter() - started) * 1000), len(data),
+                    extra={"extra_fields": {"ms": int((time.perf_counter() - started) * 1000),
+                                            "bytes": len(data), "chars": len(text)}})
+        return data, ctype or f"audio/{fmt}"
 
 
 def get_tts_service() -> TTSService:
