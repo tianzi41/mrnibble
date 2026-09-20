@@ -1194,27 +1194,36 @@
       <div class="hint">时间取决于模型速度，通常十几秒到一分钟。</div></div>`;
   }
 
-  /** 讲次教学设计 desc → 折叠展示块（只读；无 desc 返回空串）。 */
+  /** 讲次教学设计 desc → 折叠展示块（只读；无 desc 返回空串）。
+   *
+   * 视觉：每个字段一行「标签 chip + 内容」。原先 5 行等宽灰字挤在一起，
+   * 关键约束（学习目标/知识点边界）和提示（可视化/术语口径）看不出区别 ——
+   * 用户反馈「这个栏有点丑」。现在按语义给标签上色，内容用正文色、行距放开。
+   */
   function descHtml(d) {
     if (!d || typeof d !== "object") return "";
     const rows = [];
-    if (d.outcomes) rows.push(`学习目标：${esc(d.outcomes.join("；"))}`);
-    if (d.knowledge_points) rows.push(`知识点边界：${esc(d.knowledge_points.join("；"))}`);
-    if (d.concepts) rows.push(`术语口径：${esc(d.concepts.join("、"))}`);
-    if (d.operations) rows.push(`涉及操作：${esc(d.operations.join("；"))}`);
+    const push = (k, v, cls) => { if (v) rows.push({ k, v, cls: cls || "" }); };
+    push("学习目标", d.outcomes && d.outcomes.join("；"), "goal");
+    push("知识点边界", d.knowledge_points && d.knowledge_points.join("；"), "kp");
+    push("术语口径", d.concepts && d.concepts.join("、"), "");
+    push("涉及操作", d.operations && d.operations.join("；"), "");
     const tr = d.transition || {};
     const seg = [];
-    if (tr.prev) seg.push(`承接 ${esc(tr.prev)}`);
-    if (tr.next) seg.push(`引向 ${esc(tr.next)}`);
-    if (tr.avoid) seg.push(`避免展开 ${esc(tr.avoid)}`);
-    if (seg.length) rows.push(`讲间衔接：${seg.join("；")}`);
-    if (d.visual && d.visual !== "无") rows.push(`可视化提示：${esc(d.visual)}`);
-    if (d.exercise_focus) rows.push(`考察点：${esc(d.exercise_focus.join("；"))}`);
-    if (d.expected_mistakes) rows.push(`学生易错点：${esc(d.expected_mistakes.join("；"))}`);
-    if (d.exercise_flow) rows.push(`题型安排：${esc(d.exercise_flow)}`);
+    if (tr.prev) seg.push(`承接 ${tr.prev}`);
+    if (tr.next) seg.push(`引向 ${tr.next}`);
+    if (tr.avoid) seg.push(`避免展开 ${tr.avoid}`);
+    push("讲间衔接", seg.join("；"), "tr");
+    push("可视化", d.visual && d.visual !== "无" ? d.visual : "", "vis");
+    push("考察点", d.exercise_focus && d.exercise_focus.join("；"), "goal");
+    push("易错点", d.expected_mistakes && d.expected_mistakes.join("；"), "tr");
+    push("题型安排", d.exercise_flow, "");
     if (!rows.length) return "";
-    return `<details class="lesson-desc"><summary>教学设计（AI 按此备课）</summary>
-      <div class="hint" style="margin:6px 0 0">${rows.map((r) => `<div>· ${r}</div>`).join("")}</div></details>`;
+    // 内容统一在这里 esc（不要在拼串阶段转义，否则会双重转义）
+    return `<details class="lesson-desc"><summary>教学设计 · AI 按此备课</summary>
+      <div class="dd-body">${rows.map((r) =>
+        `<div class="dd-row"><span class="dd-k ${r.cls}">${r.k}</span>`
+        + `<span class="dd-v">${esc(r.v)}</span></div>`).join("")}</div></details>`;
   }
 
   /** 结构确认：可改标题/目标、删除讲次，确认后进入课程。 */

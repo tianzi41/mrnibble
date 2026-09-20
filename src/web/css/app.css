@@ -637,6 +637,27 @@ body.teaching-on #tab-body { padding-bottom: 132px; }
 .lesson-desc-row { margin: 0 0 6px 10px; }
 .lesson-desc-row .lesson-desc { margin-top: 0; }
 
+/* 教学设计展开区：标签 chip + 内容分行。
+   原来是 5 行等宽灰字，关键约束（学习目标/知识点边界）和提示（可视化/术语口径）
+   看不出区别 —— 用户反馈「这个栏有点丑」。现在按语义给标签上色、内容用正文色。 */
+.lesson-desc[open] summary { color: var(--text); }
+.lesson-desc .dd-body {
+  margin-top: 8px; padding: 10px 12px;
+  background: var(--bg); border-left: 2px solid var(--primary);
+  border-radius: 0 8px 8px 0;
+}
+.lesson-desc .dd-row { display: flex; gap: 8px; align-items: flex-start; line-height: 1.6; }
+.lesson-desc .dd-row + .dd-row { margin-top: 6px; }
+.lesson-desc .dd-k {
+  flex: none; min-width: 66px; text-align: center;
+  font-size: 11px; line-height: 1.8; padding: 0 6px; border-radius: 5px;
+  background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+}
+.lesson-desc .dd-k.goal { color: var(--primary); border-color: var(--primary-ring); background: var(--primary-soft); }
+.lesson-desc .dd-k.kp { color: var(--ok); border-color: var(--ok-border); background: var(--ok-soft); }
+.lesson-desc .dd-k.tr { color: var(--warn); border-color: var(--warn-border); background: var(--warn-soft); }
+.lesson-desc .dd-v { font-size: 12px; color: var(--text); }
+
 /* ── 课型（学习意图）卡片 + 高级选项 ─────────────── */
 .intent-cards { display: flex; flex-wrap: wrap; gap: 8px; }
 .intent-card {
