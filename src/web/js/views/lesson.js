@@ -81,6 +81,28 @@
   const SUB_CHARS = 90;
 
   /* ── 数据 ─────────────────────────────── */
+  // 本次会话是否已提示过「朗读未配置」——别每进一讲都弹，那会烦人。
+  let _ttsNoticeShown = false;
+
+  /** 未配置朗读时提示一次。Toast 自带自动关闭（不用手动关），
+   *  点一下还能直接跳到设置页 —— 用户原话「有个按钮点击直接进到设置页面」。 */
+  async function ensureTtsNotice() {
+    if (_ttsNoticeShown) return;
+    _ttsNoticeShown = true;
+    try {
+      const cfg = await Api.get("/api/settings");
+      if ((cfg.tts || {}).enabled) return;
+      Toast("未配置语音朗读，上课不会有声音 —— 点此前往设置", true);
+      const t = document.getElementById("toast");
+      if (t) {
+        t.style.cursor = "pointer";
+        t.onclick = () => { location.hash = "#/settings"; t.onclick = null; t.style.cursor = ""; };
+        // Toast 是全局复用的同一个节点：用完必须清掉 handler，否则下一个提示也会跳设置。
+        setTimeout(() => { t.onclick = null; t.style.cursor = ""; }, 4500);
+      }
+    } catch (e) { /* 设置读不到就不提示，别挡上课 */ }
+  }
+
   async function loadLesson(id) {
     S.lesson = await Api.get("/api/courses/lessons/" + id);
     S.course = await Api.get("/api/courses/" + S.lesson.course_id);
@@ -93,6 +115,7 @@
     // 预生成：打开讲次时顺手让后台把「本讲练习 + 下一讲讲义」备好（幂等，绝不打扰）。
     // 放在这里而不是「生成完成」链路里，是为了不连锁跑完整门课 —— 用户不前进就不消耗。
     Api.post("/api/courses/lessons/" + id + "/prefetch", {}).catch(() => {});
+    ensureTtsNotice();     // 未配朗读时提示一次（自动消失，点一下去设置）
   }
 
   /** 课程绑定材料（标题优先取标注里带的，其次用引用里的）。 */
@@ -1416,9 +1439,10 @@
     const say = (t) => { if (sub) sub.textContent = t; };
     try {
       if (!S.questionCount) {
-        say("这一讲讲完了，正在为你生成随堂测验…");
-        const r = await Api.post("/api/courses/lessons/" + l.id + "/practice", { count: 5 });
-        await pollJob(r.job_id, (stage) => say("正在出题…" + (stage || "")));
+          say("这一讲讲完了，正在为你生成随堂测验…");
+          const r = await postRetryOnBusy(
+            "/api/courses/lessons/" + l.id + "/practice", { count: 5 });
+          await pollJob(r.job_id, (stage) => say("正在出题…" + (stage || "")));
         await loadLesson(l.id);
         renderTabBody();
         renderSpeaking();
@@ -1656,23 +1680,43 @@
     }
   }
 
-  /** 出题并进入练习页。 */
-  async function startPractice(btn) {
-    const l = S.lesson;
-    const old = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "出题中…";
-    try {
-      if (!S.questionCount) {
-        const r = await Api.post("/api/courses/lessons/" + l.id + "/practice", { count: 5 });
-        await pollJob(r.job_id);
+    /** 出题/生成类接口撞到「上一个任务还在进行」(1005) 时自动重试。
+     *
+     * 为什么需要：预生成会在讲义完成后自动去补本讲练习；用户此时点「开始练习」
+     * 正好撞上那个还在跑的任务，直接报错会让人以为坏了（用户实测「过 10 秒再点
+     * 就正常了」—— 那 10 秒就是它在跑）。这里安静等它跑完再继续。
+     */
+    async function postRetryOnBusy(url, body, tries = 6, gap = 2500) {
+      for (let i = 1; ; i++) {
+        try {
+          return await Api.post(url, body);
+        } catch (e) {
+          const msg = String((e && e.message) || "");
+          const busy = /还在进行|没有完成|请等它完成|1005/.test(msg);
+          if (!busy || i >= tries) throw e;
+          await new Promise((r) => setTimeout(r, gap));
+        }
       }
-      location.hash = "#/practice/" + l.id;
-    } catch (e) {
-      Toast(e.message, true);
-      btn.disabled = false;
-      btn.textContent = old;
     }
+
+    /** 出题并进入练习页。 */
+    async function startPractice(btn) {
+      const l = S.lesson;
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "出题中…";
+      try {
+        if (!S.questionCount) {
+          const r = await postRetryOnBusy(
+            "/api/courses/lessons/" + l.id + "/practice", { count: 5 });
+          await pollJob(r.job_id);
+        }
+        location.hash = "#/practice/" + l.id;
+      } catch (e) {
+        Toast(e.message, true);
+        btn.disabled = false;
+        btn.textContent = old;
+      }
   }
 
   /** 上课确认弹窗期间预热第一讲开头的几段：把「开播第一段合成」藏进用户

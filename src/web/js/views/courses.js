@@ -233,7 +233,14 @@
       const it = el("div", "item");
       it.title = d.job ? "点击回到生成进度界面" : "点击回到新建向导，继续上次未完成的创建";
       it.appendChild(el("span", "t", esc(draftEntryTitle(d))));
-      it.appendChild(el("small", null, d.job ? "生成中" : draftTimeText(d.at)));
+      // 「生成中」必须跟随**真实状态**：草稿里的 job 标记在任务失败后不会自己消失，
+      // 只认它会让列表永远写着「生成中」（用户实测「一直显示创建中、也不说原因」）。
+      const jc = d.job ? (S.courses || []).find((c) => c.id === d.job.courseId) : null;
+      const state = !d.job ? draftTimeText(d.at)
+        : (jc && jc.status === "ready") ? "已生成"
+          : (jc && jc.status === "failed") ? "生成失败"
+            : "生成中";
+      it.appendChild(el("small", null, state));
       // ✕：用户要求这条也能自己删掉（不自动删——删什么由用户决定）
       const dx = el("button", "x", "✕");
       dx.title = d.job
@@ -1177,8 +1184,14 @@
         if (onFail) { onFail(new Error(job.error || "生成失败")); return; }
         if (!host || !host.isConnected) return;   // 已切走：别往卸载的视图里写
         host.innerHTML = `<div class="card"><b>大纲生成失败</b><div class="hint">${esc(job.error || "")}</div>
-          <div class="row" style="margin-top:12px"><button class="btn primary" id="retry">重新生成</button></div></div>`;
+          <div class="hint">多数是模型配置问题：没填 API、Key 无效、或端点连不上。</div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" id="retry">重新生成</button>
+            <button class="btn" id="to-settings">去设置检查模型</button>
+          </div></div>`;
         document.getElementById("retry").onclick = openCreate;
+        const tsBtn = document.getElementById("to-settings");
+        if (tsBtn) tsBtn.onclick = () => { location.hash = "#/settings"; };
         return;
       }
       await new Promise((r) => setTimeout(r, 700));

@@ -60,19 +60,27 @@
       const ok = !!(base && model);
       // 区分「完全没配」与「只差模型名」——后者最容易让人以为已经配好了。
       const missing = !base ? "base_url" : (!model ? "model" : "");
-      badge.textContent = ok ? model
-        : (missing === "model" ? "缺模型名" : "未配置模型");
+      // 朗读状态一并显示：不必切到设置页才知道会不会出声。
+      const tts = cfg.tts || {};
+      const ttsLabel = !tts.enabled ? "未设置"
+        : (tts.mode === "cloud" ? "云端"
+          : (tts.local_engine === "melo" ? "本地" : "系统语音"));
+      badge.textContent = (ok ? model : (missing === "model" ? "缺模型名" : "未配置 API"))
+        + ` · 朗读${ttsLabel}`;
       badge.dataset.ok = ok ? "1" : "";
       badge.dataset.missing = missing;
-      badge.style.color = ok ? "var(--ok)" : "var(--warn)";
+      // 未配 API 用红色（原来是 warn 琥珀，不够「一眼看出就是不能用」）
+      badge.style.color = ok ? "var(--ok)" : "var(--bad)";
       badge.style.cursor = "pointer";
-      badge.title = ok
+      badge.title = (ok
         ? "已配置对话模型：" + model
         : (missing === "model"
           ? "接口地址已填，但缺少模型名，无法提问 → 点击前往设置"
-          : "尚未配置对话模型 → 点击前往设置");
+          : "尚未配置 API（无法生成课程 / 无法提问）→ 点击前往设置"))
+        + "\n朗读：" + ttsLabel + "（点击前往设置）";
       badge.onclick = () => { location.hash = "#/settings"; };
-      dot.classList.add("on");
+      // 小圆点跟随「到底能不能用」：未配 API 时保持红色，不再无条件点亮。
+      dot.classList.toggle("on", ok);
     } catch (e) {
       badge.textContent = "服务未连接";
       badge.dataset.ok = "";
