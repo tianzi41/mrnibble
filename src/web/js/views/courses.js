@@ -1313,10 +1313,28 @@
     scheduleConfirmSave();
     const paint = () => {
       tree.innerHTML = "";
-      draft.units.forEach((u, ui) => {
-        const box = el("div", "unit-box");
-        box.appendChild(el("div", "row",
-          `<input type="text" value="${esc(u.title)}" data-u="${ui}" style="flex:1">`));
+        draft.units.forEach((u, ui) => {
+          const box = el("div", "unit-box");
+          const head = el("div", "row");
+          head.innerHTML = `<input type="text" value="${esc(u.title)}" data-u="${ui}" style="flex:1">
+            <span class="hint" data-upstage="${ui}"></span>
+            <button class="btn small" data-upre="${ui}">预生成整章</button>`;
+          box.appendChild(head);
+          // 「预生成整章」：拿单元 id 调接口，后台串行补齐该单元缺失的讲义与练习（幂等）。
+          const upBtn = head.querySelector(`[data-upre="${ui}"]`);
+          if (upBtn) upBtn.onclick = async () => {
+            const st = head.querySelector(`[data-upstage="${ui}"]`);
+            const uid = ((c.units || [])[ui] || {}).id;
+            if (!uid) return Toast("这个单元还没落库，先保存结构再预生成", true);
+            upBtn.disabled = true; upBtn.textContent = "排队中…";
+            try {
+              const r = await Api.post(`/api/courses/units/${uid}/prefetch`, {});
+              const q = r.queued || 0, sk = r.skipped || 0;
+              if (st) st.textContent = q ? `已排队 ${q} 项（跳过 ${sk}）` : `都已就绪（跳过 ${sk}）`;
+              Toast(q ? `已排队 ${q} 项，后台生成中` : "本章内容都已就绪");
+            } catch (e) { Toast("预生成失败：" + e.message, true); }
+            finally { upBtn.disabled = false; upBtn.textContent = "预生成整章"; }
+          };
         u.lessons.forEach((l, li) => {
           const row = el("div", "lesson-row");
           row.innerHTML = `<span class="pill">${l.kind === "practice" ? "练习" : "讲解"}</span>`;
@@ -1443,6 +1461,27 @@
         renderMain();
       }
     };
+  }
+
+  /** 单元预生成的进度反馈：轮询该课程的 job 列表，直到没有 running。 */
+  function pollUnitJobs(courseId, stageEl) {
+    let n = 0;
+    const tick = async () => {
+      if (n++ > 240 || !stageEl || !stageEl.isConnected) return;
+      let jobs = [];
+      try {
+        const r = await Api.get(`/api/courses/${courseId}/jobs`);
+        jobs = (r && (r.items || r.jobs)) || (Array.isArray(r) ? r : []);
+      } catch (e) { return; }
+      const running = jobs.filter((j) => j.status === "running");
+      if (running.length) {
+        stageEl.textContent = `生成中：${running[0].stage || "处理中"}…`;
+        setTimeout(tick, 2000);
+      } else {
+        stageEl.textContent = "预生成完成";
+      }
+    };
+    setTimeout(tick, 800);
   }
 
   /* ── 课程详情 ─────────────────────────── */
@@ -1623,13 +1662,31 @@
       const tag = u.status === "done" ? '<span class="pill ok">已完成</span>'
         : u.status === "active" ? '<span class="pill">进行中</span>' : '<span class="pill">未开始</span>';
       const st = u.stats || {};
-      box.innerHTML = `<div class="row" style="justify-content:space-between">
-          <b>第 ${u.ordinal} 单元 · ${esc(u.title)}</b>${tag}</div>
+      box.innerHTML = `<div class="row" style="justify-content:space-between;align-items:center">
+          <b>第 ${u.ordinal} 单元 · ${esc(u.title)}</b>
+          <span class="row" style="gap:6px;align-items:center">
+            <span class="hint" data-upstage="${u.id}"></span>
+            <button class="btn small" data-upre="${u.id}">预生成整章</button>${tag}
+          </span></div>
         ${u.summary ? `<div class="hint">${esc(u.summary)}</div>` : ""}
         ${st.questions
           ? `<div class="hint">练习：答对 ${st.correct}/${st.questions} · 得分 ${st.score}${
               st.errors ? ` · 错题 ${st.errors}` : ""}</div>`
           : ""}`;
+      // 「预生成整章」：后台串行补齐该单元缺失的讲义与练习（幂等，已有内容会跳过）。
+      const upBtn = box.querySelector(`[data-upre="${u.id}"]`);
+      if (upBtn) upBtn.onclick = async () => {
+        const st = box.querySelector(`[data-upstage="${u.id}"]`);
+        upBtn.disabled = true; upBtn.textContent = "排队中…";
+        try {
+          const r = await Api.post(`/api/courses/units/${u.id}/prefetch`, {});
+          const q = r.queued || 0, sk = r.skipped || 0;
+          if (st) st.textContent = q ? `已排队 ${q} 项（跳过 ${sk}）` : `都已就绪（跳过 ${sk}）`;
+          Toast(q ? `已排队 ${q} 项，后台生成中` : "本章内容都已就绪");
+          if (q) pollUnitJobs(c.id, st);
+        } catch (e) { Toast("预生成失败：" + e.message, true); }
+        finally { upBtn.disabled = false; upBtn.textContent = "预生成整章"; }
+      };
       const list = el("div");
       (u.lessons || []).forEach((l) => {
         const isNext = (l.id === nextId);

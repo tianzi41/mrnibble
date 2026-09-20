@@ -97,6 +97,12 @@ class MemorySettings(BaseModel):
     enabled: bool | None = None
 
 
+class PrefetchSettings(BaseModel):
+    """预生成开关：讲义/练习完成后，后台提前备好下一份资源（默认开）。"""
+
+    enabled: bool | None = None
+
+
 class SettingsUpdate(BaseModel):
     """``PUT /api/settings`` 请求体（分组更新，字段均可省略）。"""
 
@@ -109,6 +115,7 @@ class SettingsUpdate(BaseModel):
     ui: UISettings | None = None
     retrieval: RetrievalSettings | None = None
     memory: MemorySettings | None = None
+    prefetch: PrefetchSettings | None = None
 
 
 class SettingsTestRequest(BaseModel):

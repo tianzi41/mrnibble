@@ -670,6 +670,9 @@ __DESC__
 - **图片题**：需要看图时加 "image":{"n":材料编号}，n 必须是你引用过的材料编号，
   系统会把材料对应页渲染成图；最多出 1 道图片题，没有合适的图就不要加 image 字段；
 - 每题都要有 explanation；全部题目必须来自本讲内容。
+- **选项之间必须有实质区别**：同一道题里不得出现两个只差空格、标点、大小写、前导斜杠或
+  反引号包裹的选项（例如 ``/C:/Users/PC`` 与 ``C:/Users/PC`` 视为同一个，属废题）；
+- **不得与本课程其他讲次的题目重复**：哪怕考同一个知识点，也要换角度提问（对比、反例、应用场景）。
 """ + _BASE_RULES
 
 _DIAGRAM_REWRITE_PROMPT = """你是课堂图示编辑。下面这张课件图的 IR 没有通过确定性校验。
@@ -2435,6 +2438,9 @@ class CourseService:
                 ),
             )
             self._finish_job(job_id)
+            # 预生成：优先推进「整章」队列；没有队列任务时按自动模式把本讲练习备出来。
+            if not self._pump_prefetch(lesson["course_id"]):
+                self._queue_prefetch(lesson["course_id"], lesson_id, "practice")
         except Exception as exc:  # noqa: BLE001 - 后台任务兜底
             logger.warning("讲义生成失败", extra={"extra_fields": {"type": type(exc).__name__}})
             message = _err_text(exc)
@@ -3587,6 +3593,10 @@ class CourseService:
                 items = self._practice_fallback(lesson, hits, count)
                 self._set_stage(job_id, "模型输出不稳定，已按材料片段生成题目")
 
+            # 跨讲去重护栏：与同课程其他讲次已落库题干比对，命中丢弃并补题（非阻塞）。
+            items = self._dedup_practice(
+                lesson, items, count, allow_hands_on, context, query, job_id)
+
             self._persist_practice(lesson_id, items, table)
             get_db().execute(
                 "UPDATE course_lessons SET status=CASE WHEN status='done' THEN status"
@@ -3594,6 +3604,10 @@ class CourseService:
                 (now_iso(), lesson_id),
             )
             self._finish_job(job_id)
+            # 预生成：只推进「整章」队列（用户显式点的按钮）。
+            # ⚠️ 这里**不**自动生成下一讲的讲义 —— 那会变成「生成第 1 讲 → 连锁跑完整门课」，
+            #    白白烧掉额度。下一讲的预生成改由用户行为驱动（见 prefetch_lesson）。
+            self._pump_prefetch(lesson["course_id"])
         except Exception as exc:  # noqa: BLE001 - 后台任务兜底
             logger.warning("练习生成失败", extra={"extra_fields": {"type": type(exc).__name__}})
             message = _err_text(exc)
@@ -3602,6 +3616,18 @@ class CourseService:
                 "UPDATE course_lessons SET error=?, updated_at=? WHERE id=?",
                 (message[:500], now_iso(), lesson_id),
             )
+
+    @staticmethod
+    def _norm_stem(text: str) -> str:
+        """题干/选项归一化（同批次与跨讲去重、选项区分度判定用）。
+
+        字符集与 `_norm_title` 同源，但这里**额外去掉反引号与斜杠** —— 实测模型会
+        给出 ``/C:/Users/PC`` 与 ``C:/Users/PC`` 这种「几乎一样」的选项，只去标点抓不到。
+        """
+        s = str(text or "")
+        for ch in " \t\n\r，。、；：,.;:！？!?“”‘’\"'（）()【】[]《》<>·…—-_/\\|｜~`*+=":
+            s = s.replace(ch, "")
+        return s.lower().strip()
 
     @staticmethod
     def _validate_practice(obj: dict[str, Any], count: int,
@@ -3615,6 +3641,7 @@ class CourseService:
         if not isinstance(raw_items, list):
             return []
         out: list[dict[str, Any]] = []
+        seen_stems: set[str] = set()
         for it in raw_items[:count]:
             if not isinstance(it, dict):
                 continue
@@ -3622,6 +3649,12 @@ class CourseService:
             stem = str(it.get("stem") or it.get("question") or "").strip()
             if not stem:
                 continue
+            # 同批次题干去重：模型偶尔把同一道题写两遍
+            # （用户实测「课间答题遇到 2 个一模一样的题目」）。
+            stem_key = CourseService._norm_stem(stem)
+            if stem_key in seen_stems:
+                continue
+            seen_stems.add(stem_key)
             explanation = str(it.get("explanation") or "").strip()
 
             # 图片题（P1）：image 只接受 {"n":材料编号}，落库前换算成
@@ -3639,6 +3672,12 @@ class CourseService:
             if qtype == "single":
                 options = [str(o).strip() for o in (it.get("options") or []) if str(o).strip()]
                 if len(options) < 2:
+                    continue
+                # 选项必须有实质区别：归一化后出现重复 → 整题丢弃。
+                # 实测某题给出 ['/c/Users/PC', 'C:\Users\PC', '/C:/Users/PC', 'C:/Users/PC']，
+                # 后两个（连同归一化后的前两个）学员根本分不出，属于废题。
+                # 不能只对选项去重 —— 那会让 answer 下标错位。
+                if len({CourseService._norm_stem(o) for o in options}) != len(options):
                     continue
                 answer = _as_index(it.get("answer"), len(options))
                 item: dict[str, Any] = {"type": "single", "stem": stem, "options": options,
@@ -3724,6 +3763,262 @@ class CourseService:
                 "explanation": "模型未返回合规题目，已改为开放题。",
             }]
         return items
+
+    # ── 预生成（prefetch）：把后续资源提前备好 ─────────────────────
+    @staticmethod
+    def _prefetch_enabled() -> bool:
+        """读预生成开关（默认开）。读不到设置时按默认开处理。"""
+        try:
+            # ⚠️ `get_settings_service` 在 deps.py 里，不在 settings_service.py ——
+            #    早先写错 import 路径 → 每次都落进 except → 开关永远为「开」（被 PF3 断言抓到）。
+            from .settings_service import SettingsService
+
+            return SettingsService.get_instance().get_bool("prefetch.enabled")
+        except Exception:  # noqa: BLE001 - 设置不可用不该挡住生成链路
+            return True
+
+    @staticmethod
+    def _course_has_running_job(course_id: str) -> bool:
+        """该课程是否已有在跑的任务（保证预生成串行、不撞防重入 1005）。"""
+        try:
+            rows = get_db().query_all(
+                "SELECT id FROM course_jobs WHERE course_id=? AND status='running' LIMIT 1",
+                (course_id,),
+            )
+            return bool(rows)
+        except Exception:  # noqa: BLE001
+            return True   # 查不到就当作「忙」，宁可不预生成
+
+    @staticmethod
+    def _lesson_has_lecture(lesson_id: str) -> bool:
+        row = get_db().query_one(
+            "SELECT slides_json FROM course_lessons WHERE id=?", (lesson_id,))
+        return bool(row and dict(row).get("slides_json"))
+
+    @staticmethod
+    def _lesson_has_practice(lesson_id: str) -> bool:
+        row = get_db().query_one(
+            "SELECT COUNT(*) AS n FROM practice_questions WHERE lesson_id=?", (lesson_id,))
+        return bool(row and int(dict(row).get("n") or 0) > 0)
+
+    def _queue_prefetch(self, course_id: str, lesson_id: str, kind: str) -> None:
+        """按开关排一个预生成任务：幂等（已有内容就跳过）+ 同课程串行。
+
+        **绝不抛异常**、绝不影响调用它的那条生成链路。``kind`` 取 ``lecture|practice``。
+        """
+        try:
+            if not lesson_id or not self._prefetch_enabled():
+                return
+            if self._course_has_running_job(course_id):
+                # 同课程已有在跑的任务：放弃这次（避免并发打爆限流，也避免撞 1005）。
+                logger.info(
+                    "预生成跳过：该课程已有在跑的任务",
+                    extra={"extra_fields": {"lesson": lesson_id, "kind": kind}},
+                )
+                return
+            if kind == "lecture":
+                if self._lesson_has_lecture(lesson_id):
+                    return
+                self.generate_lecture(lesson_id)
+            elif kind == "practice":
+                if self._lesson_has_practice(lesson_id):
+                    return
+                self.generate_practice(lesson_id)
+            logger.info(
+                "预生成已排队",
+                extra={"extra_fields": {"lesson": lesson_id, "kind": kind}},
+            )
+        except Exception as exc:  # noqa: BLE001 - 预生成永不阻断主流程
+            logger.info(
+                "预生成放弃：%s", type(exc).__name__,
+                extra={"extra_fields": {"lesson": lesson_id, "kind": kind}},
+            )
+
+    def prefetch_lesson(self, lesson_id: str) -> dict[str, Any]:
+        """**用户驱动**的预生成（只前进一步、不连锁）：本讲缺失的练习 + 下一讲缺失的讲义。
+
+        为什么不让生成链路自己往下推：那会连锁跑完整门课（讲义1→练习1→讲义2→…），
+        用户只点了一次却把整门课的额度都花掉。改由「用户打开讲次」这类动作驱动，
+        每次只多走一步，用户不前进就不消耗。
+        """
+        lesson = self._require_lesson(lesson_id)
+        cid = str(lesson["course_id"])
+        todo: list[tuple[str, str]] = []
+        if not self._lesson_has_practice(lesson_id):
+            todo.append((lesson_id, "practice"))
+        try:
+            nxt = get_db().query_one(
+                "SELECT id FROM course_lessons WHERE course_id=? AND global_ordinal > ? "
+                "AND kind != 'practice' ORDER BY global_ordinal LIMIT 1",
+                (cid, lesson["global_ordinal"]),
+            )
+        except Exception:  # noqa: BLE001
+            nxt = None
+        if nxt:
+            nid = str(dict(nxt)["id"])
+            if not self._lesson_has_lecture(nid):
+                todo.append((nid, "lecture"))
+        if todo:
+            self._PREFETCH_QUEUE.setdefault(cid, []).extend(todo)
+            self._pump_prefetch(cid)
+        return {"queued": len(todo)}
+
+    # ── 整单元预生成（「预生成整章」按钮）──────────────────────────
+    # 进程内的待办队列：course_id -> [(lesson_id, kind), ...]。
+    # 单机单人，进程内即可；重启丢失只意味着用户再点一次按钮。
+    _PREFETCH_QUEUE: dict[str, list[tuple[str, str]]] = {}
+
+    def prefetch_unit(self, uid: str) -> dict[str, Any]:
+        """整单元预生成：把该单元所有缺失的「讲义 + 练习」排进队列，逐个串行执行。
+
+        幂等：已有内容的项直接计入 ``skipped``，不会重做。
+        返回 ``{queued, skipped, total}`` 供前端核对。
+        """
+        db = get_db()
+        row = db.query_one("SELECT course_id FROM course_units WHERE id = ?", (uid,))
+        if row is None:
+            raise AppError(1001, "单元不存在")
+        course_id = str(dict(row)["course_id"])
+        lessons = [
+            dict(r) for r in db.query_all(
+                "SELECT id, kind FROM course_lessons WHERE unit_id = ? ORDER BY global_ordinal",
+                (uid,),
+            )
+        ]
+        todo: list[tuple[str, str]] = []
+        skipped = 0
+        for les in lessons:
+            lid, kind = str(les["id"]), str(les["kind"] or "lecture")
+            has_lec = kind == "practice" or self._lesson_has_lecture(lid)
+            has_pra = self._lesson_has_practice(lid)
+            if not has_lec:
+                todo.append((lid, "lecture"))
+            if not has_pra:
+                todo.append((lid, "practice"))
+            if has_lec and has_pra:
+                skipped += 1
+        if todo:
+            self._PREFETCH_QUEUE.setdefault(course_id, []).extend(todo)
+            self._pump_prefetch(course_id)
+        return {"queued": len(todo), "skipped": skipped, "total": len(lessons)}
+
+    def _pump_prefetch(self, course_id: str) -> bool:
+        """推出该课程预生成队列里的下一个任务。
+
+        Returns:
+            是否真的排上了一个任务（供自动模式判断要不要兜底）。
+        """
+        try:
+            if not self._prefetch_enabled():
+                self._PREFETCH_QUEUE.pop(course_id, None)
+                return False
+            if self._course_has_running_job(course_id):
+                return False     # 等当前任务跑完，它结束时会再推一次
+            q = self._PREFETCH_QUEUE.get(course_id) or []
+            while q:
+                lesson_id, kind = q.pop(0)
+                done = (
+                    self._lesson_has_lecture(lesson_id) if kind == "lecture"
+                    else self._lesson_has_practice(lesson_id)
+                )
+                if done:
+                    continue      # 幂等：期间已被生成过
+                self._queue_prefetch(course_id, lesson_id, kind)
+                return True
+            self._PREFETCH_QUEUE.pop(course_id, None)
+            return False
+        except Exception as exc:  # noqa: BLE001 - 队列推进永不阻断主流程
+            logger.info("预生成队列推进失败：%s", type(exc).__name__)
+            return False
+
+    def _dedup_practice(
+        self,
+        lesson: dict[str, Any],
+        items: list[dict[str, Any]],
+        count: int,
+        allow_hands_on: bool,
+        context: str,
+        query: str,
+        job_id: str,
+    ) -> list[dict[str, Any]]:
+        """跨讲题目去重：与同课程**本讲之前**已落库讲次的题干比对，命中丢弃；缺口补一次题。
+
+        范围与课件去重护栏（`_dedup_lecture`）口径一致：只跟「已经讲过」的比，
+        不拿后续讲次约束本讲。**非阻塞**：任何异常都不影响出题主流程。
+        """
+        try:
+            course_id = lesson["course_id"]
+            rows = get_db().query_all(
+                "SELECT stem FROM practice_questions WHERE lesson_id IN ("
+                " SELECT id FROM course_lessons WHERE course_id=? AND id!=?"
+                " AND global_ordinal < (SELECT global_ordinal FROM course_lessons WHERE id=?))",
+                (course_id, lesson["id"], lesson["id"]),
+            )
+            used = {self._norm_stem(dict(r).get("stem")) for r in rows}
+            used.discard("")
+            if not used:
+                return items
+            kept = [it for it in items if self._norm_stem(it.get("stem")) not in used]
+            dropped = len(items) - len(kept)
+            if not dropped:
+                return items
+            logger.info(
+                "练习跨讲去重：丢弃 %d 道与其他讲次重复的题", dropped,
+                extra={"extra_fields": {"lesson": lesson["id"]}},
+            )
+            need = max(0, int(count) - len(kept))
+            if need:
+                try:
+                    self._set_stage(job_id, f"检测到 {dropped} 道题与其他讲次重复，正在补题")
+                except Exception:  # noqa: BLE001
+                    pass
+                kept += self._refill_practice(
+                    lesson, need, used, allow_hands_on, context, query)
+            return kept or items
+        except Exception as exc:  # noqa: BLE001 - 护栏非阻塞
+            logger.warning(
+                "练习跨讲去重护栏异常，跳过",
+                extra={"extra_fields": {"type": type(exc).__name__}},
+            )
+            return items
+
+    def _refill_practice(
+        self,
+        lesson: dict[str, Any],
+        need: int,
+        used: set[str],
+        allow_hands_on: bool,
+        context: str,
+        query: str,
+    ) -> list[dict[str, Any]]:
+        """补题：把「其他讲次已用过的题干」回灌提示词，要求补 ``need`` 道全新角度的题。"""
+        prompt = (
+            _PRACTICE_PROMPT
+            .replace("__COUNT__", str(need))
+            .replace("__DEPTH__", _DEPTH_HINT.get(lesson["depth"], _DEPTH_HINT["standard"]))
+            .replace("__TITLE__", lesson["title"])
+            .replace("__OBJECTIVE__", lesson["objective"] or lesson["title"])
+            .replace("__DESC__", self._desc_block(lesson))
+        )
+        if not allow_hands_on:
+            prompt += ('\n- 本课程**不包含**真实操作类题目：禁止输出 type 为 "hands_on" 的题。\n')
+        prompt += (
+            "\n\n【本课程其他讲次已经出过的题干（禁止重复，也禁止换皮重复）】\n"
+            + "、".join(sorted(used)[:30])
+            + f"\n请只输出 {need} 道**全新角度**的题。"
+        )
+        raw = self._chat(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": self._lesson_user(lesson, query, context)},
+            ],
+            max_tokens=2048,
+        )
+        parsed = self._safe_json(raw)
+        if not isinstance(parsed, dict):
+            return []
+        more = self._validate_practice(parsed, need, allow_hands_on=allow_hands_on)
+        return [m for m in more if self._norm_stem(m.get("stem")) not in used]
 
     def _persist_practice(
         self,

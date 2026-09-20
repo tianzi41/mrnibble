@@ -94,6 +94,9 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("retrieval.hybrid_alpha", "0.5", False, "float"),
     SettingSpec("retrieval.min_vec_score", "0.2", False, "float"),
     SettingSpec("memory.enabled", "true", False, "bool"),
+    # 预生成：讲义/练习完成后，后台提前把下一份资源备好（默认开，用户 2026-09-20 拍板；
+    # 关闭后行为与改动前完全一致 —— 不会有任何额外模型调用）。
+    SettingSpec("prefetch.enabled", "true", False, "bool"),
 )
 
 _SPEC_MAP: dict[str, SettingSpec] = {s.key: s for s in SPECS}

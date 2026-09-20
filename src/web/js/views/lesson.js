@@ -90,6 +90,9 @@
     S.questionCount = S.lesson.question_count || 0;
     const docs = courseDocuments();
     S.docIndex = Math.min(S.docIndex, Math.max(0, docs.length - 1));
+    // 预生成：打开讲次时顺手让后台把「本讲练习 + 下一讲讲义」备好（幂等，绝不打扰）。
+    // 放在这里而不是「生成完成」链路里，是为了不连锁跑完整门课 —— 用户不前进就不消耗。
+    Api.post("/api/courses/lessons/" + id + "/prefetch", {}).catch(() => {});
   }
 
   /** 课程绑定材料（标题优先取标注里带的，其次用引用里的）。 */

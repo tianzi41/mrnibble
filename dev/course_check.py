@@ -234,7 +234,10 @@ def main() -> int:
         job = wait_job(r["data"]["job_id"])
         check("D2 讲义任务完成", job.get("status") == "ready", str(job))
         lesson = get(f"/api/courses/lessons/{lesson_id}")["data"]
-        check("D3 讲次状态推进", lesson["status"] == "lecture_ready", lesson["status"])
+        # 允许 practicing：讲义完成后「预生成」会自动去备本讲练习（见 [PF] 组），
+        # 状态随即推进到 practicing —— 这是预期行为，不是回归。
+        check("D3 讲次状态推进", lesson["status"] in ("lecture_ready", "practicing"),
+              lesson["status"])
         board = lesson["board"] or {}
         check("D4 白板含卡片", len(board.get("cards") or []) >= 3,
               str(len(board.get("cards") or [])))
@@ -1745,7 +1748,8 @@ def main() -> int:
               lec2_titles and not any(t in sib_titles for t in lec2_titles),
               f"第2讲={lec2_titles} 第1讲={sorted(sib_titles)}")
         check("DD-D3 第 2 讲生成成功（未因去重阻断）",
-              lec2_after.get("status") == "lecture_ready", str(lec2_after.get("status")))
+              lec2_after.get("status") in ("lecture_ready", "practicing"),
+              str(lec2_after.get("status")))
 
         # DD-N1：负向/证伪 —— 去重重写返回非法 JSON 时，流程不崩、数据不变。
         set_model("mock-outline")
@@ -1763,7 +1767,8 @@ def main() -> int:
         neg = get(f"/api/courses/lessons/{u_n[1]['id']}")["data"]
         neg_titles = [str(s.get("title") or "").strip() for s in (neg.get("slides") or [])]
         check("DD-N1 去重重写非法 JSON 时流程不崩（任务成功）",
-              job_neg.get("status") == "ready" and neg.get("status") == "lecture_ready",
+              job_neg.get("status") == "ready"
+              and neg.get("status") in ("lecture_ready", "practicing"),
               f"status={neg.get('status')}")
         check("DD-N2 非阻塞：重复标题仍保留（数据未改动）",
               "极限的直觉" in neg_titles, f"第2讲标题={neg_titles}")
@@ -1839,7 +1844,53 @@ def main() -> int:
         check("DD-N6b 字段卫生：编造的 citation_refs 编号被丢弃",
               bool(s6) and 99 not in refs, f"refs={refs}")
 
-        _cleanup_courses(cid_dd, cid_neg, cid_order)
+        # ── PF. 预生成（讲义完成 → 自动备好本讲练习；开关可关）──
+        print("\n[PF] 预生成（默认开）")
+        set_model("mock-outline")
+        r = post("/api/courses", {"goal": "预生成测试", "document_ids": [doc_id],
+                                  "unit_count": 2})
+        cid_pf = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        pf_lessons = get(f"/api/courses/{cid_pf}")["data"]["units"][0]["lessons"]
+        set_model("mock-lecture")
+        r = post(f"/api/courses/lessons/{pf_lessons[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        prac: list = []
+        for _ in range(30):
+            prac = (get(f"/api/courses/lessons/{pf_lessons[0]['id']}/practice")
+                    ["data"].get("items") or [])
+            if prac:
+                break
+            time.sleep(1)
+        check("PF1 讲义完成后自动预生成本讲练习（不用用户再点）", bool(prac), f"题数={len(prac)}")
+
+        # PF2 幂等：已有内容不重做（再调一次预生成接口，题数不变）
+        n_before = len(prac)
+        post(f"/api/courses/lessons/{pf_lessons[0]['id']}/prefetch", {})
+        time.sleep(3)
+        prac2 = (get(f"/api/courses/lessons/{pf_lessons[0]['id']}/practice")
+                 ["data"].get("items") or [])
+        check("PF2 预生成幂等（已有内容不重做）", len(prac2) == n_before,
+              f"{n_before} → {len(prac2)}")
+
+        # PF3 开关关闭 → 讲义完成后不再自动出练习。
+        # ⚠️ 必须用**全新课程**：PF2 调了 lesson 级预生成，它会把「下一讲的讲义」排进队列，
+        #    那门课的后续讲次会被链式预生成（且发生在开关关闭之前），断言就被污染了。
+        put("/api/settings", {"prefetch": {"enabled": False}})
+        r = post("/api/courses", {"goal": "预生成开关测试", "document_ids": [doc_id],
+                                  "unit_count": 2})
+        cid_pf2 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        l_off = get(f"/api/courses/{cid_pf2}")["data"]["units"][0]["lessons"]
+        r = post(f"/api/courses/lessons/{l_off[0]['id']}/lecture")
+        wait_job(r["data"]["job_id"])
+        time.sleep(5)
+        prac3 = (get(f"/api/courses/lessons/{l_off[0]['id']}/practice")
+                 ["data"].get("items") or [])
+        check("PF3 关闭开关后不再自动预生成", not prac3, f"题数={len(prac3)}")
+        put("/api/settings", {"prefetch": {"enabled": True}})   # 还原，别影响后续用例
+
+        _cleanup_courses(cid_dd, cid_neg, cid_order, cid_pf, cid_pf2)
 
         # ── I. 删除 ────────────────────────────────────
         print("\n[I] 删除课程")

@@ -55,6 +55,11 @@
           <label class="switch"><input type="checkbox" id="st-think"${cfg.llm.enable_thinking ? " checked" : ""}> 开启深度思考模式</label>
           <div class="hint" style="margin-top:6px">适用于 Qwen3 等「混合推理」模型：开启后模型回答前会先推理，更细致但也更慢。DeepSeek-R1 等推理模型自身就会思考，无需开启；若你的服务商不认识该参数会报 HTTP 400，关掉即可。</div>
         </div>
+        <div class="field">
+          <label>预生成（后台提前备好后面的内容）</label>
+          <label class="switch"><input type="checkbox" id="st-prefetch"${(cfg.prefetch && cfg.prefetch.enabled) ? " checked" : ""}> 开启预生成</label>
+          <div class="hint" style="margin-top:6px">开启后：讲义生成完顺手把本讲练习备好；打开讲次时提前备好下一讲的讲义 —— 学习时不用等。只前进一步、不会连锁跑完整门课；已有内容一律跳过。关掉后不会有任何额外模型调用。</div>
+        </div>
         <div class="row">
           <button class="btn primary" id="st-save">保存</button>
           <button class="btn" id="st-test">测试连接</button>
@@ -197,6 +202,8 @@
           max_tokens: parseInt(val("st-maxtok"), 10) || 2048,
           enable_thinking: !!(document.getElementById("st-think") || {}).checked,
         },
+        // 预生成是独立分组（后端 SPECS 的 prefetch.enabled），别塞进 llm。
+        prefetch: { enabled: !!(document.getElementById("st-prefetch") || {}).checked },
       };
       const key = val("st-key");
       if (key) patch.llm.api_key = key;

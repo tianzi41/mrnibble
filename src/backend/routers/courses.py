@@ -272,6 +272,17 @@ def get_unit_summary(uid: str) -> dict:
     return ok(_svc().get_unit_summary(uid))
 
 
+# ── 整单元预生成（「预生成整章」按钮）────────────────────
+@router.post("/courses/units/{uid}/prefetch",
+             summary="整单元预生成：排队生成该单元缺失的讲义与练习（串行、幂等）")
+def prefetch_unit(uid: str) -> dict:
+    """把该单元所有缺失的「讲义 + 练习」排进队列，逐个串行生成。
+
+    幂等：已有内容计入 ``skipped``，不会重做；同课程同一时刻只跑一个任务。
+    """
+    return ok(_svc().prefetch_unit(uid))
+
+
 # ── 导出（P1）──────────────────────────────────────────
 @router.get("/courses/lessons/{lid}/export", summary="导出讲义或课堂对话（Markdown）")
 def export_lesson(
@@ -315,6 +326,13 @@ def raw_document(doc_id: str) -> FileResponse:
 
 
 # ── 练习 ────────────────────────────────────────────────
+@router.post("/courses/lessons/{lid}/prefetch",
+             summary="按讲次预生成：本讲练习 + 下一讲讲义（用户驱动，只前进一步、不连锁）")
+def prefetch_lesson(lid: str) -> dict:
+    """打开讲次时调用：后台补齐本讲练习与下一讲讲义（幂等，已有内容会跳过）。"""
+    return ok(_svc().prefetch_lesson(lid))
+
+
 @router.post("/courses/lessons/{lid}/practice")
 def generate_practice(lid: str, payload: PracticeGenerate | None = None) -> dict:
     """生成随堂练习（异步）。"""
