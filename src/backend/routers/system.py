@@ -42,25 +42,42 @@ def _read_port() -> int:
 
 @router.get("/health", summary="健康检查")
 def health() -> dict[str, Any]:
-    """返回服务健康状态。"""
+    """返回服务健康状态。
+
+    ``heartbeat`` 子对象是**诊断用**（2026-09-20 加）：桌面启动器据此判断
+    「页面是否还活着」，而这段信息以前完全不可观测——用户遇到「挂后台后
+    后台自己退出」时只能靠猜。现在可以直接读 ``idle_s`` 看心跳是否还在。
+    """
     return ok(
         {
             "status": "ok",
             "version": __version__,
             "port": _read_port(),
             "uptime_s": round(time.time() - _START_TS, 3),
+            "heartbeat": {
+                "idle_s": round(heartbeat.idle_seconds(), 2),
+                "ever_seen": heartbeat.ever_seen(),
+                "bye": heartbeat.bye_seen(),
+            },
         }
     )
 
 
 @router.post("/heartbeat", summary="页面心跳（桌面启动器据此判断窗口是否存活）")
-def page_heartbeat() -> dict[str, Any]:
-    """前端每 5 秒调用一次；启动器以「心跳是否持续」决定何时停服务。
+def page_heartbeat(bye: int = 0) -> dict[str, Any]:
+    """前端每 5 秒调用一次；启动器以「窗口是否还在 + 心跳是否持续」决定何时停服务。
 
     背景：Edge 首开可能把 URL 转交给已有实例后立即退出，浏览器子进程的
     存活状态**不可靠**（曾导致服务启动 1 秒就被关掉、页面显示拒绝连接）。
+    而只靠心跳也不够稳：窗口最小化时浏览器会节流隐藏页的定时器，心跳被拉长
+    （2026-09-20 实测停服事故）。所以启动器还会独立探测应用窗口是否存在。
+
+    ``?bye=1``：页面在 ``pagehide`` 时用 ``navigator.sendBeacon`` 发一次，
+    表示「用户真的在关窗」，让启动器走快路径立刻停机（不必等心跳宽限）。
     """
     heartbeat.touch()
+    if bye:
+        heartbeat.mark_bye()
     return ok({"ok": True})
 
 

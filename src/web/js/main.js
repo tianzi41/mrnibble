@@ -114,9 +114,19 @@
   // 页面心跳：桌面启动器据此判断应用窗口是否仍然打开。
   // （Edge 首开可能把 URL 转交给已有实例后立刻退出，启动器不能再以浏览器
   //  进程的存活来判断窗口；没有心跳 ≈ 页面已关闭，服务随之退出。）
+  // ⚠️ 心跳不是唯一判据：窗口最小化时浏览器会节流隐藏页的定时器，心跳可能被
+  //  拉长到十几秒，所以启动器还会独立探测应用窗口是否存在（见 src/launcher.py）。
   function ping() {
     fetch("/api/heartbeat", { method: "POST" }).catch(function () { /* 忽略瞬时失败 */ });
   }
   ping();
   setInterval(ping, 5000);
+
+  // 真正关窗 / 导航离开时，用 sendBeacon 发一次「告别」：启动器据此立刻停机，
+  // 不用等心跳宽限。（sendBeacon 在页面卸载时也能可靠发出，fetch 则可能被取消。）
+  window.addEventListener("pagehide", function () {
+    try {
+      navigator.sendBeacon("/api/heartbeat?bye=1");
+    } catch (e) { /* 老浏览器忽略 */ }
+  });
 })();
