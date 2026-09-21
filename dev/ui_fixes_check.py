@@ -269,14 +269,21 @@ async def fn_wizard(ev) -> None:
             break
         await asyncio.sleep(0.3)
 
-    # [2] 埋探针：抓 #f-goal 的 class / placeholder 瞬态
+    # [2] 埋探针：抓 #f-goal 的 class / placeholder 瞬态；
+    #      同时记录 suggest-goal 请求条数（验证「材料没写好时不发请求」）。
     await ev("""(() => {
       window.__goalLog = [];
+      window.__goalPosts = [];
       const g = document.getElementById('f-goal');
       const rec = () => window.__goalLog.push({cls: g.className, ph: g.placeholder});
       rec();
       new MutationObserver(rec).observe(g, {attributes: true,
         attributeFilter: ['class', 'placeholder']});
+      const _p = Api.post.bind(Api);
+      Api.post = (u, b) => {
+        if (String(u).indexOf('suggest-goal') >= 0) window.__goalPosts.push(String(u));
+        return _p(u, b);
+      };
       return true;
     })()""")
 
@@ -287,27 +294,19 @@ async def fn_wizard(ev) -> None:
             break
         await asyncio.sleep(0.3)
 
-    goal_before = await ev(GOAL_PROBE)
+    # [2a] 主题模式下材料还没写好：点课型卡**不发请求**（空 ids 会被后端兜底成
+    # 「全部已解析材料」→ 目标按库里无关旧材料生成，正是用户实测的 bug），
+    # 只提示「材料写好后…」。同步守卫没有让出线程，也就不该有 loading 闪态。
     await ev("document.querySelector('.intent-card').click()")
-    await asyncio.sleep(0.25)
-    goal_mid = await ev(GOAL_PROBE)          # 尽量抓在途中
-    await asyncio.sleep(4)
-    goal_after = await ev(GOAL_PROBE)
-    goal_log = json.loads(await ev("JSON.stringify(window.__goalLog)") or "[]")
-
-    seen_loading = any("loading" in (e.get("cls") or "") for e in goal_log) \
-        or "loading" in ((goal_mid or {}).get("cls") or "")
-    seen_writing_ph = any((e.get("ph") or "") == GOAL_WRITING for e in goal_log) \
-        or (goal_mid or {}).get("ph") == GOAL_WRITING
-    end_clean = "loading" not in ((goal_after or {}).get("cls") or "")
-    ph_restored = (goal_after or {}).get("ph") == GOAL_PLACEHOLDER
-
-    print("\n[2] 选课型 → 学习目标框的「正在生成」态")
-    check("[2] 点课型卡后 #f-goal 出现过 loading 态", seen_loading,
-          f"log={goal_log}")
-    check("[2] 空框时 placeholder 出现「正在按课型写目标…」", seen_writing_ph, str(goal_mid))
-    check("[2] 请求结束后 loading 必退（不留永久 loading）", end_clean, str(goal_after))
-    check("[2] placeholder 已还原", ph_restored, str(goal_after))
+    await asyncio.sleep(0.5)
+    hint = await ev("(document.getElementById('f-goal-hint')||{}).textContent || ''")
+    posts_a = await ev("window.__goalPosts.length") or 0
+    log_a = json.loads(await ev("JSON.stringify(window.__goalLog)") or "[]")
+    print("\n[2a] 材料未就绪时点课型（守卫：不发请求）")
+    check("[2a] 提示「材料写好后，会按所选课型自动写目标」且未发请求",
+          "材料写好后" in (hint or "") and posts_a == 0, f"hint={hint!r} posts={posts_a}")
+    check("[2a] 同步守卫路径不出现 loading 闪态（无可生成内容）",
+          not any("loading" in (e.get("cls") or "") for e in log_a), str(log_a)[:200])
 
     # [1] 材料生成状态：点①出目录 → 点②写正文
     await ev("document.getElementById('t-outline').click()")
@@ -352,6 +351,41 @@ async def fn_wizard(ev) -> None:
     check("[1] 材料写完 → #t-status 进入 done 态且含「材料已就绪」",
           bool(done) and "材料已就绪" in (done.get("txt") or "") and "done" in (done.get("cls") or ""),
           str(done))
+
+    # [2b] 材料就绪 → 已选课型 → 自动补目标（finishWriting 补触发，先选课型
+    # 再写材料的顺序也覆盖到）；然后再点一次课型卡：这次真的发请求，
+    # loading 瞬态必须出现并退掉（[2] 原有的瞬态覆盖搬到这里 ——
+    # 场景从「发错请求」换成「材料就绪后正确发请求」）。
+    auto_goal = ""
+    for _ in range(40):
+        auto_goal = await ev("(document.getElementById('f-goal')||{}).value || ''") or ""
+        if auto_goal.strip():
+            break
+        await asyncio.sleep(0.3)
+    check("[2b0] 材料就绪后按已选课型自动补上目标（无需再手点）",
+          bool(auto_goal.strip()), str(auto_goal)[:100])
+    await ev("document.getElementById('f-goal').value = ''")   # 恢复「空框」前提
+    log_before = len(json.loads(await ev("JSON.stringify(window.__goalLog)") or "[]"))
+    await ev("document.querySelector('.intent-card').click()")
+    await asyncio.sleep(0.25)
+    goal_mid = await ev(GOAL_PROBE)          # 尽量抓在途中
+    await asyncio.sleep(4)
+    goal_after = await ev(GOAL_PROBE)
+    goal_log = json.loads(await ev("JSON.stringify(window.__goalLog)") or "[]")
+    fresh = goal_log[log_before:]
+
+    seen_loading = any("loading" in (e.get("cls") or "") for e in fresh) \
+        or "loading" in ((goal_mid or {}).get("cls") or "")
+    seen_writing_ph = any((e.get("ph") or "") == GOAL_WRITING for e in fresh) \
+        or (goal_mid or {}).get("ph") == GOAL_WRITING
+    end_clean = "loading" not in ((goal_after or {}).get("cls") or "")
+    ph_restored = (goal_after or {}).get("ph") == GOAL_PLACEHOLDER
+
+    print("\n[2b] 选课型 → 学习目标框的「正在生成」态（材料就绪后）")
+    check("[2b] 点课型卡后 #f-goal 出现过 loading 态", seen_loading, f"log={fresh}")
+    check("[2b] 空框时 placeholder 出现「正在按课型写目标…」", seen_writing_ph, str(goal_mid))
+    check("[2b] 请求结束后 loading 必退（不留永久 loading）", end_clean, str(goal_after))
+    check("[2b] placeholder 已还原", ph_restored, str(goal_after))
 
 
 EDITOR_PROBE = """(() => {

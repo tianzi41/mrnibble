@@ -629,6 +629,20 @@
       tStatus.className = "run-status" + (kind ? " " + kind : "");
     };
 
+    /** 本课材料 id 的**单一来源**：课型分析、目标自动填写、草稿都从这里取。
+     *
+     * 主题模式下唯一正确的材料就是 AI 刚写入库的那份（T.docId）——
+     * #pick-docs 在主题模式下不仅整块隐藏，而且 AI 材料写完后 loadDocuments()
+     * 并不会给它补复选框（pick 是建向导时按当时的 S.documents 一次性画好的），
+     * 从那里取只会得到空数组或切页前残留的旧勾选。后端 _material_context 又把
+     * 空数组兜底成「全部已解析材料」→ 拿用户库里的旧材料写出与本题材无关的目标
+     * （实测：题材是 cmd/PowerShell，目标却填成「读懂《出师表》全文……」）。
+     */
+    const materialIds = () => {
+      if (T.on) return T.docId ? [T.docId] : [];
+      return [...pick.querySelectorAll("input:checked")].map((i) => i.value);
+    };
+
     const paintSrc = () => {
       paneDocs.style.display = T.on ? "none" : "";
       paneTopic.style.display = T.on ? "" : "none";
@@ -746,6 +760,10 @@
           + (part ? "，部分章节生成失败，可稍后重新生成材料" : ""), "done");
       if (T.docId) { loadDocuments(); loadMaterialJobs(); }
       scheduleDraftSave();     // 材料写完 → 把 docId 记进草稿（切页回来直接能建课）
+      // 材料就绪后补一次目标：用户可能先选了课型、那时材料还没写好
+      // （autoGoal 会提示「材料写好后…」并跳过）—— 现在材料有了，按课型补上。
+      // chosen / goalEl 在下方定义，但这里只在轮询回调里运行（IIFE 早已求值完），无 TDZ 问题。
+      if (chosen.primary && !goalEl.value.trim()) autoGoal();
     };
     const failWriting = (e) => Toast("材料生成失败：" + e.message, true);
 
@@ -869,7 +887,15 @@
       goalEl.classList.add("loading");
       if (!goalEl.value.trim()) goalEl.placeholder = GOAL_WRITING;
       try {
-        const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
+        // 主题模式下材料没写好就没有正确上下文可发：不发请求（空数组会被后端
+        // 兜底成全部已解析材料 → 按库里旧材料写出无关目标），只提示；
+        // 材料写好后由 finishWriting 补触发一次。return 放在 try 里，finally
+        // 照常负责退 loading 态。
+        if (T.on && !T.docId) {
+          setGoalHint("材料写好后，会按所选课型自动写目标");
+          return;
+        }
+        const ids = materialIds();
         const r = await Api.post("/api/courses/suggest-goal", {
           document_ids: ids, primary: chosen.primary,
           assist: chosen.assist || null, note: chosen.note || null,
@@ -900,10 +926,13 @@
       const btn = document.getElementById("f-analyze");
       const hint = document.getElementById("intent-hint");
       if (!S.documents.length) return Toast("还没有已解析的材料", true);
+      // 主题模式下同样必须基于 AI 刚生成的那份材料：没写好就分析，只会拿到
+      // 库里的旧材料（与 autoGoal 同一个坑）。
+      if (T.on && !T.docId) return Toast("请先点「① 生成目录」把材料写出来，再分析推荐课型", true);
       btn.disabled = true; btn.textContent = "分析中…";
       hint.textContent = "正在看材料的体裁与内容，判断适合什么课…";
       try {
-        const ids = [...pick.querySelectorAll("input:checked")].map((i) => i.value);
+        const ids = materialIds();
         const r = await Api.post("/api/courses/suggest-intents", { document_ids: ids });
         chosen.primary = r.primary || "";
         if (chosen.assist === chosen.primary) chosen.assist = "";  // 推荐结果可能撞上已选辅助
@@ -1028,7 +1057,7 @@
     // 而课程页唯一的「回来的路」只认后端材料任务，用上传材料建课的人根本没有它。
     const collectDraft = () => ({
       mode: T.on ? "topic" : "docs",
-      docIds: [...pick.querySelectorAll("input:checked")].map((i) => i.value),
+      docIds: materialIds(),
       intentPrimary: chosen.primary,
       intentAssist: chosen.assist,
       goal: goalEl.value,

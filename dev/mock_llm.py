@@ -637,11 +637,25 @@ def _intent_pick_payload() -> str:
                        "alternatives": ["exam", "overview"]}, ensure_ascii=False)
 
 
-def _goal_from_intent_payload() -> str:
-    """「按课型写一句目的」的桩：一句话，不是能力清单。"""
-    return json.dumps(
-        {"goal": "读懂这份材料的主要内容，能顺畅理解并说清它的结构与要点"},
-        ensure_ascii=False)
+def _goal_from_intent_payload(body: dict | None = None) -> str:
+    """「按课型写一句目的」的桩：一句话，不是能力清单。
+
+    **按材料概览里的题材生成目标句并回显**：曾经的 bug 是 AI 材料建课时，
+    目标却按库里无关的旧材料填写（题材是 cmd/PowerShell，目标填成
+    「读懂《出师表》全文……」）。桩按概览文本判别题材，测试因此能直接从
+    界面上的目标文本判别「这条目标到底基于哪份材料」。
+    """
+    text = ""
+    for m in (body or {}).get("messages") or []:
+        if m.get("role") == "user":
+            text += str(m.get("content") or "")
+    if "出师表" in text:
+        goal = "读懂《出师表》全文，先把握背景与两段式结构，再逐句精解字词句式"
+    elif "装饰器" in text:
+        goal = "看懂装饰器的写法与适用场景，并能亲手写一个简单的装饰器"
+    else:
+        goal = "读懂这份材料的主要内容，能顺畅理解并说清它的结构与要点"
+    return json.dumps({"goal": goal}, ensure_ascii=False)
 
 
 def _material_outline_payload(systems: str) -> str:
@@ -740,7 +754,7 @@ def _pick(body: dict) -> str:
         return _intent_pick_payload()
     if "用户已经选定了材料与想要的课型" in _systems:
         _spy_dump(body)
-        return _goal_from_intent_payload()
+        return _goal_from_intent_payload(body)
     if model == "mock-normal":
         return _quote_block()
     if model == "mock-stall-guided":
