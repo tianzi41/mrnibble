@@ -109,11 +109,50 @@
   const _prime = new Map();
   const PRIME_MAX = 64;
 
+  // ── 合成请求的有界并发（播放优先）──────────────────────────
+  // 浏览器对同一来源最多 6 条连接（HTTP/1.1）。预热（prime）与播放流水线若同时
+  // 无界发请求，会把连接占满并把「当前页正要播的段」挤到队列后面 —— 页首白等
+  // 一整个合成周期（云端实测 2~3s），中间还可能把云端 API 打出限流。
+  // 因此所有合成请求都走配额槽；**播放流水线（HI）优先于预热（LO）**：
+  // 释放出的槽先给正在播的页，预热只在空闲槽上跑。
+  const TTS_SLOTS = 6;
+  const _waitHi = [];
+  const _waitLo = [];
+  let _freeSlots = TTS_SLOTS;
+  function acquireSlot(hi) {
+    if (_freeSlots > 0) { _freeSlots -= 1; return Promise.resolve(); }
+    return new Promise((res) => (hi ? _waitHi : _waitLo).push(res));
+  }
+  function releaseSlot() {
+    const q = _waitHi.length ? _waitHi : (_waitLo.length ? _waitLo : null);
+    if (q) { q.shift()(); return; }     // 直接转交等待者，不经过 _freeSlots
+    _freeSlots += 1;
+  }
+  /** 当前引擎的原始合成函数（cloud → /tts/speech；melo → /tts/local）。 */
+  function rawFetcher() {
+    return _engine === "cloud"
+      ? requestCloud
+      : (t) => requestLocal(t).then((b) => ({ blob: b, mime: "audio/wav" }));
+  }
+  /** 包上配额槽的合成函数（hi = 播放流水线，优先于预热）。 */
+  function slotFetcher(hi) {
+    const raw = rawFetcher();
+    return (t) => acquireSlot(hi).then(() => raw(t).then(
+      (v) => { releaseSlot(); return v; },
+      (e) => { releaseSlot(); throw e; }));
+  }
+
   function fetchCached(text, fetcher) {
     if (_prime.has(text)) return _prime.get(text);
     const pr = fetcher(text).then(
       (v) => ({ ok: true, v }),
-      (e) => ({ ok: false, e }));
+      (e) => {
+        // 失败结果**不留在缓存里**：否则同一段文本此后的重试 / 重读都秒失败
+        // （预热阶段失败的段尤其隐蔽 —— 用户重进入该页才发现朗读直接报错）。
+        // 只挡「被更新过的条目」：并发去重语义不变。
+        if (_prime.get(text) === pr) _prime.delete(text);
+        return { ok: false, e };
+      });
     _prime.set(text, pr);
     if (_prime.size > PRIME_MAX) {
       // 「保留最旧」：条目按插入顺序排列，最先插入的最先要播，从**最新端**淘汰。
@@ -142,9 +181,9 @@
         : (_engine === "melo" ? 1200 : 4000);
       const capped = String(text || "").slice(0, capTotal);
       const pieces = detailed ? splitBySentence(capped, chunkMax) : splitChunks(capped, chunkMax);
-      const fetchOne = _engine === "cloud"
-        ? requestCloud
-        : (t) => requestLocal(t).then((b) => ({ blob: b, mime: "audio/wav" }));
+      // 预热走 LO 通道：配额槽被正在播放的页占满时，预热请求在 JS 里排队，
+      // 绝不把「当前页要播的段」挤到浏览器连接队列后面（页首白等一整个合成周期）。
+      const fetchOne = slotFetcher(false);
       pieces.forEach((pc) => { try { fetchCached(pc, fetchOne); } catch (e) { /* 忽略 */ } });
     } catch (e) { /* 预热失败不影响播放 */ }
   }
@@ -301,47 +340,11 @@
              + "点「测试连接」确认可用后再试。");
         return;
       }
+      _parked = null;                    // 新的一次朗读作废任何停机现场
       const chunks = cut(capped);
-      // 预取深度：云端单句合成 2~3s、有抖动，深度 2 时偶尔跟不上播放
-      //（实测表现为连续几段后停 2~3 秒、字幕回退到「准备开始…」）。
-      // 云端提到 4 路并行（合成速率 ≈ 播放速率 2 倍）；本地 melo 是 CPU 合成，
-      // 3 路已足够且避免抢主线程。
-      const PREFETCH = isCloud ? 4 : 3;
-      const fetchOne = isCloud
-        ? requestCloud
-        : (t) => requestLocal(t).then((b) => ({ blob: b, mime: "audio/wav" }));
-      // 包成「永不 reject」的形状：预取中的请求若失败，在有人 await 它之前
-      // 不会产生未处理的 Promise 拒绝。
-      // ⚠️ 合成请求必须走 fetchCached（跨页缓存）：prime() 预热的下一段就躺在这里，
-      // 直接调 fetchOne 会让预热白做——页间照样冷启动（上一轮只统一了切块规则、
-      // 忘了让 speak 消费缓存，就是漏掉的另一半）。
-      const inflight = new Map();
-      const kick = (i) => {
-        if (i < 0 || i >= chunks.length || inflight.has(i)) return;
-        inflight.set(i, fetchCached(chunks[i], fetchOne));
-      };
-      for (let k = 0; k < PREFETCH; k++) kick(k);
-      for (let i = 0; i < chunks.length; i++) {
-        if (myGen !== _gen) return;
-        const got = await inflight.get(i);
-        inflight.delete(i);
-        // 已就绪并即将播放的段从跨页缓存移除：不会再听第二遍，
-        // 缓存容量留给下一页预热的内容（淘汰策略因此几乎不会触发）。
-        _prime.delete(chunks[i]);
-        // 先补上后面的预取，再等暂停/播放 —— 让网络请求与播放真正并行
-        kick(i + PREFETCH);
-        if (!got.ok) {
-          if (myGen !== _gen) return;
-          fail((isCloud ? "云端朗读失败：" : "本地语音合成失败：") + got.e.message);
-          return;                              // 明确失败，不降级
-        }
-        while (_hold && myGen === _gen) await new Promise((r) => setTimeout(r, 120));
-        if (myGen !== _gen) return;
-        if (opts.onChunk) opts.onChunk(chunks[i], i, chunks.length);
-        await playAudio(got.v.blob, got.v.mime);
-      }
-      if (myGen === _gen && opts.onEnd) opts.onEnd();
-      return;
+      // 流水线请求走 HI 通道（播放优先）；预热走 LO（见 prime）。
+      const fetchOne = slotFetcher(true);
+      return runPipeline(chunks, 0, opts, fetchOne, isCloud, myGen);
     }
 
     if (!window.speechSynthesis) {
@@ -389,8 +392,100 @@
     speakNext(0);
   }
 
+  // ── 朗读流水线（melo / cloud）：预取 + 失败重试 + 可恢复停机 ──
+  // 单段合成失败的最高发原因是云端 API 临时拥堵（502/503/限流/超时）。
+  // 旧行为：fail() 后直接 return —— 整条流水线死亡，_hold 没有循环去观察、
+  // _audio 也是 null，**点暂停/继续完全没用**，用户只能停止整堂课重来
+  // （用户 2026-09-21 实测）。现在：同段原地重试（指数退避），重试也耗尽才停机，
+  // 且停机保留现场，「↻ 重试朗读」能从失败的那一句继续。
+  const RETRY_MAX = 3;                 // 单段最多自动重试次数（不含首次）
+  const RETRY_BASE_MS = 800;           // 退避基数：0.8s → 1.6s → 3.2s
+  let _parked = null;                  // 停机现场：{chunks, from, opts, fetchOne, isCloud, gen}
+
+  /**
+   * 预取流水线：边播第 i 段，边提前合成后面的段。
+   * 从 :param:`from` 开始 —— 停机恢复（retry）时从失败的那一句接着跑。
+   */
+  async function runPipeline(chunks, from, opts, fetchOne, isCloud, myGen) {
+    const fail = opts.onError || function () { };
+    // 预取深度：云端单句合成 2~3s、有抖动，深度 2 时偶尔跟不上播放
+    //（实测表现为连续几段后停 2~3 秒、字幕回退到「准备开始…」）。
+    // 云端提到 4 路并行（合成速率 ≈ 播放速率 2 倍）；本地 melo 是 CPU 合成，
+    // 3 路已足够且避免抢主线程。
+    const PREFETCH = isCloud ? 4 : 3;
+    // ⚠️ 合成请求必须走 fetchCached（跨页缓存）：prime() 预热的下一段就躺在这里，
+    // 直接调 fetchOne 会让预热白做——页间照样冷启动。
+    const inflight = new Map();
+    const kick = (i) => {
+      if (i < 0 || i >= chunks.length || inflight.has(i)) return;
+      inflight.set(i, fetchCached(chunks[i], fetchOne));
+    };
+    for (let k = from; k < Math.min(from + PREFETCH, chunks.length); k++) kick(k);
+    for (let i = from; i < chunks.length; i++) {
+      if (myGen !== _gen) return;
+      let got = await inflight.get(i);
+      inflight.delete(i);
+      // 失败重试：**绕过缓存**重新合成（失败结果也被 fetchCached 缓存过，
+      // 不绕过只会拿到同一个失败）。退避期间字幕显示重试进度（onRetry）。
+      for (let attempt = 1; !got.ok && attempt <= RETRY_MAX; attempt++) {
+        if (myGen !== _gen) return;
+        if (opts.onRetry) {
+          opts.onRetry(attempt, RETRY_MAX, (got.e && got.e.message) || "未知原因");
+        }
+        await new Promise((r) => setTimeout(r, RETRY_BASE_MS * Math.pow(2, attempt - 1)));
+        if (myGen !== _gen) return;
+        _prime.delete(chunks[i]);
+        got = await fetchCached(chunks[i], fetchOne);
+      }
+      // 这一段即将离开缓存：成功 → 播完就删；失败 → 不留失败痕迹
+      _prime.delete(chunks[i]);
+      // 先补上后面的预取，再等暂停/播放 —— 让网络请求与播放真正并行
+      kick(i + PREFETCH);
+      if (!got.ok) {
+        if (myGen !== _gen) return;
+        // 重试也耗尽：**保留停机现场**。「↻ 重试朗读」/点字幕条能把朗读从
+        // 这一句重新拉起；停机不清现场，恢复时从 i 继续（前面已播的段不重播）。
+        _parked = { chunks, from: i, opts, fetchOne, isCloud, gen: myGen };
+        fail((isCloud ? "云端朗读失败：" : "本地语音合成失败：")
+             + ((got.e && got.e.message) || "未知原因")
+             + `（已自动重试 ${RETRY_MAX} 次）。点「↻ 重试朗读」再试一次`);
+        return;                              // 明确失败，不降级
+      }
+      while (_hold && myGen === _gen) await new Promise((r) => setTimeout(r, 120));
+      if (myGen !== _gen) return;
+      if (opts.onChunk) opts.onChunk(chunks[i], i, chunks.length);
+      await playAudio(got.v.blob, got.v.mime);
+    }
+    if (myGen === _gen && opts.onEnd) opts.onEnd();
+  }
+
+  /** 是否停在「合成失败」现场（供界面把暂停按钮换成「↻ 重试朗读」）。 */
+  function parked() {
+    return !!(_parked && _parked.gen === _gen);
+  }
+
+  /**
+   * 重试朗读：停在合成失败现场时，从失败的那一句继续。
+   * 没有停机现场时等同于 resume()（用户点「▶ 继续」的普通恢复）。
+   */
+  function retry() {
+    _hold = false;
+    const p = _parked;
+    if (p && p.gen === _gen) {
+      _parked = null;
+      return runPipeline(p.chunks, p.from, p.opts, p.fetchOne, p.isCloud, p.gen);
+    }
+    _parked = null;
+    if (_engine !== "system") {
+      if (_audio) { try { _audio.play(); } catch (e) { /* 忽略 */ } }
+      return;
+    }
+    if (window.speechSynthesis) speechSynthesis.resume();
+  }
+
   function stop() {
     _prime.clear();   // 停止时清预热缓存，避免换讲次后误用旧内容
+    _parked = null;   // 停机现场一并作废（用户明确停止，不要留下可复活的任务）
     _gen++;
     _hold = false;   // 停止时清掉暂停标志，否则下次朗读会被卡住
       // melo 引擎：掐掉正在播放的音频；system 引擎：取消语音队列。
@@ -438,6 +533,6 @@
   window.Voice = {
     ensureVoices, pickZhVoice, plainText, speak, stop,
     configure, engine, syncFromServer, cloudIssue, pause, resume, isSpeaking,
-    prime,
+    prime, retry, parked,
   };
 })();

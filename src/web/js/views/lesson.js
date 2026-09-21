@@ -1270,15 +1270,23 @@
     if (!visible) return;
     const sub = document.getElementById("teach-sub");
     if (!sub) return;
-    // 字幕文本优先级：主动暂停提示 > 正在朗读的句子 > 已讲完提示 > 待开始提示
+    // 字幕文本优先级：主动暂停提示 > 合成失败重试提示 > 正在朗读的句子 > 已讲完提示 > 待开始提示
+    const parked = Voice.parked();
     const text = S.voicePaused ? "已暂停——点这里继续上课"
-      : (S.subtitle || (S.finished ? "本讲讲完了。" : ""));
+      : (parked ? "语音合成失败——点这里重试" : (S.subtitle || (S.finished ? "本讲讲完了。" : "")));
     sub.textContent = text || "准备开始…";
     // 暂停时整条字幕就是「继续」按钮：点字幕条任意位置即恢复播放
     // （用户反馈：单独冒出一个提示条还要去找顶栏的 ▶ 继续，太绕）。
-    sub.onclick = S.voicePaused ? () => {
-      S.voicePaused = false;
-      Voice.resume();
+    // 合成失败停机时同理：点字幕条 = 重试朗读（从失败的那一句继续）。
+    sub.onclick = (S.voicePaused || parked) ? () => {
+      if (parked) {
+        S.voicePaused = false;
+        Voice.retry();
+        Toast("正在重试朗读…", false);
+      } else {
+        S.voicePaused = false;
+        Voice.resume();
+      }
       // 只重画动作按钮（▶/⏸ 标签），**不能调 renderHead()**——它会重建
       // #lesson-head（含一个空的 #tab-body 占位），把课件区整个清空，
       // 要等本页讲完 nextSlide() 里 renderTabBody() 才恢复 —— 这正是
@@ -1287,8 +1295,8 @@
       renderActions();
       renderStage();
     } : null;
-    sub.style.cursor = S.voicePaused ? "pointer" : "";
-    sub.title = S.voicePaused ? "点击继续上课" : "";
+    sub.style.cursor = (S.voicePaused || parked) ? "pointer" : "";
+    sub.title = parked ? "点击重试朗读" : (S.voicePaused ? "点击继续上课" : "");
   }
 
   /* ── 右侧「讲师讲述」：历史可上翻 + 完成后下一步 ── */
@@ -1428,10 +1436,22 @@
       },
       onEnd: () => afterSlideSpoken(),
       onWarn: (m) => Toast(m, true),
-      // 朗读失败（如无音频设备 / 语音包缺失）不应中断整堂课：保留授课进度与
-      // 字幕，仅提示。逐页推进由 onEnd 控制；否则无声音环境下「开始上课」
-      // 会立刻被 onError 误判为失败而停课。
-      onError: (m) => { Toast(m, true); },
+      // 合成失败的段在 Voice 内自动重试（指数退避，最多 3 次）；重试期间
+      // 字幕显示进度 —— 用户看到的是「在重试」，而不是一个不动的界面。
+      onRetry: (n, m) => {
+        if (!S.teaching) return;
+        S.subtitle = `语音合成失败，正在重试（${n}/${m}）…`;
+        renderSpeaking();
+        renderStage();
+      },
+      // 重试也耗尽：朗读已停机（Voice 内部保留现场）。保留授课进度与字幕，
+      // 仅提示；「暂停」按钮此时变成「↻ 重试朗读」，点它从这一句继续
+      // （旧行为是报错后朗读静默死亡，只能停止整堂课重来）。
+      onError: (m) => {
+        Toast(m, true);
+        renderActions();
+        renderStage();
+      },
     });
   }
 
@@ -1667,7 +1687,9 @@
     const hasSlides = buildSlides().length > 0;
     box.innerHTML = `
       ${hasSlides ? `<button class="btn small" id="b-speak">${S.teaching ? "⏹ 停止" : "▶ 开始上课"}</button>` : ""}
-      ${S.teaching ? `<button class="btn small" id="b-pause">${S.voicePaused ? "▶ 继续" : "⏸ 暂停"}</button>` : ""}
+      ${S.teaching ? `<button class="btn small" id="b-pause">${
+        Voice.parked() ? "↻ 重试朗读"
+          : (S.voicePaused ? "▶ 继续" : "⏸ 暂停")}</button>` : ""}
       ${l.kind === "practice" ? "" : `<button class="btn small" id="b-lecture">${
         l.board ? "重新生成讲义" : "生成讲义"}</button>`}
       ${hasSlides ? '<button class="btn small" id="b-png">导出图片</button>' : ""}
@@ -1685,6 +1707,15 @@
     if (speak) speak.onclick = (e) => toggleSpeak(e.target);
     const pauseBtn = document.getElementById("b-pause");
     if (pauseBtn) pauseBtn.onclick = () => {
+      // 朗读因合成失败停机时，这个按钮就是「↻ 重试朗读」—— 用户点它期望的
+      // 正是重试（旧行为下点暂停/继续毫无反应，只能停止整堂课重来）。
+      if (Voice.parked()) {
+        Voice.retry();
+        Toast("正在重试朗读…", false);
+        renderActions();
+        renderStage();
+        return;
+      }
       S.voicePaused = !S.voicePaused;
       if (S.voicePaused) Voice.pause(); else Voice.resume();
       const b = document.getElementById("b-pause");

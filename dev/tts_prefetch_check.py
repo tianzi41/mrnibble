@@ -54,7 +54,11 @@ AUDIO_SECONDS = 1.5        # 每段音频时长
 
 PASS: list[str] = []
 FAIL: list[str] = []
-HITS: list[float] = []
+HITS: list[tuple[float, str, bool]] = []   # (到达时刻, 请求文本, 是否成功)
+CONC = {"now": 0, "max": 0}                # 假端点同时在处理的请求数（有界并发的证据）
+FAIL_MODE = {"mode": "none"}               # none | first-per-text | all（模拟上游拥堵）
+_FAILED_TEXTS: set[str] = set()
+SYNTH_DELAY_CUR = [SYNTH_DELAY]            # 假端点单次合成耗时（按阶段可调）
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -76,18 +80,43 @@ def wav_bytes(seconds: float = AUDIO_SECONDS, rate: int = 22050) -> bytes:
 
 
 class _Handler(BaseHTTPRequestHandler):
-    """假语音端点：记录请求到达时间 → 睡 SYNTH_DELAY → 返回真 WAV。"""
+    """假语音端点：记录请求 → 按 FAIL_MODE 决定成功/失败 → 睡 SYNTH_DELAY → 返回真 WAV。
+
+    FAIL_MODE 复现用户 2026-09-21 实测的场景（API 临时拥堵）：
+    - ``first-per-text``：每段文本的**第一次**请求失败（500 类临时错误），之后成功
+      —— 验证「单段自动重试后自愈，不再整堂停工」；
+    - ``all``：全部失败 —— 验证「重试耗尽 → 停机保留现场 → retry() 恢复」。
+    """
 
     def do_POST(self):  # noqa: N802
-        self.rfile.read(int(self.headers.get("content-length") or 0))
-        HITS.append(time.time())
-        time.sleep(SYNTH_DELAY)
-        body = wav_bytes()
-        self.send_response(200)
-        self.send_header("content-type", "audio/wav")
-        self.send_header("content-length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        raw = self.rfile.read(int(self.headers.get("content-length") or 0))
+        try:
+            text = str(json.loads(raw.decode("utf-8")).get("input") or "")
+        except Exception:  # noqa: BLE001
+            text = ""
+        mode = FAIL_MODE["mode"]
+        if mode == "all" or (mode == "first-per-text" and text not in _FAILED_TEXTS):
+            if mode == "first-per-text":
+                _FAILED_TEXTS.add(text)
+            HITS.append((time.time(), text, False))
+            self.send_response(500)
+            self.send_header("content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"error": "simulated upstream congestion"}')
+            return
+        HITS.append((time.time(), text, True))
+        CONC["now"] += 1
+        CONC["max"] = max(CONC["max"], CONC["now"])
+        try:
+            time.sleep(SYNTH_DELAY_CUR[0])
+            body = wav_bytes()
+            self.send_response(200)
+            self.send_header("content-type", "audio/wav")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        finally:
+            CONC["now"] -= 1
 
     def log_message(self, *a):  # 静音访问日志
         pass
@@ -97,6 +126,26 @@ TEXT = ("中文路径本身没有问题。问题在于不要把中文写进批�
         "批处理文件应当只包含 ASCII 字符。如果需要输出中文，请改用 PowerShell。"
         "另外，chcp 65001 只是切换代码页，并不能解决文件本身编码不一致的问题。"
         "所以遇到乱码时，先检查文件的编码，再检查代码页设置。")
+
+# 各阶段用**不同文本**：_prime 是跨调用缓存，同一文本第二次 speak 会全程命中缓存，
+# 失败注入就失效了（阶段之间还会 Voice.stop() 清缓存，双保险）。
+TEXT3 = ("浏览器会缓存合成结果，跨页切换时第一段不需要重新合成。"
+         "因此每一页讲稿都应该尽早送进预热，让播放与合成真正并行。"
+         "失败的那一段要能原地重试，而不是让整堂课停在那里不动。")
+TEXT4 = ("当上游服务临时拥堵时，合成请求可能连续失败。"
+         "此时应当退避后重试几次，给服务恢复的时间；重试仍然失败才告知用户，"
+         "并且保留现场，让用户可以一键从失败的那一句继续朗读，而不是整堂课报废。")
+PRIME_MARK = "预热第"
+SPEAK_MARK = "朗读第"
+# ⚠️ 每句必须**唯一**：fetchCached 按文本去重，同一句重复 N 遍只会发 1 个请求，
+# 竞争场景就构造不出来了（第一版就是重复句，prime 只发出 1 个请求，断言 vacuous 通过）。
+# chunkChars=40 时一句一段：PRIME_TEXT → 40 个互异请求，一次性占满连接队列。
+PRIME_TEXT = "".join(
+    f"预热第{i:02d}句，这一句与众不同，用来占满连接队列的第{i:02d}个请求。"
+    for i in range(40))
+SPEAK_TEXT = "".join(
+    f"朗读第{i:02d}句，当前页真正要播放的第{i:02d}段内容，不能被预热挤到后面。"
+    for i in range(6))
 
 WRAP_AUDIO = """
 window.__log = [];
@@ -268,6 +317,115 @@ def main() -> int:
                       })()""" % json.dumps(TEXT, ensure_ascii=False))
                     elapsed = time.time() - t0
                     log = await ev("window.__log") or []
+
+                    # ── [3] 单段合成失败 → 自动重试后自愈（不再整堂停工）──
+                    # 复现用户 2026-09-21 实测：API 临时拥堵 → 合成失败 → 旧行为
+                    # 直接停工、点暂停/继续都没反应，只能停止整堂课重来。
+                    await ev("Voice.stop(); void 0")
+                    await ev("window.__log.length = 0; void 0")
+                    FAIL_MODE["mode"] = "first-per-text"
+                    _FAILED_TEXTS.clear()
+                    HITS.clear()
+                    await ev("window.__retries = 0; window.__err3 = null; window.__end3 = 0;")
+                    t3 = time.time()
+                    res3 = await ev("""
+                      (async () => {
+                        await Voice.speak(%s, {chunkChars: 40,
+                          onChunk: () => {},
+                          onRetry: () => { window.__retries++; },
+                          onError: (m) => { window.__err3 = m; },
+                          onEnd: () => { window.__end3 = 1; }});
+                        return {retries: window.__retries, err: window.__err3,
+                                end: window.__end3};
+                      })()""" % json.dumps(TEXT3, ensure_ascii=False))
+                    log3 = await ev("window.__log") or []
+                    n500 = sum(1 for h in HITS if not h[2])
+                    print(f"  [3] 500x{n500}，重试 {(res3 or {}).get('retries')} 次，"
+                          f"耗时 {time.time() - t3:.1f}s")
+                    check("3.1 单段首次合成失败被自动重试并自愈（用户侧无错误、正常结束）",
+                          bool(res3) and not res3.get("err") and res3.get("end") == 1,
+                          str(res3))
+                    check("3.2 失败真的发生过且重试被触发（防空断言）",
+                          n500 >= 1 and (res3 or {}).get("retries", 0) >= 1,
+                          f"500x{n500} retries={(res3 or {}).get('retries')}")
+                    check("3.3 重试后所有段都播了出来", len(log3) >= 3, f"{len(log3)} 段")
+
+                    # ── [4] 重试也耗尽 → 停机保留现场，「重试朗读」能接着跑 ──
+                    await ev("Voice.stop(); void 0")
+                    await ev("window.__log.length = 0; void 0")
+                    FAIL_MODE["mode"] = "all"
+                    HITS.clear()
+                    await ev("window.__err4 = null; window.__errCount = 0; window.__end4 = 0;")
+                    t4 = time.time()
+                    res4 = await ev("""
+                      (async () => {
+                        await Voice.speak(%s, {chunkChars: 40,
+                          onChunk: () => {},
+                          onError: (m) => { window.__err4 = m; window.__errCount++; },
+                          onEnd: () => { window.__end4 = 1; }});
+                        return {err: window.__err4, errCount: window.__errCount,
+                                end: window.__end4, parked: Voice.parked()};
+                      })()""" % json.dumps(TEXT4, ensure_ascii=False))
+                    print(f"  [4] 停机耗时 {time.time() - t4:.1f}s，err={str((res4 or {}).get('err'))[:80]}")
+                    check("4.1 重试耗尽后明确报错（含重试次数与恢复提示）",
+                          bool(res4) and res4.get("errCount") == 1
+                          and "已自动重试" in str(res4.get("err") or "")
+                          and "重试朗读" in str(res4.get("err") or ""),
+                          str(res4)[:200])
+                    check("4.2 报错后朗读停机但**保留现场**（parked=true，未标记讲完）",
+                          bool(res4) and res4.get("parked") is True
+                          and res4.get("end") == 0, str(res4)[:200])
+                    # 端点恢复 → 模拟用户点「↻ 重试朗读」
+                    FAIL_MODE["mode"] = "none"
+                    HITS.clear()
+                    res4b = await ev("""
+                      (async () => {
+                        await Voice.retry();
+                        return {end: window.__end4, errCount: window.__errCount,
+                                parked: Voice.parked()};
+                      })()""")
+                    check("4.3 端点恢复后 retry() 从失败的那句继续并播完（不再需要停止整堂课）",
+                          bool(res4b) and res4b.get("end") == 1
+                          and res4b.get("errCount") == 1
+                          and res4b.get("parked") is False, str(res4b))
+
+                    # ── [5] 预热不饿死播放页（有界并发 + 流水线优先）──
+                    # 旧行为：prime 一次性发出几十个请求，占满浏览器对同源的 6 条连接，
+                    # 当前页第一段的合成请求排在队列后面 → 页首白等一整个合成周期。
+                    await ev("Voice.stop(); void 0")
+                    SYNTH_DELAY_CUR[0] = 1.2
+                    FAIL_MODE["mode"] = "none"
+                    HITS.clear()
+                    CONC["now"] = 0
+                    CONC["max"] = 0
+                    await ev("window.__err5 = null; window.__end5 = 0; window.__t0 = 0;")
+                    res5 = await ev("""
+                      (async () => {
+                        // 复现 speakSlide 的顺序：先预热下一页，再朗读本页
+                        window.__t0 = Date.now();
+                        Voice.prime(%s, {chunkChars: 40});
+                        await Voice.speak(%s, {chunkChars: 40,
+                          onChunk: () => {},
+                          onError: (m) => { window.__err5 = m; },
+                          onEnd: () => { window.__end5 = 1; }});
+                        return {t0: window.__t0, end: window.__end5, err: window.__err5};
+                      })()""" % (json.dumps(PRIME_TEXT, ensure_ascii=False),
+                                json.dumps(SPEAK_TEXT, ensure_ascii=False)))
+                    speak_hits = [h for h in HITS if SPEAK_MARK in h[1]]
+                    prime_n = len(HITS) - len(speak_hits)
+                    first_gap = ((speak_hits[0][0] * 1000 - (res5 or {}).get("t0", 0))
+                                 if speak_hits and res5 else 99999)
+                    print(f"  [5] 预热 {prime_n} 个请求；播放页首要段 {first_gap:.0f}ms 到达；"
+                          f"假端点最大并发 {CONC['max']}")
+                    check("5.1 播放页第一段没有排在几十个预热请求后面（< 3s 到达假端点）",
+                          0 < first_gap < 3000,
+                          f"首要段 {first_gap:.0f}ms（预热 {prime_n} 个请求；"
+                          f"旧实现下要排到连接队列尾部，约 {prime_n // 6 * 1200}ms+）")
+                    check("5.2 合成并发有界（假端点同时在处理 ≤ 6）",
+                          CONC["max"] <= 6, f"max={CONC['max']}")
+                    check("5.3 有预热抢占的情况下朗读仍正常结束",
+                          bool(res5) and not res5.get("err") and res5.get("end") == 1,
+                          str(res5)[:160])
             return res, elapsed, log
 
         res, elapsed, log = asyncio.run(_run())
@@ -276,7 +434,7 @@ def main() -> int:
               not res.get("err") and res.get("end") == 1, str(res))
         check("1.3 被切成多段（≥3）", (res.get("chunks") or 0) >= 3, str(res.get("chunks")))
 
-        gaps = [round((HITS[i + 1] - HITS[i]) * 1000) for i in range(len(HITS) - 1)] if len(HITS) >= 2 else []
+        gaps = [round((HITS[i + 1][0] - HITS[i][0]) * 1000) for i in range(len(HITS) - 1)] if len(HITS) >= 2 else []
         print("  相邻请求到达间隔(ms):", gaps)
         check("2.1 前两段请求并发发出（间隔 < 400ms）",
               bool(gaps) and gaps[0] < 400,
