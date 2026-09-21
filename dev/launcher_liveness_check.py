@@ -32,13 +32,17 @@
 用法::
 
     .venv/Scripts/python.exe dev/launcher_liveness_check.py
+
+⚠️ 两个实现上的坑（都已规避，改这个脚本时别退回去）：
+    1. 数据目录**不递归删除**：含浏览器 profile 时撞沙箱批量删除护栏；
+    2. 结尾用 ``os._exit`` 硬退出：本脚本建过真实窗口，退出阶段偶发挂死
+       （2026-09-20 卡了 11 分钟，把整套回归拖停）。
 """
 
 from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -107,9 +111,13 @@ def _win_op(hwnd: int, op: str) -> bool:
 
 
 def main() -> int:
-    if TMP.exists():
-        shutil.rmtree(TMP, ignore_errors=True)
+    # 复用同一个数据目录、**不递归删除**：`shutil.rmtree` 在这里踩过两次坑 ——
+    # ① 目录里若有浏览器 profile（几百个文件）会撞沙箱的批量删除护栏；
+    # ② 2026-09-20 实测还会**偶发挂住**（打印完汇总后不退出，把整套回归卡死，
+    #    只能杀进程才放行）。只清 `launcher.log` 这一个文件（R1/R2 的判据）。
     TMP.mkdir(parents=True, exist_ok=True)
+    (TMP / "logs").mkdir(parents=True, exist_ok=True)
+    (TMP / "logs" / "launcher.log").unlink(missing_ok=True)
     os.environ["ZHIBAN_DATA_DIR"] = str(TMP)
 
     import launcher
@@ -234,9 +242,11 @@ def main() -> int:
     print(f"\n通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     for f in FAIL:
         print("  失败：" + f)
-    if TMP.exists():
-        shutil.rmtree(TMP, ignore_errors=True)
-    return 0 if not FAIL else 1
+    sys.stdout.flush()
+    # 用 os._exit 硬退出：本脚本建过真实窗口（ctypes），退出阶段偶发挂住
+    # （2026-09-20 实测卡死 11 分钟、把整套回归拖停）。断言都已跑完，
+    # 这里不需要任何清理钩子。
+    os._exit(0 if not FAIL else 1)
 
 
 if __name__ == "__main__":
