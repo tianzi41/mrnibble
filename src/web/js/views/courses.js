@@ -184,8 +184,11 @@
     S.courses.forEach((c) => {
       const p = c.progress || {};
       const item = el("div", "item" + (c.id === S.courseId ? " active" : ""));
-      item.appendChild(el("span", "t", esc(c.title)));
-      item.appendChild(el("small", null, `${p.done_lessons || 0}/${p.total_lessons || 0}`));
+        item.appendChild(el("span", "t", esc(c.title)));
+        item.appendChild(el("small", null, `${p.done_lessons || 0}/${p.total_lessons || 0}`));
+        if ((p.total_lessons || 0) > 0 && (p.done_lessons || 0) >= p.total_lessons) {
+          item.appendChild(el("span", "pill ok", "已学完"));
+        }
       const del = el("button", "x", "✕");
       del.title = "删除课程";
       del.onclick = async (ev) => {
@@ -1546,6 +1549,8 @@
       ${c.summary ? `<div class="hint" style="margin-top:6px">${esc(c.summary)}</div>` : ""}
       <div class="bar" style="margin-top:10px"><i style="width:${p.percent || 0}%"></i></div>
       <div class="hint">进度：${p.done_lessons || 0}/${p.total_lessons || 0} 节（${p.percent || 0}%）</div>
+      ${p.total_lessons && (p.done_lessons || 0) >= p.total_lessons
+        ? '<div class="course-done-banner">🏆 恭喜，这门课你已经学完了</div>' : ""}
       ${c.error ? `<div class="hint" style="color:var(--bad)">${esc(c.error)}</div>` : ""}
       <div class="row" style="margin-top:10px">
         <button class="btn small" id="c-edit">编辑结构</button>

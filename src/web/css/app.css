@@ -383,6 +383,19 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 600; }
 .lesson-pos { font-size: 12px; color: var(--muted); }
 .lesson-title { font-size: 16px; }
 .lesson-bar-actions { margin-left: auto; flex-wrap: wrap; }
+
+/* 课程完成横幅（lesson 页顶部）与结课庆祝卡（讲师讲述面板内）。
+   颜色全走主题变量，四套主题（含暗色）下都可读。 */
+.course-done-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 10px; padding: 10px 12px;
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-border);
+  border-left: 4px solid var(--ok);
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+.teach-card.celebrate { border-left: 4px solid var(--ok); }
 /* 课件本体也要在列内居中，否则仍然贴着左边 */
 .board { max-width: 1000px; margin: 0 auto; }
 .board-summary {

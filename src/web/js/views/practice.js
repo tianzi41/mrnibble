@@ -279,16 +279,31 @@
       btn.disabled = true;
       try {
         await Api.put("/api/courses/lessons/" + S.lesson.id, { complete: true });
+        const course = await Api.get("/api/courses/" + S.lesson.course_id);
+        const all = [];
+        (course.units || []).forEach((u) => (u.lessons || []).forEach((l) => all.push(l)));
+        // 最后一讲完成 = 整门课结课：回课堂页看「🏆 已学完」横幅，
+        // 而不是甩回课程列表 + 一句就消失的提示（用户实测：以为没学完）。
+        if (all.length && all.every((l) => l.status === "done")) {
+          Toast("🏆 恭喜，这门课学完了！");
+          location.hash = "#/lessons/" + S.lesson.id;
+          return;
+        }
         location.hash = "#/courses";
       } catch (e) { Toast(e.message, true); btn.disabled = false; }
     };
     document.getElementById("p-next").onclick = async () => {
-      // 跳到下一节未完成讲次；全部完成则回课程页。
+      // 跳到下一节未完成讲次；全部完成则回课堂页看结课横幅。
       const course = await Api.get("/api/courses/" + S.lesson.course_id);
       const all = [];
       (course.units || []).forEach((u) => (u.lessons || []).forEach((l) => all.push(l)));
       const nextLesson = all.find((l) => l.status !== "done");
-      location.hash = nextLesson ? "#/lessons/" + nextLesson.id : "#/courses";
+      if (nextLesson) {
+        location.hash = "#/lessons/" + nextLesson.id;
+        return;
+      }
+      Toast("🏆 恭喜，这门课学完了！");
+      location.hash = "#/lessons/" + S.lesson.id;
     };
   }
 

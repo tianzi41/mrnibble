@@ -1327,20 +1327,55 @@
 
     // 讲完后：给出明确的下一步，而不是只留一个输入框
     if (S.finished) {
-      const card = el("div", "teach-card");
-      card.appendChild(el("div", "t", "这一讲讲完了，接下来可以："));
-      const row = el("div", "row");
-      const quiz = el("button", "btn small primary",
-        S.questionCount ? "📝 去测验（5 题）" : "📝 生成本讲测验（5 题）");
-      quiz.onclick = () => startPractice(quiz);
-      const ask = el("button", "btn small", "❓ 还有疑问");
-      ask.onclick = () => { S.finished = false; renderSpeaking(); const ta = document.getElementById("lesson-input"); if (ta) ta.focus(); };
-      const next = el("button", "btn small", "➡ 没有疑问，进入下一课");
-      next.onclick = () => { const b = document.getElementById("b-done"); if (b) { b.click(); } };
-      const outline = el("button", "btn small", "📚 返回课程大纲");
-      outline.onclick = () => { location.hash = "#/courses"; };
-      row.appendChild(quiz); row.appendChild(ask); row.appendChild(next); row.appendChild(outline);
-      card.appendChild(row);
+      const prog = courseProgress();
+      const card = el("div", "teach-card" + (prog.allDone ? " celebrate" : ""));
+      if (prog.allDone) {
+        // 全部讲次完成：结课庆祝（重进本页也能看到同样的横幅，见 renderHead）。
+        card.appendChild(el("div", "t", "🏆 恭喜，这门课你已经学完了！"));
+        card.appendChild(el("div", "hint",
+          `《${esc((S.course || {}).title || "")}》共 ${prog.total} 讲，全部完成。`));
+        const row = el("div", "row");
+        const quiz = el("button", "btn small primary",
+          S.questionCount ? "📝 再做一次测验" : "📝 生成本讲测验（5 题）");
+        quiz.onclick = () => startPractice(quiz);
+        const list = el("button", "btn small", "📚 回到课程列表");
+        list.onclick = () => { location.hash = "#/courses"; };
+        const again = el("button", "btn small", "🔁 从第一讲再学一遍");
+        const first = allLessons()[0];
+        again.onclick = () => { if (first) location.hash = "#/lessons/" + first.id; };
+        row.appendChild(quiz); row.appendChild(list); row.appendChild(again);
+        card.appendChild(row);
+      } else if (prog.isLast) {
+        // 最后一讲：没有「下一课」可进 —— 给出结课入口，而不是让用户以为还有后续。
+        card.appendChild(el("div", "t",
+          `🎉 这是《${esc((S.course || {}).title || "本课程")}》的最后一讲，讲完了！`));
+        card.appendChild(el("div", "hint",
+          `全课程共 ${prog.total} 讲，已标记完成 ${prog.done} 讲 —— 点「🏆 学完本讲，结课」收个尾。`));
+        const row = el("div", "row");
+        const quiz = el("button", "btn small primary",
+          S.questionCount ? "📝 去测验（5 题）" : "📝 生成本讲测验（5 题）");
+        quiz.onclick = () => startPractice(quiz);
+        const fin = el("button", "btn small primary", "🏆 学完本讲，结课");
+        fin.onclick = () => { const b = document.getElementById("b-done"); if (b) { b.click(); } };
+        const outline = el("button", "btn small", "📚 返回课程大纲");
+        outline.onclick = () => { location.hash = "#/courses"; };
+        row.appendChild(quiz); row.appendChild(fin); row.appendChild(outline);
+        card.appendChild(row);
+      } else {
+        card.appendChild(el("div", "t", "这一讲讲完了，接下来可以："));
+        const row = el("div", "row");
+        const quiz = el("button", "btn small primary",
+          S.questionCount ? "📝 去测验（5 题）" : "📝 生成本讲测验（5 题）");
+        quiz.onclick = () => startPractice(quiz);
+        const ask = el("button", "btn small", "❓ 还有疑问");
+        ask.onclick = () => { S.finished = false; renderSpeaking(); const ta = document.getElementById("lesson-input"); if (ta) ta.focus(); };
+        const next = el("button", "btn small", "➡ 没有疑问，进入下一课");
+        next.onclick = () => { const b = document.getElementById("b-done"); if (b) { b.click(); } };
+        const outline = el("button", "btn small", "📚 返回课程大纲");
+        outline.onclick = () => { location.hash = "#/courses"; };
+        row.appendChild(quiz); row.appendChild(ask); row.appendChild(next); row.appendChild(outline);
+        card.appendChild(row);
+      }
       body.appendChild(card);
     }
 
@@ -1422,7 +1457,10 @@
     renderSpeaking();
     renderStage();
     // 随堂测验不再等用户点：讲完就自动出题并进入答题。
-    autoPractice();
+    // 例外：最后一讲**不自动跳页** —— 跳去练习页会把「🎉 课程学完了」的收尾卡片
+    // 直接盖掉（用户实测：上完最后一课还以为没学完）。测验照常后台生成，
+    // 结课卡片上的「📝 去测验」按钮会用它。
+    autoPractice({ navigate: !courseProgress().isLast });
   }
 
   /**
@@ -1431,8 +1469,12 @@
    * 用户反馈「当前需手动点击才出现」——这里改成讲完即自动生成（后台任务
    * + 字幕区播报进度），生成完直接跳到答题页；失败则给出可重试的提示，
    * 不会把用户卡在课堂上。
+   *
+   * ``opts.navigate = false``：只生成不跳页（最后一讲用 —— 跳去练习页会把
+   * 「🎉 课程学完了」的收尾卡片盖掉）。
    */
-  async function autoPractice() {
+  async function autoPractice(opts = {}) {
+    const navigate = opts.navigate !== false;
     const l = S.lesson;
     if (!l) return;
     const sub = document.getElementById("teach-sub");
@@ -1451,11 +1493,11 @@
       // 拽走很糟糕，改为播报 + Toast 提示回到课堂即可开始。
       const onLesson = location.hash.startsWith("#/lessons/" + l.id)
         && !!document.getElementById("lesson-head");
-      if (onLesson) {
+      if (onLesson && navigate) {
         say("测验已生成，正在进入答题…");
         location.hash = "#/practice/" + l.id;
       } else {
-        say("随堂测验已生成，回到课堂即可开始。");
+        say(navigate ? "随堂测验已生成，回到课堂即可开始。" : "随堂测验已生成。");
         Toast("这一讲的随堂测验已生成", false);
       }
     } catch (e) {
@@ -1530,6 +1572,33 @@
   /* ── 头部与动作按钮 ───────────────────── */
   /** 画讲次头部：标题 / 状态 / 动作按钮 / 页签容器 / 页签内容容器。 */
   /** 左上角位置标签：第 X 单元 · 第 Y 课 / 本单元共 N 课。 */
+  /** 全课程讲次展平（按单元顺序）——「最后一讲 / 全部学完」的判断数据源。 */
+  function allLessons() {
+    const out = [];
+    ((S.course && S.course.units) || []).forEach((u) => (u.lessons || []).forEach((x) => out.push(x)));
+    return out;
+  }
+
+  /** 课程完成度：总数 / 已完成数 / 本讲是否最后一讲 / 是否全部讲次都已完成。 */
+  function courseProgress() {
+    const all = allLessons();
+    const l = S.lesson || {};
+    return {
+      total: all.length,
+      done: all.filter((x) => x.status === "done").length,
+      isLast: all.length > 0 && all[all.length - 1].id === l.id,
+      allDone: all.length > 0 && all.every((x) => x.status === "done"),
+    };
+  }
+
+  /** 全部讲次完成时的小横幅：重进课程也能一眼看到「学完了」，不会误以为还没结课。 */
+  function courseDoneBanner() {
+    const p = courseProgress();
+    if (!p.allDone) return "";
+    return `<div class="course-done-banner">🏆 这门课你已经学完了（${p.done}/${p.total} 讲）`
+      + `<button class="btn small" id="b-done-list">📚 返回课程大纲</button></div>`;
+  }
+
   function positionLabel() {
     const units = (S.course && S.course.units) || [];
     const ui = units.findIndex((u) => u.id === S.lesson.unit_id);
@@ -1567,22 +1636,25 @@
     const l = S.lesson;
     const box = document.getElementById("lesson-head");
     if (!box) return;
-    box.innerHTML = `
-      <div class="lesson-bar">
-        <button class="btn small" id="b-back" title="返回课程列表">← 返回课程</button>
-        <span class="lesson-pos" id="lesson-pos">${esc(positionLabel())}</span>
-        <b class="lesson-title">${esc(l.title)}</b>
-        <span class="pill">${esc(l.kind_name)}</span>
-        ${l.status === "done" ? '<span class="pill ok">已完成</span>' : ""}
-        <div class="row lesson-bar-actions" id="lesson-actions"></div>
-      </div>
-      <div class="tabs" id="lesson-tabs"></div>
-      <div class="hint">${esc(l.objective || "")}</div>
-      <div id="lesson-src-slot"></div>
-      ${descHtml(l.desc)}
-      <div id="tab-body"></div>`;
-    renderActions();
-  }
+      box.innerHTML = `
+        <div class="lesson-bar">
+          <button class="btn small" id="b-back" title="返回课程列表">← 返回课程</button>
+          <span class="lesson-pos" id="lesson-pos">${esc(positionLabel())}</span>
+          <b class="lesson-title">${esc(l.title)}</b>
+          <span class="pill">${esc(l.kind_name)}</span>
+          ${l.status === "done" ? '<span class="pill ok">已完成</span>' : ""}
+          <div class="row lesson-bar-actions" id="lesson-actions"></div>
+        </div>
+        ${courseDoneBanner()}
+        <div class="tabs" id="lesson-tabs"></div>
+        <div class="hint">${esc(l.objective || "")}</div>
+        <div id="lesson-src-slot"></div>
+        ${descHtml(l.desc)}
+        <div id="tab-body"></div>`;
+      renderActions();
+      const doneList = document.getElementById("b-done-list");
+      if (doneList) doneList.onclick = () => { location.hash = "#/courses"; };
+    }
 
   /** 动作按钮：随「有无讲义 / 有无题目」变化，所以单独可重画。 */
   function renderActions() {
@@ -1788,8 +1860,20 @@
         if (x.id !== l.id) rest.push(x);
       }));
       const next = rest.find((x) => x.status !== "done");
-      location.hash = next ? "#/lessons/" + next.id : "#/courses";
-      if (!next) Toast("这门课已经学完了 🎉");
+      if (next) {
+        location.hash = "#/lessons/" + next.id;
+        return;
+      }
+      // 最后一讲：不再把用户甩回课程列表 + 一句就消失的 toast
+      // （用户实测：上完最后一课界面还停在那一课，以为没学完）。
+      // 留在原地给出「结课庆祝」，并刷新本讲/本课状态（此刻全部讲次都 done 了）。
+      S.course = course;             // 各讲新状态（含本讲 done）供 courseProgress 使用
+      S.lesson.status = "done";
+      S.finished = true;
+      renderHead();
+      renderSpeaking();
+      renderStage();
+      Toast("🏆 恭喜，这门课学完了！");
     } catch (e) {
       Toast(e.message, true);
       btn.disabled = false;
