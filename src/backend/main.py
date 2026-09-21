@@ -100,6 +100,17 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     register_routers(app)
 
+    # 安全响应头（2026-09-21 代码审查 P2-3 的**低风险子集**）：
+    # 只加两条不会破坏任何页面的头。完整的 CSP 暂不做 —— 它需要给 index.html 的
+    # 内联脚本上 nonce/hash、还要放行内联 style 属性、blob:/data: 资源，以及用户
+    # 自定义的 LLM 远端地址，配错就是白屏，收益却只是「漏网时的最后一层」。
+    @app.middleware("http")
+    async def _security_headers(request, call_next):  # noqa: ANN001, ANN201
+        resp = await call_next(request)
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        return resp
+
     web_dir = resource_path("web")
     if web_dir.exists():
         app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")

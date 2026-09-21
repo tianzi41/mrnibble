@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -128,8 +129,18 @@ def system_stats() -> dict[str, Any]:
 
 
 def _delayed_exit(delay_s: float = 0.3) -> None:
-    """延迟短暂时间后强制结束进程（给响应留出回写时间）。"""
+    """延迟短暂时间后强制结束进程（给响应留出回写时间）。
+
+    ``os._exit`` 会跳过 atexit 与缓冲区刷写，停机前最后几条日志可能丢
+    （2026-09-21 代码审查 P2-6）。所以先显式 ``logging.shutdown()`` 把文件句柄
+    那一侧刷干净，再退出。数据库安全不依赖这里：WAL 本身是崩溃安全的，
+    正常关窗路径还会走 lifespan 的 checkpoint。
+    """
     time.sleep(delay_s)
+    try:
+        logging.shutdown()
+    except Exception:  # noqa: BLE001 - 退出路径上不允许再抛
+        pass
     os._exit(0)
 
 

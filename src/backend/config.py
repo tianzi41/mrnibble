@@ -113,14 +113,26 @@ class AppConfig:
 
 _config: AppConfig | None = None
 
+# 允许的监听地址（单机软件红线：只绑回环，绝不绑 0.0.0.0）。
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
 
 def get_config() -> AppConfig:
     """返回进程级配置单例（首次调用时构建）。"""
     global _config
     if _config is None:
         _load_dotenv_once()
+        host = _env_str("ZHIBAN_HOST", "127.0.0.1")
+        # 2026-09-21 代码审查 P2-2：原实现允许 `.env` 把 host 覆盖成 0.0.0.0，
+        # 与类文档里「绝不绑 0.0.0.0」的声明不符 —— 绑到外网卡会把资料库与
+        # 模型 Key 暴露给同网段的其他人。这里直接拒绝，把红线做成可执行约束。
+        if host not in _LOOPBACK_HOSTS:
+            raise ValueError(
+                f"ZHIBAN_HOST 只允许回环地址（当前 {host!r}）：知伴是单机软件，"
+                f"绑定其它地址会让同网段的人访问到你的资料库与模型 Key。"
+            )
         _config = AppConfig(
-            host=_env_str("ZHIBAN_HOST", "127.0.0.1"),
+            host=host,
             port_pref=_env_int("ZHIBAN_PORT", 8760),
             port_max=_env_int("ZHIBAN_PORT_MAX", 8770),
             data_dir=data_root(),

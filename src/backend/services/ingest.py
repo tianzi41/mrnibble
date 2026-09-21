@@ -18,6 +18,7 @@ from typing import Any, Iterator
 from ..config import get_config
 from ..db.connection import get_db
 from ..errors import AppError
+from ..utils.http import make_client
 from ..utils.ids import new_id
 from ..utils.timeutil import now_iso
 from . import parsers
@@ -33,6 +34,10 @@ NO_TEXT_WARNING = "该文件无可提取文本层（可能是扫描版或纯图�
 
 # 落库批大小（嵌入与插入按批进行）。
 BATCH_SIZE = 32
+
+# 网页抓取的大小上限（防止把几百 MB 的页面整体读进内存；超限即中止并提示用户改走上传）。
+_MAX_FETCH_MB = 20
+_MAX_FETCH_BYTES = _MAX_FETCH_MB * 1024 * 1024
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -155,27 +160,53 @@ class IngestService:
 
         if not url.lower().startswith(("http://", "https://")):
             raise AppError(3000, "仅支持 http/https 网页地址")
+        # 大小上限（2026-09-21 代码审查 P1-3）：原来是 `resp.text` 全量入内存，
+        # 一个几百 MB 的页面（或被指向无限流的地址）就能把内存打爆。改为边下边累计，
+        # 超限即中止。（解码口径与原实现一致：本机未装 charset_normalizer，
+        # httpx 的 `.text` 实际就是「响应头 charset，否则 utf-8」。）
+        buf = bytearray()
+        too_large = False
         try:
             with make_client(url, timeout=20.0, follow_redirects=True) as client:
-                resp = client.get(url, headers={"User-Agent": "ZhiBan/1.0"})
-                resp.raise_for_status()
-                html = resp.text
+                with client.stream("GET", url,
+                                   headers={"User-Agent": "ZhiBan/1.0"}) as resp:
+                    resp.raise_for_status()
+                    for chunk in resp.iter_bytes(64 * 1024):
+                        buf.extend(chunk)
+                        if len(buf) > _MAX_FETCH_BYTES:
+                            too_large = True
+                            break
+                    else:
+                        html = bytes(buf).decode(
+                            resp.charset_encoding or "utf-8", errors="replace")
         except Exception as exc:  # noqa: BLE001
             raise AppError(3003, "网页抓取失败", f"{type(exc).__name__}") from exc
+        if too_large:
+            raise AppError(3003, "网页内容过大",
+                           f"超过 {_MAX_FETCH_MB}MB，已中止抓取（可改用手动保存后上传）")
 
         title = parsers.html_parser.extract_title(html, fallback=url)
         db = get_db()
         cfg = get_config()
+        raw = html.encode("utf-8")
+        digest = _sha256_bytes(raw)
+        # 与上传路径同一口径：重复添加要给人话，不能让 UNIQUE(file_hash) 裸抛。
+        # （2026-09-21 复核时发现：这条链路既没前端入口也没测试，重复抓取会 500，
+        #   而且旧顺序是「先写文件再 INSERT」—— 失败时还会在 files/ 留下孤儿文件。）
+        existing = db.query_one(
+            "SELECT id, title FROM documents WHERE file_hash = ?", (digest,))
+        if existing is not None:
+            raise AppError(3004, "该网页已在资料库里",
+                           f"已存在：《{existing['title']}》")
         doc_id = new_id()
         rel_path = f"{doc_id}.html"
         (cfg.files_dir / rel_path).write_text(html, encoding="utf-8")
-        digest = _sha256_bytes(html.encode("utf-8"))
         ts = now_iso()
         db.execute(
             "INSERT INTO documents(id, title, source_type, fmt, original_path, source_url, "
             "file_hash, size_bytes, page_count, status, collection, tags, created_at, updated_at) "
             "VALUES (?, ?, 'url', 'html', ?, ?, ?, ?, 0, 'pending', ?, '[]', ?, ?)",
-            (doc_id, title, rel_path, url, digest, len(html.encode("utf-8")), collection, ts, ts),
+            (doc_id, title, rel_path, url, digest, len(raw), collection, ts, ts),
         )
         return doc_id
 

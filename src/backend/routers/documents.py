@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 
+from ..config import get_config
 from ..errors import ok
 from ..models.documents import UrlIngestRequest
 from ..services.ingest import get_ingest_service
@@ -37,8 +38,20 @@ async def upload_documents(
     documents: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
 
+    # 大小预检（2026-09-21 代码审查 P1-2）：`await upload.read()` 会把**整个文件**读进内存，
+    # 而真正的大小校验在 `create_from_bytes` 里 —— 也就是说一个误拖的 1GB 文件会先占满内存
+    # 再被拒绝。Starlette 解析 multipart 时已经填好 `upload.size`，所以先按它拦一道，
+    # 超限的文件**根本不读**。（服务层的那道校验保留，作为兜底。）
+    cfg = get_config()
+    max_bytes = cfg.max_upload_mb * 1024 * 1024
+
     for upload in files:
         filename = upload.filename or "unnamed"
+        pre_size = getattr(upload, "size", None)
+        if isinstance(pre_size, int) and pre_size > max_bytes:
+            skipped.append({"filename": filename,
+                            "reason": f"文件过大（>{cfg.max_upload_mb}MB）"})
+            continue
         try:
             data = await upload.read()
         except Exception as exc:  # noqa: BLE001
