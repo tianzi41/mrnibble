@@ -5,13 +5,13 @@
   // 课程相关页面带参数（#/courses / #/lessons/{id} / #/practice/{id}），
   // 因此路由解析按「前缀匹配」，而不是整串相等。
   const ROUTES = [
-    ["#/courses", "课程", "courses"],
-    ["#/workbench", "工作台", "workbench"],
-    ["#/generate", "资料生成", "generate"],
-    ["#/review", "闪卡复习", "review"],
-    ["#/memory", "记忆", "memory"],
-    ["#/settings", "设置", "settings"],
-  ["#/help", "不会用，点这里", "help"],
+    ["#/courses", "nav.courses", "courses"],
+    ["#/workbench", "nav.workbench", "workbench"],
+    ["#/generate", "nav.generate", "generate"],
+    ["#/review", "nav.review", "review"],
+    ["#/memory", "nav.memory", "memory"],
+    ["#/settings", "nav.settings", "settings"],
+  ["#/help", "nav.help", "help"],
   ];
 
   // 带参数的课程子页：#/lessons/{id}、#/practice/{id}
@@ -41,13 +41,24 @@
   function buildNav() {
     const nav = document.getElementById("nav");
     nav.innerHTML = "";
-    ROUTES.forEach(([hash, label]) => {
+    ROUTES.forEach(([hash, labelKey]) => {
       const b = document.createElement("button");
-      b.textContent = label;
+      b.textContent = window.I18n.t(labelKey);
       b.dataset.hash = hash;
       b.onclick = () => { location.hash = hash; };
       nav.appendChild(b);
     });
+  }
+
+  // 语言切换器（顶栏，主题切换旁边）：选项固定「中 / EN」，title 用 t() 取自身文案。
+  function buildLangSel() {
+    const sel = document.getElementById("lang-sel");
+    if (!sel) return;
+    const cur = window.I18n.get();
+    sel.innerHTML = '<option value="zh">中</option><option value="en">EN</option>';
+    sel.value = cur;
+    sel.title = window.I18n.t("lang.label");
+    sel.onchange = () => { window.I18n.switch(sel.value); };
   }
 
   async function refreshModelBadge() {
@@ -65,27 +76,30 @@
       const missing = !base ? "base_url" : (!model ? "model" : "");
       // 朗读状态一并显示：不必切到设置页才知道会不会出声。
       const tts = cfg.tts || {};
-      const ttsLabel = !tts.enabled ? "未设置"
-        : (tts.mode === "cloud" ? "云端"
-          : (tts.local_engine === "melo" ? "本地" : "系统语音"));
-      badge.textContent = (ok ? model : (missing === "model" ? "缺模型名" : "未配置 API"))
-        + ` · 朗读${ttsLabel}`;
+      const ttsLabel = !tts.enabled ? window.I18n.t("badge.tts.off")
+        : (tts.mode === "cloud" ? window.I18n.t("badge.tts.cloud")
+          : (tts.local_engine === "melo" ? window.I18n.t("badge.tts.local")
+            : window.I18n.t("badge.tts.system")));
+      const statusText = ok ? model
+        : (missing === "model" ? window.I18n.t("badge.no_model")
+          : window.I18n.t("badge.no_api"));
+      badge.textContent = statusText + " · " + window.I18n.t("badge.read", { tts: ttsLabel });
       badge.dataset.ok = ok ? "1" : "";
       badge.dataset.missing = missing;
       // 未配 API 用红色（原来是 warn 琥珀，不够「一眼看出就是不能用」）
       badge.style.color = ok ? "var(--ok)" : "var(--bad)";
       badge.style.cursor = "pointer";
-      badge.title = (ok
-        ? "已配置对话模型：" + model
+      const title = ok
+        ? window.I18n.t("badge.title_ok", { model: model })
         : (missing === "model"
-          ? "接口地址已填，但缺少模型名，无法提问 → 点击前往设置"
-          : "尚未配置 API（无法生成课程 / 无法提问）→ 点击前往设置"))
-        + "\n朗读：" + ttsLabel + "（点击前往设置）";
+          ? window.I18n.t("badge.title_no_model")
+          : window.I18n.t("badge.title_no_api"));
+      badge.title = title + "\n" + window.I18n.t("badge.title_read", { tts: ttsLabel });
       badge.onclick = () => { location.hash = "#/settings"; };
       // 小圆点跟随「到底能不能用」：未配 API 时保持红色，不再无条件点亮。
       dot.classList.toggle("on", ok);
     } catch (e) {
-      badge.textContent = "服务未连接";
+      badge.textContent = window.I18n.t("badge.disconnected");
       badge.dataset.ok = "";
       badge.dataset.missing = "service";
       dot.classList.remove("on");
@@ -112,7 +126,7 @@
       location.hash = "#/welcome";
       return;
     }
-    host.innerHTML = '<div class="empty" style="width:100%">加载中…</div>';
+    host.innerHTML = '<div class="empty" style="width:100%">' + window.I18n.t("loading") + '</div>';
     try {
       // 向导页不在 ROUTES 里（不进导航栏），显式分支渲染。
       if (isWelcome) {
@@ -123,13 +137,23 @@
     } catch (e) {
       // data-view-error：给自动化冒烟测试一个稳定的「视图渲染失败」标记，
       // 避免用中文文案做子串匹配（源码注释里也可能出现同样的词）。
-      host.innerHTML = `<div class="empty" data-view-error="1" style="width:100%;text-align:left;max-width:900px;margin:0 auto">加载失败：${String(e.message || "").replace(/</g, "&lt;")}
+      host.innerHTML = `<div class="empty" data-view-error="1" style="width:100%;text-align:left;max-width:900px;margin:0 auto">${window.I18n.t("view.error")}${String(e.message || "").replace(/</g, "&lt;")}
         <pre style="white-space:pre-wrap;font-size:12px;color:#888">${String(e.stack || "").replace(/</g, "&lt;")}</pre></div>`;
     }
   }
 
   buildNav();
+  buildLangSel();
   window.addEventListener("hashchange", route);
+  // 语言切换：I18n.switch 会派发此事件 → 全量重渲染（导航 / 徽标 / 当前视图），
+  // 供切换器与其他调用方共用同一套刷新逻辑。
+  window.addEventListener("zhiban-langchange", function () {
+    const sel = document.getElementById("lang-sel");
+    if (sel) { sel.value = window.I18n.get(); sel.title = window.I18n.t("lang.label"); }
+    buildNav();
+    refreshModelBadge();
+    route();
+  });
   refreshModelBadge().then(route);
 
   // 页面心跳：桌面启动器据此判断应用窗口是否仍然打开。

@@ -17,6 +17,16 @@
   } catch (e) {}
 })();
 </script>
+<!-- 首屏防语言闪烁：在样式加载前就把 lang 设好（完整逻辑见 js/i18n.js）。
+     默认 zh，与现有中文界面 / 测试零影响；选过 en 才变。 -->
+<script>
+(function () {
+  try {
+    var v = localStorage.getItem("zhiban-lang") === "en" ? "en" : "zh";
+    document.documentElement.setAttribute("lang", v);
+  } catch (e) {}
+})();
+</script>
 <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
@@ -27,6 +37,7 @@
     <nav class="nav" id="nav"></nav>
     <div class="topbar-right">
       <select id="theme-sel" class="theme-sel" title="外观（浅色 / 护眼 / 暗色）"></select>
+      <select id="lang-sel" class="theme-sel" title="语言"></select>
       <span id="conn-dot" class="dot" title="服务状态"></span>
       <span id="model-badge" class="badge">未配置模型</span>
     </div>
@@ -82,6 +93,7 @@
 <script src="/static/js/views/settings.js"></script>
 <script src="/static/js/views/welcome.js"></script>
 <script src="/static/js/views/help.js"></script>
+<script src="/static/js/i18n.js"></script>
 <script src="/static/js/theme.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
