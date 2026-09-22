@@ -1584,6 +1584,9 @@ def main() -> int:
         check("9.12 帮助页含使用步骤 + DeepSeek 申请指引（离线渲染也正常）",
               "platform.deepseek.com" in hdom and "语音朗读" in hdom
               and "data-view-error" not in hdom, hdom[:200])
+        check("9.13 帮助页含阶跃星辰语音 API 申请指引（平台/密钥/模型名/测试连接）",
+              "platform.stepfun.com" in hdom and "接口密钥" in hdom
+              and "stepaudio-2.5-tts" in hdom and "测试连接" in hdom, hdom[:200])
 
         # ---- 原件预览依赖的两个端点（PDF 原页渲染 / 文本预览）----
         # 用模块级 httpx.get 现开现用：dump 段所在位置那个 cli 客户端**已经关闭**了

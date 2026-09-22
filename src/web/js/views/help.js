@@ -66,9 +66,43 @@
       和 <b>云端朗读</b>（音色更自然，需要另外配一个「语音合成」服务的接口）。
     </p>
     <p class="hint" style="margin:6px 0 0">
-      云端不是必须的 —— 不配也能正常用本地朗读。想用云端的话，在
-      <b>设置 → 语音朗读</b> 里填三项：接口地址、密钥、音色名。
-      任何提供「文字转语音」HTTP 接口的服务都能接（这里不指定具体厂商，按你手头的服务填即可）。
+      云端不是必须的 —— 不配也能正常用本地朗读。任何提供「文字转语音」HTTP 接口的
+      服务都能接，这里以 <b>阶跃星辰（StepFun）</b> 为例走一遍流程。
+    </p>
+
+    <div style="margin-top:14px">
+      <b>① 申请语音接口的密钥（约 5 分钟）</b>
+      <ol style="margin:8px 0 0;padding-left:22px;line-height:2">
+        <li>打开阶跃星辰开放平台：<code>platform.stepfun.com</code></li>
+        <li>注册并登录（手机号 / 邮箱都行）</li>
+        <li>进入控制台的 <b>账户管理 → 接口密钥</b>，点「创建密钥」，起个名字（随便写，比如 <code>zhiban-tts</code>）</li>
+        <li><b>立刻复制生成的 Key</b>（形如 <code>sk-xxxxxxxx</code>）—— 它<b>只显示这一次</b>，
+            关掉就再也看不到了（丢了就删掉重建一个）</li>
+        <li>新账号一般有赠送额度；如需更多，在官网的充值/套餐页按需开通（以官网当前活动为准）</li>
+      </ol>
+    </div>
+
+    <div style="margin-top:14px">
+      <b>② 填到知伴里（设置 → 语音朗读）</b>
+      <ol style="margin:8px 0 0;padding-left:22px;line-height:2">
+        <li>点右上角 <b>设置</b>，找到「语音朗读」一栏</li>
+        <li><b>接口地址</b>填 <code>https://api.stepfun.com/v1</code>（注意带 <code>/v1</code>，别多也别少）</li>
+        <li><b>API Key</b> 粘贴刚才复制的 Key</li>
+        <li><b>模型名</b>填语音合成模型（阶跃当前是 <code>stepaudio-2.5-tts</code>；
+            以官网模型列表里列出的为准，换了就改成新的）</li>
+        <li><b>音色</b>可以先用默认；想换就在官网文档的音色列表里挑一个名字填上</li>
+        <li>点 <b>测试连接</b>，提示成功就保存 —— 之后上课朗读就走云端音色了</li>
+      </ol>
+    </div>
+
+    <p class="hint" style="margin-top:12px">
+      <b>同一个 Key 也能用于「对话模型」</b>：如果对话模型也想用阶跃，在设置页把
+      地址填 <code>https://api.stepfun.com/v1</code>、模型名填官网列出的最新对话模型
+      （例如 <code>step-3.7-flash</code>）即可 —— 地址和 Key 与上面语音填的是同一套。
+    </p>
+
+    <p class="hint" style="margin-top:12px">
+      Key 只保存在你自己电脑上（本地加密存储），不会上传到任何地方。
     </p>
 
     <div class="sep"></div>
