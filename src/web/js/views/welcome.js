@@ -10,6 +10,11 @@
   const STEPS = ["intro", "profile", "api"];
   let step = "intro";
   let answers = {};
+  let _cfg = null;            // 最近一次 GET /api/settings 的快照（paintApi 据此判断 API 是否已配好）
+
+  // 仅用于把状态提示里的 model 名做 HTML 转义，避免渲染进 innerHTML 时出问题。
+  const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   // ── 介绍解说音频（模块级持有，任何离开介绍的路径都能立刻停掉）─────────
   // 用户 2026-09-22 实测两个问题：① 打开不自动播（Chromium 默认禁无手势
@@ -53,6 +58,7 @@
     answers = {};
     try {
       const cfg = await Api.get("/api/settings");
+      _cfg = cfg;
       const g = (cfg && cfg.guide) || {};
       if (STEPS.indexOf(g.step) >= 0) step = g.step;
       answers = window.Profile.fromSettings(cfg);
@@ -176,6 +182,13 @@
 
   /* ── 第 3 步：引导配 API（说明 + 跳设置页）──────────────────── */
   function paintApi(host) {
+    // 已配好 API（base_url 与 model 都非空）→ 放行：直接完成引导 + 提供「去设置页修改」。
+    // 未配好 → 保持原样（两按钮 id 不变：w-go 去设置页、w-later 暂时跳过）。
+    const llm = (_cfg && _cfg.llm) || {};
+    const ok = !!((llm.base_url || "").trim() && (llm.model || "").trim());
+    const apiNote = ok
+      ? `<p class="hint" style="margin-top:10px">✅ 检测到 API 已配置好：<b>${esc(llm.model)}</b>（设置页可随时修改）</p>`
+      : "";
     host.innerHTML = `
 <div class="welcome">
   <div class="welcome-head">
@@ -199,19 +212,30 @@
       不配也能用：内置朗读、资料解析、检索都在本机完成；只有「生成 / 提问」需要钥匙。
       之后随时可以在设置页补上。
     </p>
+    ${apiNote}
   </div>
   <div class="welcome-foot">
-    <button class="btn" id="w-later">暂时跳过，我自己去配</button>
-    <button class="btn primary" id="w-go">去设置页配置</button>
+    <button class="btn" id="w-later">${ok ? "去设置页修改" : "暂时跳过，我自己去配"}</button>
+    <button class="btn primary" id="w-go">${ok ? "完成引导，进入工作台" : "去设置页配置"}</button>
   </div>
 </div>`;
 
-    host.querySelector("#w-go").onclick = () => {
-      saveStep("api", false).then(() => {
-        location.hash = "#/settings?focus=api";
-      });
-    };
-    host.querySelector("#w-later").onclick = finish;
+    if (ok) {
+      // 已配好：主按钮直接完成引导；副按钮去设置页修改（沿用原 w-go 的跳转逻辑）。
+      host.querySelector("#w-go").onclick = finish;
+      host.querySelector("#w-later").onclick = () => {
+        saveStep("api", false).then(() => {
+          location.hash = "#/settings?focus=api";
+        });
+      };
+    } else {
+      host.querySelector("#w-go").onclick = () => {
+        saveStep("api", false).then(() => {
+          location.hash = "#/settings?focus=api";
+        });
+      };
+      host.querySelector("#w-later").onclick = finish;
+    }
   }
 
   window.Views = window.Views || {};

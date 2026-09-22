@@ -1537,6 +1537,14 @@ async def cdp_welcome(base: str) -> None:
             _check("10.8 画像可整段跳过，进入 API 引导步", ok)
 
             # 10.9 去设置页配置 → hash 带 focus=api，两卡都在
+            # 前置：清空 llm 并重渲染向导 —— 早前各组已把 mock 配进设置，
+            # 不清空的话 api 步走「已配置好」分支，w-go 会变成「完成引导」直接进工作台。
+            with _hx.Client(trust_env=False, timeout=10) as c:
+                c.put(f"{base}/api/settings", json={"llm": {"base_url": "", "model": ""}})
+            await ev("location.hash = '#/settings'")
+            await asyncio.sleep(0.3)
+            await ev("location.hash = '#/welcome'")
+            await wait_js("!!document.getElementById('w-go')", t=15)
             await ev("document.getElementById('w-go').click()")
             ok = await wait_js("location.hash.indexOf('#/settings?focus=api') === 0", t=15)
             ok2 = await wait_js("!!document.getElementById('llm-card') && !!document.getElementById('pf-card')", t=20)
@@ -1605,6 +1613,47 @@ async def cdp_welcome(base: str) -> None:
             narr2 = await ev("window.__narr") or {}
             _check("10.16 点「下一步」立即停止解说（pause 被调用，不在后台续播）",
                    narr2.get("pause", 0) >= 1, str(narr2))
+
+            # 10.17 设置页配好 API 后重进向导：api 步检测到「已配置好」并出现「完成引导」主按钮
+            with _hx.Client(trust_env=False, timeout=10) as c:
+                c.put(f"{base}/api/settings", json={"guide": {"done": False, "step": "api"}})
+                c.put(f"{base}/api/settings", json={"llm": {"base_url": f"{MOCK}/v1", "model": "mock-outline"}})
+            # 先绕道别的 hash 再回 #/welcome：同值 hash 不派发 hashchange，
+            # 不绕行的话视图不会重渲染，读不到最新设置（假红）。
+            await ev("location.hash = '#/settings'")
+            await asyncio.sleep(0.3)
+            await ev("location.hash = '#/welcome'")
+            ok = await wait_js("!!document.getElementById('w-go') && document.body.innerText.indexOf('已配置好') >= 0", t=20)
+            ok2 = await wait_js("document.body.innerText.indexOf('完成引导，进入工作台') >= 0", t=10)
+            _check("10.17 设置页配好 API 后重进向导：api 步提示已配置好 + 出现完成引导主按钮",
+                   ok and ok2, str(await ev("document.body.innerText")))
+
+            # 10.18 设置页真实驱动一次「保存」：保存 API → 自动完成引导（不再被拦回 welcome）
+            # 前置：guide 置回未完成 api 步、llm 清空，确保这条测的是「设置页保存 → 自动完成」。
+            with _hx.Client(trust_env=False, timeout=10) as c:
+                c.put(f"{base}/api/settings", json={"guide": {"done": False, "step": "api"}})
+                c.put(f"{base}/api/settings", json={"llm": {"base_url": "", "model": ""}})
+            await ev("location.hash = '#/settings'")
+            await wait_js("!!document.getElementById('st-save')", t=20)
+            await ev("document.getElementById('st-base').value = '%s/v1'" % MOCK)
+            await ev("document.getElementById('st-model').value = 'mock-outline'")
+            await ev("document.getElementById('st-save').click()")
+            await wait_js("(document.body.innerText.indexOf('新手引导也完成了') >= 0) "
+                          "|| (document.body.innerText.indexOf('已保存') >= 0)", t=15)
+            with _hx.Client(trust_env=False, timeout=10) as c:
+                st = c.get(f"{base}/api/settings").json()
+            g = (st.get("data") or {}).get("guide") or {}
+            done = bool(g.get("done"))
+            _check("10.18 设置页保存 API 后自动完成引导（guide.done=true）", done,
+                   f"guide={g}")
+            # 验证不再被拦回 welcome：进工作台后 hash 保持 workbench 且 .welcome-img 消失
+            await ev("location.hash = '#/workbench'")
+            ok3 = await wait_js("location.hash.indexOf('#/workbench') === 0 && !document.querySelector('.welcome-img')", t=15)
+            _check("10.18 保存后进入工作台不再被拦回新手引导", ok3, str(await ev("location.hash")))
+
+            # 10.19 防呆：恢复 guide.done=true，避免影响后续测试组
+            with _hx.Client(trust_env=False, timeout=10) as c:
+                c.put(f"{base}/api/settings", json={"guide": {"done": True}})
     finally:
         try:
             proc.terminate()

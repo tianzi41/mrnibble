@@ -318,10 +318,14 @@ def main() -> int:
         check("J2 中文语音转写成功", "思维导图" in text and "知识" in text, text)
         check("J3 返回延迟与时长", isinstance(r["data"].get("latency_ms"), int))
 
-        # ── K. TTS 默认关闭 ─────────────────────────────
+        # ── K. TTS 默认本地 MeloTTS ─────────────────────
         print("[K] TTS 状态")
         ts = httpx.get(f"{BACKEND}/api/tts/status", timeout=10).json()["data"]
-        check("K1 默认关闭（R-G03）", ts["enabled"] is False and ts["mode"] == "off")
+        # 2026-09-22 用户要求：默认本地引擎 MeloTTS（离线零外发）、朗读默认开启；
+        # PRD R-G03「朗读开关默认关闭」已追加变更备注。
+        check("K1 默认本地 MeloTTS 开启（用户 2026-09-22 要求，覆写 R-G03）",
+              ts["enabled"] is True and ts["mode"] == "local" and ts.get("local_engine") == "melo",
+              str(ts))
         check("K2 本地朗读可用性标记", ts["local_available"] is True)
         check("K2a MeloTTS 状态字段存在", "local_engine" in ts and "local_model_available" in ts)
         speech = httpx.post(f"{BACKEND}/api/tts/speech", json={"text": "你好"}, timeout=20).json()

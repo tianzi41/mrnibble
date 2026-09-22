@@ -18,8 +18,12 @@
   // 本地 MeloTTS 模型是否就位（来自 /api/tts/status，设置页提示与降级判断用）。
   let TtsModelReady = false;
 
+  // 最近一次 GET /api/settings 里的 guide 分组（保存对话模型后据此判断要不要自动完成引导）。
+  let _guide = {};
+
   async function render(host) {
     const cfg = await Api.get("/api/settings");
+    _guide = cfg.guide || {};
     const asr = await Api.get("/api/asr/status");
     let tts = await Api.get("/api/tts/status");
     TtsModelReady = !!(tts && tts.local_model_available);
@@ -142,7 +146,7 @@
               <label>本地引擎</label>
               <select id="tts-engine" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px">
                 ${[["system", "系统语音（零依赖，音色较机械）"], ["melo", "神经语音 MeloTTS（更自然，中英混读）"]]
-                  .map(([v, n]) => `<option value="${v}" ${(cfg.tts.local_engine || "system") === v ? "selected" : ""}>${n}</option>`).join("")}
+                  .map(([v, n]) => `<option value="${v}" ${(cfg.tts.local_engine || "melo") === v ? "selected" : ""}>${n}</option>`).join("")}
               </select>
               <span class="hint" id="tts-engine-hint"></span>
             </div>
@@ -290,8 +294,21 @@
       };
       const key = val("st-key");
       if (key) patch.llm.api_key = key;
-      await Api.put("/api/settings", patch);
-      Toast("已保存"); Main.refreshModelBadge();
+      try {
+        await Api.put("/api/settings", patch);
+      } catch (e) {
+        return Toast("保存失败：" + (e.detail || e.message), true);
+      }
+      let msg = "已保存";
+      // 引导正卡在 api 步且未完成 → 用户在此页配好了 API，保存即视为完成引导。
+      if (_guide && _guide.step === "api" && !_guide.done) {
+        try {
+          await Api.put("/api/settings", { guide: { step: "", done: true } });
+          _guide = { step: "", done: true };
+          msg = "已保存，新手引导也完成了";
+        } catch (e) { /* 引导收尾失败不覆盖「已保存」提示 */ }
+      }
+      Toast(msg); Main.refreshModelBadge();
     };
     document.getElementById("st-test").onclick = async () => {
       const out = document.getElementById("st-test-result");
