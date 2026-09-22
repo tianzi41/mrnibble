@@ -98,6 +98,12 @@ def _open_window(port: int) -> subprocess.Popen | None:
     浏览器于是走「启发式缓存」，把 JS/CSS 当新鲜文件，**改了前端、重启应用看到的还是旧页面**
     （2026-09-18 用户报「新功能看不到」就是它）。而 ``--app`` 模式没有地址栏、
     用户也没有「刷新」按钮可按。本地应用不存在网络开销，直接禁掉缓存最省事。
+
+    ``--autoplay-policy=no-user-gesture-required``：**必须加**。
+    新手引导第 1 步的介绍解说要求「打开就自动播」，而 Chromium 系浏览器
+    默认禁止无用户手势的媒体自动播放（``audio.play()`` 直接 reject）——
+    用户实测「必须手点播放按钮才响」（2026-09-22）。本地软件不存在
+    「打扰用户」的顾虑，直接放行；前端仍保留手势兜底与手动按钮。
     """
     url = f"http://127.0.0.1:{port}"
     for name in ("msedge.exe", "chrome.exe"):
@@ -119,7 +125,8 @@ def _open_window(port: int) -> subprocess.Popen | None:
                 return subprocess.Popen(
                     [exe, f"--app={url}", f"--user-data-dir={_profile_dir()}",
                      "--no-first-run", "--no-default-browser-check", "--no-proxy-server",
-                     "--disable-http-cache"],
+                     "--disable-http-cache",
+                     "--autoplay-policy=no-user-gesture-required"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
             except OSError:

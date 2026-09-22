@@ -11,7 +11,44 @@
   let step = "intro";
   let answers = {};
 
+  // ── 介绍解说音频（模块级持有，任何离开介绍的路径都能立刻停掉）─────────
+  // 用户 2026-09-22 实测两个问题：① 打开不自动播（Chromium 默认禁无手势
+  // 自动播放，启动器已加 --autoplay-policy=no-user-gesture-required 放行，
+  // 这里仍保留手势兜底）；② 点「下一步」后解说还在后台放（切步骤/切页面
+  // 没有停止逻辑）—— stopNarration 在 go/finish/离开 #/welcome 时都会调。
+  const NARR_SRC = "/static/assets/welcome.mp3";
+  let _narr = null;            // 当前 Audio 元素（null = 没在放）
+  let _narrGestureArmed = false;
+
+  function stopNarration() {
+    const a = _narr;
+    _narr = null;
+    if (!a) return;
+    try { a.pause(); a.currentTime = 0; } catch (e) { /* 忽略 */ }
+    try { a.removeAttribute("src"); a.load(); } catch (e) { /* 释放解码器，忽略 */ }
+  }
+
+  // 自动播放被浏览器策略拦下时（开发态/普通浏览器窗口）：挂一次性手势，
+  // 用户第一次点击或按键时接着放，不用非得找到播放按钮。
+  function armNarrGestureFallback() {
+    if (_narrGestureArmed) return;
+    _narrGestureArmed = true;
+    const kick = () => {
+      document.removeEventListener("pointerdown", kick, true);
+      document.removeEventListener("keydown", kick, true);
+      if (_narr) { try { _narr.play().catch(() => {}); } catch (e) { /* 忽略 */ } }
+    };
+    document.addEventListener("pointerdown", kick, true);
+    document.addEventListener("keydown", kick, true);
+  }
+
+  // 离开向导（hash 不再指向 #/welcome）→ 立即停掉解说，不在后台继续放。
+  window.addEventListener("hashchange", () => {
+    if ((location.hash || "").indexOf("#/welcome") !== 0) stopNarration();
+  });
+
   async function render(host) {
+    stopNarration();          // 重入向导：先停掉上一轮的解说，避免重叠
     step = "intro";
     answers = {};
     try {
@@ -31,12 +68,14 @@
   }
 
   function go(host, next) {
+    stopNarration();          // 切步骤：立即停掉未读完的解说（用户 2026-09-22 实测）
     step = next;
     saveStep(next, false);   // 断点落库：刷新/重开从当前步继续
     paint(host);
   }
 
   function finish() {
+    stopNarration();
     saveStep("", true).then(() => { location.hash = "#/workbench"; });
   }
 
@@ -69,15 +108,26 @@
   </div>
 </div>`;
 
-    // 预录解说：加载后尝试自动播一次；被浏览器自动播放策略拦下就只留按钮。
-    const AUDIO = "/static/assets/welcome.mp3";
-    let au = null;
+    // 预录解说：进入本步即自动播放（启动器已放行自动播放策略）；
+    // 被拦下时挂一次性手势兜底，并保留手动按钮。
     const hint = host.querySelector("#w-audio-hint");
+    const ensure = () => {
+      if (!_narr) {
+        _narr = new Audio(NARR_SRC);
+        _narr.preload = "auto";
+      }
+      return _narr;
+    };
     const play = () => {
+      let a;
+      try { a = ensure(); } catch (e) { return; }
       try {
-        if (!au) au = new Audio(AUDIO);
-        au.currentTime = 0;
-        au.play().catch(() => { if (hint) hint.textContent = "点按钮听解说"; });
+        a.currentTime = 0;
+        const p = a.play();
+        if (p && p.catch) p.catch(() => {
+          armNarrGestureFallback();
+          if (hint) hint.textContent = "浏览器拦了自动播放：点页面任意位置即开始解说";
+        });
       } catch (e) { /* 老浏览器忽略 */ }
     };
     play();

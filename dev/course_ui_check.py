@@ -1574,6 +1574,37 @@ async def cdp_welcome(base: str) -> None:
             ok2 = await wait_js("location.hash.indexOf('#/welcome') === 0", t=15)
             ok3 = await wait_js("!!document.querySelector('.welcome-img')", t=15)
             _check("10.14 点重放 → 回到向导介绍页", ok2 and ok3)
+
+            # 10.15/10.16 解说音频：自动播放 + 点下一步立即停（用户 2026-09-22 实测）
+            # 包装 window.Audio 记录 created/play/pause（只记录包装后新建的元素）。
+            # 10.14 结束时停在介绍页且已播过一轮（旧元素未被记录）——先「下一步 →
+            # 上一步」走一圈，让介绍页重新渲染产生新元素，再验证自动播与停止。
+            await ev("""(function(){
+              window.__narr = {created: 0, play: 0, pause: 0};
+              var OA = window.Audio;
+              window.Audio = function (u) {
+                var a = new OA(u);
+                window.__narr.created++;
+                var op = a.play.bind(a), opa = a.pause.bind(a);
+                a.play = function () { window.__narr.play++; return op(); };
+                a.pause = function () { window.__narr.pause++; return opa(); };
+                return a;
+              };
+              return true;})()""")
+            await ev("document.getElementById('w-next').click()")     # → 画像步
+            ok = await wait_js("!!document.querySelector('.quiz-q')", t=15)
+            await ev("document.getElementById('w-back').click()")     # → 回介绍步（重新渲染）
+            ok2 = await wait_js("!!document.querySelector('.welcome-img')", t=15)
+            await asyncio.sleep(1.2)                                  # 等 render + play 调用完成
+            narr = await ev("window.__narr") or {}
+            _check("10.15 进入介绍页自动播放解说（新建 Audio 且 play 被调用）",
+                   ok and ok2 and narr.get("created", 0) >= 1 and narr.get("play", 0) >= 1,
+                   str(narr))
+            await ev("document.getElementById('w-next').click()")     # 点下一步
+            await asyncio.sleep(0.5)
+            narr2 = await ev("window.__narr") or {}
+            _check("10.16 点「下一步」立即停止解说（pause 被调用，不在后台续播）",
+                   narr2.get("pause", 0) >= 1, str(narr2))
     finally:
         try:
             proc.terminate()
