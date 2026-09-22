@@ -86,8 +86,51 @@ def _wait_ready(port: int, timeout: float) -> bool:
     return False
 
 
+def _browser_pref() -> str:
+    """浏览器偏好：``auto``（默认，Edge 优先）｜``edge``｜``chrome``。
+
+    环境变量 ``ZHIBAN_BROWSER`` 可强制指定，两个用途：
+    ① 给偏爱 Chrome（或想验证 Chrome）的用户一个 explicit 出口 ——
+       装着 Edge 的机器上自动选择永远走 Edge；
+    ② **验证回退路径**：2026-09-22 用户提出"没测过 Chrome 能否正常
+       运行"，在装着 Edge 的机器上 `ZHIBAN_BROWSER=chrome` 即可强制
+       走 Chrome 跑一遍。
+    """
+    v = (os.environ.get("ZHIBAN_BROWSER") or "").strip().lower()
+    return v if v in ("edge", "chrome") else "auto"
+
+
+def _browser_candidates() -> list[tuple[str, str, list[Path]]]:
+    """按偏好排出候选浏览器：``[(tag, 进程名, [候选 exe...])]``。
+
+    ``tag`` 决定 profile 目录名（见 :func:`_profile_dir`）。``auto`` 时
+    Edge 优先（Windows 出厂自带、覆盖最广）；显式偏好排最前，找不到
+    再回退另一个 —— 实际用了谁会在 launcher.log 里记（``open_window``）。
+    """
+    edge_paths = [
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+        / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+        / "Microsoft/Edge/Application/msedge.exe",
+    ]
+    chrome_paths = [
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+        / "Google/Chrome/Application/chrome.exe",
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+        / "Google/Chrome/Application/chrome.exe",
+    ]
+    table = {
+        "edge": ("edge", "msedge.exe", edge_paths),
+        "chrome": ("chrome", "chrome.exe", chrome_paths),
+    }
+    pref = _browser_pref()
+    order = (["edge", "chrome"] if pref == "auto"
+             else [pref, "chrome" if pref == "edge" else "edge"])
+    return [table[k] for k in order]
+
+
 def _open_window(port: int) -> subprocess.Popen | None:
-    """优先用 Edge ``--app`` 打开应用窗口；失败则退回默认浏览器。
+    """用 Edge / Chrome 的 ``--app`` 模式打开应用窗口（顺序见 _browser_candidates）。
 
     ``--no-proxy-server``：全部内容都在 127.0.0.1，直连即可；带系统代理
     反而可能把 localhost 请求丢给代理（装了 Clash 的机器上首开就会
@@ -104,33 +147,31 @@ def _open_window(port: int) -> subprocess.Popen | None:
     默认禁止无用户手势的媒体自动播放（``audio.play()`` 直接 reject）——
     用户实测「必须手点播放按钮才响」（2026-09-22）。本地软件不存在
     「打扰用户」的顾虑，直接放行；前端仍保留手势兜底与手动按钮。
+    以上参数对 Edge / Chrome 同源（都是 Chromium 系），换浏览器不需改。
     """
     url = f"http://127.0.0.1:{port}"
-    for name in ("msedge.exe", "chrome.exe"):
-        exe = shutil.which(name)
+    for tag, proc, candidates in _browser_candidates():
+        exe = shutil.which(proc)
         if not exe:
-            for candidate in (
-                Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
-                / "Microsoft/Edge/Application/msedge.exe",
-                Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
-                / "Microsoft/Edge/Application/msedge.exe",
-                Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
-                / "Google/Chrome/Application/chrome.exe",
-            ):
-                if candidate.exists():
-                    exe = str(candidate)
+            for cand in candidates:
+                if cand.exists():
+                    exe = str(cand)
                     break
-        if exe:
-            try:
-                return subprocess.Popen(
-                    [exe, f"--app={url}", f"--user-data-dir={_profile_dir()}",
-                     "--no-first-run", "--no-default-browser-check", "--no-proxy-server",
-                     "--disable-http-cache",
-                     "--autoplay-policy=no-user-gesture-required"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-            except OSError:
-                continue
+        if not exe:
+            _log_launcher("browser_not_found", browser=tag, proc=proc)
+            continue
+        try:
+            win = subprocess.Popen(
+                [exe, f"--app={url}", f"--user-data-dir={_profile_dir(tag)}",
+                 "--no-first-run", "--no-default-browser-check", "--no-proxy-server",
+                 "--disable-http-cache",
+                 "--autoplay-policy=no-user-gesture-required"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            _log_launcher("open_window", browser=tag, exe=Path(exe).name, pid=win.pid)
+            return win
+        except OSError:
+            continue
     # 兜底：默认浏览器
     try:
         import webbrowser
@@ -155,9 +196,17 @@ def _data_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "data"
 
 
-def _profile_dir() -> Path:
-    """浏览器窗口的独立用户数据目录（避免污染用户默认配置）。"""
-    d = _data_dir() / "browser-profile"
+def _profile_dir(tag: str = "edge") -> Path:
+    """浏览器窗口的独立用户数据目录（避免污染用户默认配置）。
+
+    **按浏览器分目录**：Edge 与 Chrome 是不同 Chromium 分支，官方不支持
+    共用同一个 ``user-data-dir``——用户机器上 Edge 建的 profile 若被
+    Chrome 打开，会出不可预期的问题（2026-09-22 修）。
+    Edge 沿用历史目录名 ``browser-profile``（已装用户零迁移、无感知），
+    Chrome 用 ``browser-profile-chrome``。
+    """
+    name = "browser-profile" if tag == "edge" else f"browser-profile-{tag}"
+    d = _data_dir() / name
     d.mkdir(parents=True, exist_ok=True)
     return d
 
