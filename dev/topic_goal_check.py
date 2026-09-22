@@ -276,6 +276,12 @@ async def _run() -> int:
         old_doc_id = upload_old_doc()
         check("S0 旧材料（出师表）已入库且解析完成", bool(old_doc_id), old_doc_id)
 
+        # 新库默认 guide.done=false，首次启动拦截（main.js route() 的设计行为）
+        # 会把 #/courses 也送去新手引导 —— 本套件驱动的是课程页，先标记引导完成
+        # （与 course_ui_check 同一模式；引导流程本身由 course_ui_check 10.13–10.16 覆盖）。
+        with httpx.Client(trust_env=False, timeout=10) as cli:
+            cli.put(f"{BASE}/api/settings", json={"guide": {"done": True}})
+
         async def fn3(ev) -> None:
             await fn(ev, old_doc_id)
 
