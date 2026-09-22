@@ -177,6 +177,25 @@ async def _probe(target: dict, ud: Path) -> None:
         check("A9 语言切换器 title 用 t() 取自身文案（en → Language）",
               str(title_en) == "Language", str(title_en))
 
+        # A10/A11 I18n.merge：视图语言包并入 DICT + 已存在 key 不覆盖
+        m = await ev(
+            "(function(){"
+            "window.I18n.merge({zh:{'i18n.test.merge':'\u5408\u5e76\u503c'}, en:{'i18n.test.merge':'Merged'}});"
+            "window.I18n.merge({en:{'nav.courses':'SHOULD-NOT-OVERWRITE'}});"
+            "window.I18n.switch('en');"
+            "var en = window.I18n.t('i18n.test.merge');"
+            "var keep = window.I18n.t('nav.courses');"
+            "window.I18n.switch('zh');"
+            "var zh = window.I18n.t('i18n.test.merge');"
+            "return JSON.stringify({en:en, zh:zh, keep:keep});"
+            "})()")
+        d = json.loads(m or "{}")
+        check("A10 I18n.merge 并入视图语言包（zh/en 双侧生效）",
+              d.get("en") == "Merged" and d.get("zh") == "合并值", str(d))
+        check("A11 I18n.merge 不覆盖已存在 key（nav.courses 原值保留）",
+              d.get("keep") == "Courses", str(d))
+        await ev("window.I18n.switch('zh')")   # 恢复中文默认态
+
 
 def main() -> int:
     LOG.parent.mkdir(parents=True, exist_ok=True)

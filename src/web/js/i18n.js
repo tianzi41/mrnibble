@@ -11,6 +11,9 @@
  * - get()：读 localStorage，非 "en" 一律视作 zh（容错隐私模式 / 损坏值）。
  * - switch(lang)：写 localStorage；设 document.documentElement.lang；
  *   触发 window.dispatchEvent(new Event("zhiban-langchange")) 供调用方重渲染。
+ * - merge(partial)：把视图级语言包并进 DICT（partial = {zh:{...}, en:{...}}），
+ *   **已存在的 key 不覆盖**（先到先得）。视图语言包跟视图文件同体，
+ *   多路并行改造互不抢同一文件；视图文件在 IIFE 内第一行调用即可。
  */
 window.I18n = (function () {
   var KEY = "zhiban-lang";
@@ -112,6 +115,21 @@ window.I18n = (function () {
     return s;
   }
 
+  /* merge(partial)：视图级语言包并入 DICT。partial = {zh:{...}, en:{...}}。
+     已存在的 key 不覆盖（先到先得：核心字典优先，视图包只补新增）。
+     并行改造时各视图包随自己的文件走，避免多路抢写同一文件。 */
+  function merge(partial) {
+    if (!partial || typeof partial !== "object") return;
+    ["zh", "en"].forEach(function (lang) {
+      var add = partial[lang];
+      if (!add || typeof add !== "object") return;
+      var dict = DICT[lang] || (DICT[lang] = {});
+      Object.keys(add).forEach(function (k) {
+        if (dict[k] === undefined) dict[k] = add[k];
+      });
+    });
+  }
+
   function switchTo(lang) {
     lang = (lang === "en") ? "en" : "zh";
     try {
@@ -126,5 +144,5 @@ window.I18n = (function () {
     } catch (e) { /* 不支持 Event 的浏览器忽略 */ }
   }
 
-  return { get: get, t: t, switch: switchTo, KEY: KEY, DICT: DICT };
+  return { get: get, t: t, switch: switchTo, merge: merge, KEY: KEY, DICT: DICT };
 })();
