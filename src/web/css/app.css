@@ -907,3 +907,34 @@ details.adv > .field { margin-top: 10px; }
 .pv-full-card .panel-head { padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .pv-full-card .panel-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; font-size: 14px; }
 .pv-full-card .doc-preview { font-size: 14px; line-height: 1.9; }
+
+/* ── 新手引导（#/welcome）与用户画像 ──────────────────────── */
+.welcome { max-width: 860px; margin: 0 auto; padding: 4px 2px 24px; }
+.welcome-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.welcome-head b { font-size: 18px; }
+.welcome-step { font-size: 12px; color: var(--muted, #888); }
+.welcome-img { display: block; width: 100%; margin: 12px 0; border: 1px solid var(--border); border-radius: 10px; }
+.welcome-audio { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 8px; }
+.welcome-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; }
+.welcome-quiz { margin-top: 14px; }
+.quiz { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 16px 18px; }
+.quiz-q { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.quiz-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.quiz-opts .opt {
+  text-align: left; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); font-size: 14px; cursor: pointer; line-height: 1.4;
+}
+.quiz-opts .opt:hover { border-color: var(--primary); }
+.quiz-opts .opt.on { border-color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+.quiz-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.quiz textarea, .pf-row textarea {
+  width: 100%; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--text); font-size: 14px; resize: vertical;
+}
+.pf-row { margin-bottom: 14px; }
+/* 设置页「API 配置」被引导页定位时的高亮（一次性闪烁） */
+.focus-flash { animation: focusFlash 1.6s ease-out 1; border-radius: 12px; }
+@keyframes focusFlash {
+  0%, 60% { box-shadow: 0 0 0 3px var(--primary); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}

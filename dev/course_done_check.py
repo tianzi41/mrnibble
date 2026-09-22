@@ -146,6 +146,9 @@ async def _run() -> int:
     procs = start_services()
     try:
         assert wait_http(f"{BASE}/api/health") and wait_http(f"{MOCK}/health"), "服务未启动"
+        # 新手引导默认未完成会把所有页面送去 #/welcome（2026-09-22 上线）——
+        # 本套件走的是课程/课堂页，先置为完成（引导流程由 course_ui_check [10] 组验证）。
+        api("PUT", "/api/settings", json={"guide": {"done": True}})
         use_model("mock-outline")
         doc = build_material()
         cid = new_course(doc, unit_count=1, goal="快速过一遍装饰器")

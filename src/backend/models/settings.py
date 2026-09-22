@@ -18,6 +18,9 @@ __all__ = [
     "UISettings",
     "RetrievalSettings",
     "MemorySettings",
+    "PrefetchSettings",
+    "ProfileSettings",
+    "GuideSettings",
     "SettingsUpdate",
     "SettingsTestRequest",
 ]
@@ -119,6 +122,31 @@ class PrefetchSettings(BaseModel):
     enabled: bool | None = None
 
 
+class ProfileSettings(BaseModel):
+    """用户画像（新手引导收集；每次 AI 生成时作为上下文注入）。
+
+    存选项 id（与前端 js/profile_fields.js 的 FIELDS 一一对应）；
+    空串 / 不传 = 未填（注入时跳过该项）。
+    """
+
+    age: str | None = None
+    role: str | None = None
+    stage: str | None = None
+    grade: str | None = None
+    purpose: str | None = None
+    style: str | None = None
+    daily: str | None = None
+    fields: str | None = None      # 常学领域，逗号分隔（多选）
+    note: str | None = None        # 开放题一句话
+
+
+class GuideSettings(BaseModel):
+    """新手引导状态（首次启动三步向导）。"""
+
+    done: bool | None = None       # 完成标志
+    step: str | None = None        # 断点：intro / profile / api
+
+
 class SettingsUpdate(BaseModel):
     """``PUT /api/settings`` 请求体（分组更新，字段均可省略）。"""
 
@@ -132,6 +160,8 @@ class SettingsUpdate(BaseModel):
     retrieval: RetrievalSettings | None = None
     memory: MemorySettings | None = None
     prefetch: PrefetchSettings | None = None
+    profile: ProfileSettings | None = None
+    guide: GuideSettings | None = None
 
 
 class SettingsTestRequest(BaseModel):

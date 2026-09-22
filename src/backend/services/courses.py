@@ -38,6 +38,7 @@ from ..utils.timeutil import now_iso, parse_iso
 from . import diagram as diagram_mod
 from .citations import build_context, resolve_citations
 from .llm import LLMClient, extract_json_object
+from .profile import with_profile
 from .retrieval import get_retrieval_service
 
 logger = logging.getLogger(__name__)
@@ -4680,9 +4681,13 @@ class CourseService:
 
     @staticmethod
     def _chat(messages: list[dict[str, str]], *, max_tokens: int = 4096) -> str:
-        """调用对话模型（统一温度）。"""
+        """调用对话模型（统一温度）。
+
+        用户画像（新手引导收集）在此统一注入：所有课程域调用都经过这里，
+        画像全空时 :func:`with_profile` 原样返回，不改变任何既有行为。
+        """
         return LLMClient.get_instance().chat(
-            messages, temperature=0.4, max_tokens=max_tokens
+            with_profile(messages), temperature=0.4, max_tokens=max_tokens
         )
 
     @staticmethod

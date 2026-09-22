@@ -1392,6 +1392,195 @@ def cdp_regen(base: str) -> None:
                 pass
 
 
+async def cdp_welcome(base: str) -> None:
+    """CDP 真实操作无头 Chrome，验证首次启动新手引导：
+
+    拦截（#/courses → #/welcome）→ 介绍页（图 + 解说）→ 画像题（含条件题链）
+    → 整段跳过 → API 引导步 → 跳设置页（focus=api）→ 完成放行 → 断点恢复 → 重放入口。
+
+    单脚本一次跑完：本函数内启动 Chrome、驱动交互、最后回收进程。
+    """
+    import asyncio as _asyncio, json, os, subprocess
+    import httpx as _hx
+    import websockets
+
+    chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    ud = ui_profile("welcome")
+    try: os.makedirs(ud, exist_ok=True)
+    except Exception: pass
+    port = 9224
+
+    def _check(name, cond, detail=""):
+        (PASS if cond else FAIL).append(name)
+        print(f"  {'✅' if cond else '❌'} {name}{('  | ' + detail) if (detail and not cond) else ''}")
+
+    proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+            "--no-proxy-server", "--autoplay-policy=no-user-gesture-required",
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={ud}", "--window-size=1280,900", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        ver = None
+        for _ in range(60):
+            try:
+                ver = _hx.get(f"http://127.0.0.1:{port}/json/version", timeout=2).json()
+                break
+            except Exception:
+                await _asyncio.sleep(0.5)
+        if not ver:
+            _check("CDP 端口可达", False, "chrome 未启动"); return
+
+        async with websockets.connect(ver["webSocketDebuggerUrl"], max_size=None, ping_interval=None) as bws:
+            _id = [0]
+            def nid(): _id[0] += 1; return _id[0]
+            async def bsend(method, params=None):
+                i = nid(); await bws.send(json.dumps({"id": i, "method": method, "params": params or {}})); return i
+            async def bwait(i, t=20):
+                while True:
+                    r = json.loads(await _asyncio.wait_for(bws.recv(), t))
+                    if r.get("id") == i: return r
+            r = await bsend("Target.createTarget", {"url": base + "/#/courses"})
+            tid = (await bwait(r))["result"]["targetId"]
+            pws = None
+            for _ in range(40):
+                lst = _hx.get(f"http://127.0.0.1:{port}/json/list", timeout=3).json()
+                t = next((x for x in lst if x.get("id") == tid), None)
+                if t and t.get("webSocketDebuggerUrl"):
+                    pws = t["webSocketDebuggerUrl"]; break
+                await _asyncio.sleep(0.3)
+            if not pws:
+                _check("页面调试端点", False); return
+
+        async with websockets.connect(pws, max_size=None, ping_interval=None) as ws:
+            _id = [0]
+            def nid(): _id[0] += 1; return _id[0]
+            pending = {}
+            async def reader():
+                while True:
+                    try:
+                        raw = await ws.recv()
+                    except Exception:
+                        break
+                    try: msg = json.loads(raw)
+                    except Exception: continue
+                    if "id" in msg and msg["id"] in pending:
+                        pending[msg["id"]].set_result(msg)
+            _task = _asyncio.create_task(reader())
+            async def ev(expr, t=25):
+                i = nid()
+                loop = _asyncio.get_event_loop()
+                fut = loop.create_future()
+                pending[i] = fut
+                await ws.send(json.dumps({"id": i, "method": "Runtime.evaluate",
+                                          "params": {"expression": expr, "returnByValue": True, "awaitPromise": True}}))
+                try:
+                    res = await _asyncio.wait_for(fut, t)
+                finally:
+                    pending.pop(i, None)
+                if "error" in res: raise RuntimeError(str(res["error"]))
+                return res.get("result", {}).get("result", {}).get("value")
+
+            async def wait_js(pred, t=25, interval=0.3):
+                for _ in range(int(t / interval)):
+                    v = await ev("(function(){ return (%s); })()" % pred)
+                    if v: return True
+                    await _asyncio.sleep(interval)
+                return False
+
+            async def q_has(word):
+                return await ev("(document.querySelector('.quiz-q')||{}).textContent || ''") \
+                    and word in (await ev("(document.querySelector('.quiz-q')||{}).textContent || ''"))
+
+            await ws.send(json.dumps({"id": nid(), "method": "Runtime.enable"}))
+            await ws.send(json.dumps({"id": nid(), "method": "Page.enable"}))
+
+            # 10.1 首次启动拦截
+            await ws.send(json.dumps({"id": nid(), "method": "Page.navigate",
+                                      "params": {"url": base + "/#/courses"}}))
+            ok = await wait_js("location.hash.indexOf('#/welcome') === 0", t=20)
+            _check("10.1 首次启动被送去新手引导（#/courses → #/welcome）", ok,
+                   str(await ev("location.hash")))
+
+            # 10.2 介绍页（界面图 + 解说按钮）
+            ok = await wait_js("!!document.querySelector('.welcome-img') && !!document.getElementById('w-play')", t=20)
+            src = await ev("(document.querySelector('.welcome-img')||{}).src") or ""
+            _check("10.2 介绍页渲染（界面图 src 指向 assets + 解说按钮）",
+                   ok and src.endswith("/static/assets/intro.png"), str(src))
+
+            # 10.3 下一步 → 画像第 1 题
+            await ev("document.getElementById('w-next').click()")
+            ok = await wait_js("!!document.querySelector('.quiz-q')", t=15)
+            q1 = await ev("(document.querySelector('.quiz-q')||{}).textContent") or ""
+            _check("10.3 进入画像第 1 题（年龄段）", ok and "年龄段" in q1, str(q1))
+
+            # 10.4 单选点完自动进下一题
+            await ev('document.querySelector(\'.quiz-opts .opt[data-v="18-25"]\').click()')
+            ok = await wait_js("(document.querySelector('.quiz-q')||{}).textContent.indexOf('身份') >= 0", t=10)
+            _check("10.4 单选后自动进入下一题（身份）", ok)
+
+            # 10.5 条件题：学生 → 就读阶段
+            await ev('document.querySelector(\'.quiz-opts .opt[data-v="student"]\').click()')
+            ok = await wait_js("(document.querySelector('.quiz-q')||{}).textContent.indexOf('就读阶段') >= 0", t=10)
+            _check("10.5 条件题出现（身份=学生 → 就读阶段）", ok)
+
+            # 10.6 二级条件题：高中 → 具体年级
+            await ev('document.querySelector(\'.quiz-opts .opt[data-v="senior"]\').click()')
+            ok = await wait_js("(document.querySelector('.quiz-q')||{}).textContent.indexOf('哪个年级') >= 0", t=10)
+            _check("10.6 二级条件题出现（高中 → 具体年级）", ok)
+            await ev('document.querySelector(\'.quiz-opts .opt[data-v="s2"]\').click()')
+            ok = await wait_js("(document.querySelector('.quiz-q')||{}).textContent.indexOf('为什么学') >= 0", t=10)
+            _check("10.7 答完年级进入下一题（学习目的）", ok)
+
+            # 10.8 整段跳过 → 第 3 步 API 卡
+            await ev("document.getElementById('w-skip-all').click()")
+            ok = await wait_js("document.body.innerText.indexOf('配一把') >= 0", t=10)
+            _check("10.8 画像可整段跳过，进入 API 引导步", ok)
+
+            # 10.9 去设置页配置 → hash 带 focus=api，两卡都在
+            await ev("document.getElementById('w-go').click()")
+            ok = await wait_js("location.hash.indexOf('#/settings?focus=api') === 0", t=15)
+            ok2 = await wait_js("!!document.getElementById('llm-card') && !!document.getElementById('pf-card')", t=20)
+            _check("10.9 「去设置页配置」跳到设置页（API 卡 + 画像卡都在）", ok and ok2,
+                   str(await ev("location.hash")))
+
+            # 10.10 回向导点「暂时跳过」→ 完成并放行
+            await ev("location.hash = '#/welcome'")
+            ok = await wait_js("!!document.getElementById('w-later')", t=15)
+            await ev("document.getElementById('w-later').click()")
+            ok2 = await wait_js("location.hash.indexOf('#/workbench') === 0", t=15)
+            _check("10.10 跳过 API 配置 → 完成引导进入工作台", ok and ok2,
+                   str(await ev("location.hash")))
+
+            # 10.11 完成后不再拦截
+            await ev("location.hash = '#/courses'")
+            ok = await wait_js("!!document.getElementById('btn-new')", t=20)
+            _check("10.11 引导完成后页面不再被拦截（课程页正常渲染）", ok)
+
+            # 10.12 断点恢复：step=profile 直接进画像（不回到介绍页）
+            with _hx.Client(trust_env=False, timeout=10) as c:
+                c.put(f"{base}/api/settings", json={"guide": {"done": False, "step": "profile"}})
+            await ev("location.hash = '#/welcome'")
+            ok = await wait_js("!!document.querySelector('.quiz-q')", t=20)
+            no_intro = not await ev("!!document.querySelector('.welcome-img')")
+            _check("10.12 断点恢复：从画像步继续（不回到介绍页）", ok and no_intro)
+
+            # 10.13 重放入口：设置页「重新看新手引导」
+            with _hx.Client(trust_env=False, timeout=10) as c:
+                c.put(f"{base}/api/settings", json={"guide": {"done": True}})
+            await ev("location.hash = '#/settings'")
+            ok = await wait_js("!!document.getElementById('pf-replay')", t=20)
+            _check("10.13 设置页有「重新看新手引导」入口", ok)
+            await ev("document.getElementById('pf-replay').click()")
+            ok2 = await wait_js("location.hash.indexOf('#/welcome') === 0", t=15)
+            ok3 = await wait_js("!!document.querySelector('.welcome-img')", t=15)
+            _check("10.14 点重放 → 回到向导介绍页", ok2 and ok3)
+    finally:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+
 def main() -> int:
     if DATA.exists():
         shutil.rmtree(DATA)
@@ -1408,6 +1597,11 @@ def main() -> int:
     try:
         assert wait_http(f"{MOCK}/health") and wait_http(f"{BASE}/api/health"), "服务未启动"
         print("服务已启动（后端 8764 / mock 8765）\n")
+
+        # 新库默认 guide.done=false，首次启动拦截会把所有页面送去新手引导 ——
+        # 主流程前先置为完成（引导流程本身由文末 [10] 组专门验证）。
+        with httpx.Client(trust_env=False) as _g:
+            _g.put(f"{BASE}/api/settings", json={"guide": {"done": True}}, timeout=10)
 
         print("[1] 课程页（空态）")
         dom = dump(f"{BASE}/#/courses")
@@ -1788,6 +1982,20 @@ def main() -> int:
         # 页面级 JS 错误会写进 DOM（main.js 的 catch 分支）
         m = re.search(r'data-view-error="1"[^>]*>加载失败：([^<]{0,140})', dom)
         check("3.1 练习页无 JS 异常", m is None, m.group(1) if m else "")
+
+        # ── [10] 新手引导（首次启动三步）────────────────────
+        # 放在所有现有组之后：引导流程要把 guide.done 置回 false 复现首次启动，
+        # 跑完再恢复，互不影响。
+        print("\n[10] 新手引导（CDP 真实浏览器）")
+        with httpx.Client(trust_env=False, timeout=10) as _gw:
+            _gw.put(f"{BASE}/api/settings", json={"guide": {"done": False, "step": "intro"}})
+        try:
+            asyncio.run(cdp_welcome(BASE))
+        except Exception as e:
+            check("10.0 引导 CDP 脚本未异常", False, str(e)[:200])
+        # 收尾：恢复完成态（本套件已跑完；不影响其他套件——各自用独立数据目录）
+        with httpx.Client(trust_env=False, timeout=10) as _gw:
+            _gw.put(f"{BASE}/api/settings", json={"guide": {"done": True}})
 
     finally:
         for p in procs:

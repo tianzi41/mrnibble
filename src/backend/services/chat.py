@@ -28,6 +28,7 @@ from .embedder import get_embedder
 from .events import log_event
 from .guided import GuidedService
 from .llm import LLMClient
+from .profile import with_profile
 from .memory import MemoryService
 from .retrieval import get_retrieval_service
 
@@ -411,7 +412,8 @@ class ChatService:
         msgs.append({"role": "system", "content": "\n\n".join(parts)})
         msgs.extend(history)
         msgs.append({"role": "user", "content": query})
-        return msgs
+        # 用户画像（新手引导收集）统一在此注入：所有普通问答消息都经过 _assemble。
+        return with_profile(msgs)
 
     @staticmethod
     def _llm_msg(row) -> dict[str, str]:

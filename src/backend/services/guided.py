@@ -34,6 +34,7 @@ from .guardrails import (
     fallback_scaffold,
 )
 from .llm import LLMClient, extract_json_object
+from .profile import with_profile
 from .memory import MemoryService
 
 logger = logging.getLogger(__name__)
@@ -237,7 +238,7 @@ class GuidedService:
     def _attempt(self, llm: LLMClient, msgs: list[dict[str, str]]) -> GuidedOutput | None:
         """调用一次 LLM 并解析为 :class:`GuidedOutput`；失败返回 ``None``。"""
         try:
-            obj = llm.chat_json(msgs, temperature=0.3)
+            obj = llm.chat_json(with_profile(msgs), temperature=0.3)
         except Exception as exc:  # AppError/解析失败统一走兜底
             logger.warning("引导式调用失败", extra={"extra_fields": {"type": type(exc).__name__}})
             return None

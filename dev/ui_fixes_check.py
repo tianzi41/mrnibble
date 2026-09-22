@@ -459,6 +459,10 @@ def main() -> int:
             print("服务未启动"); return 1
         print("服务已启动（后端 8770 / mock 8771）")
         use_model("mock-outline")
+        # 新手引导默认未完成会把所有页面送去 #/welcome（2026-09-22 上线）——
+        # 本套件验证的是既有页面行为，先置为完成（引导流程本身由 course_ui_check [10] 组验证）。
+        httpx.put(f"{BASE}/api/settings", json={"guide": {"done": True}}, timeout=10,
+                  trust_env=False)
 
         # ── [3] AI 材料区块：说明文字已删（区块本身仍在）──────
         print("\n[3] 「AI 材料」区块的说明文字")

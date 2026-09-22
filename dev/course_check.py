@@ -1388,6 +1388,49 @@ def main() -> int:
               r.get("code") == 1000, f"code={r.get('code')}")
         _cleanup_courses(cid_y1)
 
+        # ── W. 用户画像注入（新手引导收集 → 每次生成的系统提示词）──
+        # 注入点是 CourseService._chat（课程域全部调用都经过它）；画像为空时
+        # with_profile 原样返回，不得出现任何背景段（零行为变化）。
+        print("\n[W] 用户画像注入")
+        with httpx.Client(trust_env=False, timeout=30) as cli:
+            cli.put(f"{BACKEND}/api/settings",
+                    json={"profile": {"age": "18-25", "role": "student",
+                                      "stage": "senior", "grade": "s2",
+                                      "fields": "code,math",
+                                      "note": "想先听懂再刷题"}},
+                    timeout=10)
+        SPY.unlink(missing_ok=True)
+        set_model("mock-spy-outline")
+        r = post("/api/courses", {"goal": "画像注入测试", "document_ids": [doc_id],
+                                  "unit_count": 2})
+        cid_w = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_txt = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "system")
+        check("W1 画像注入到大纲系统提示词（年龄/身份/学段/年级/领域/补充）",
+              "【用户背景】" in sys_txt and "18–25 岁" in sys_txt and "学生" in sys_txt
+              and "高中" in sys_txt and "高二" in sys_txt
+              and "编程 / 计算机" in sys_txt and "想先听懂再刷题" in sys_txt,
+              sys_txt[:200])
+        _cleanup_courses(cid_w)
+        # W2 画像清空 → 不注入（空画像零行为变化，旧路径完全不受影响）
+        with httpx.Client(trust_env=False, timeout=30) as cli:
+            cli.put(f"{BACKEND}/api/settings",
+                    json={"profile": {"age": "", "role": "", "stage": "", "grade": "",
+                                      "purpose": "", "style": "", "daily": "",
+                                      "fields": "", "note": ""}},
+                    timeout=10)
+        SPY.unlink(missing_ok=True)
+        r = post("/api/courses", {"goal": "无画像测试", "document_ids": [doc_id],
+                                  "unit_count": 2})
+        cid_w2 = r["data"]["course_id"]
+        wait_job(r["data"]["job_id"])
+        spy = _read_spy()
+        sys_txt2 = " ".join(str(m.get("content") or "") for m in spy if m.get("role") == "system")
+        check("W2 画像清空后系统提示词不含用户背景（零行为变化）",
+              "【用户背景】" not in sys_txt2, sys_txt2[:120])
+        _cleanup_courses(cid_w2)
+
         # ── P0 回归组 ─────────────────────────────────
         # P0-2 补写 desc 的顺序校验：结构对但**顺序错** → 整体拒收（返回 0）。
         # 校验发生在写库之前，可以直接构造，无需真实课程。

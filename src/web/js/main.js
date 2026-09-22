@@ -55,6 +55,9 @@
     const dot = document.getElementById("conn-dot");
     try {
       const cfg = await Api.get("/api/settings");
+      // 新手引导完成度：route() 的首次启动拦截据此判断（拿不到就不拦，
+      // 避免服务异常时把用户锁在向导外进不去主界面）。
+      _guideDone = !!((cfg.guide || {}).done);
       const base = (cfg.llm.base_url || "").trim();
       const model = (cfg.llm.model || "").trim();
       const ok = !!(base && model);
@@ -90,14 +93,32 @@
   }
   window.Main = { refreshModelBadge };
 
+  // 新手引导完成度（null=还没查到；true=已完成不拦；false=未完成，拦去向导）。
+  let _guideDone = null;
+
   async function route() {
     const hash = location.hash || "#/courses";
     const found = resolve(hash);
     [...document.querySelectorAll("#nav button")].forEach((b) =>
       b.classList.toggle("active", (hash || "").startsWith(b.dataset.hash)));
     const host = document.getElementById("view");
+
+    // 新手引导：未完成时，除向导自身与设置页外的页面都送去 #/welcome
+    // （不重入向导，防死循环）。设置页放行：第 3 步「去设置页配置」的出口，
+    // 用户也可能在引导中途主动去配 API。
+    const isWelcome = hash.indexOf("#/welcome") === 0;
+    const isSettings = hash.indexOf("#/settings") === 0;
+    if (!isWelcome && !isSettings && _guideDone === false) {
+      location.hash = "#/welcome";
+      return;
+    }
     host.innerHTML = '<div class="empty" style="width:100%">加载中…</div>';
     try {
+      // 向导页不在 ROUTES 里（不进导航栏），显式分支渲染。
+      if (isWelcome) {
+        await window.Views.welcome.render(host);
+        return;
+      }
       await window.Views[found.view].render(host, found.arg);
     } catch (e) {
       // data-view-error：给自动化冒烟测试一个稳定的「视图渲染失败」标记，

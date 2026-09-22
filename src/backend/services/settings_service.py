@@ -102,6 +102,20 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("retrieval.hybrid_alpha", "0.5", False, "float"),
     SettingSpec("retrieval.min_vec_score", "0.2", False, "float"),
     SettingSpec("memory.enabled", "true", False, "bool"),
+    # 用户画像（首次启动引导收集；每次 AI 生成时作为上下文注入系统提示词）。
+    # 存选项 id（英文短 id），注入时由 services/profile.py 转成中文描述。
+    SettingSpec("profile.age", "", False, "str"),
+    SettingSpec("profile.role", "", False, "str"),
+    SettingSpec("profile.stage", "", False, "str"),
+    SettingSpec("profile.grade", "", False, "str"),
+    SettingSpec("profile.purpose", "", False, "str"),
+    SettingSpec("profile.style", "", False, "str"),
+    SettingSpec("profile.daily", "", False, "str"),
+    SettingSpec("profile.fields", "", False, "str"),      # 常学领域（逗号分隔，多选）
+    SettingSpec("profile.note", "", False, "str"),        # 开放题一句话
+    # 新手引导：done=完成标志；step=断点（intro/profile/api，刷新后从当前步继续）。
+    SettingSpec("guide.done", "false", False, "bool"),
+    SettingSpec("guide.step", "", False, "str"),
     # 预生成：讲义/练习完成后，后台提前把下一份资源备好（默认开，用户 2026-09-20 拍板；
     # 关闭后行为与改动前完全一致 —— 不会有任何额外模型调用）。
     SettingSpec("prefetch.enabled", "true", False, "bool"),

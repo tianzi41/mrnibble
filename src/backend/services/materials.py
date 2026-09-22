@@ -35,6 +35,7 @@ from ..utils.ids import new_id
 from ..utils.timeutil import now_iso
 from .ingest import IngestService
 from .llm import LLMClient, extract_json_object
+from .profile import with_profile
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +210,7 @@ class MaterialService:
         for attempt in range(_MAX_RETRY + 1):
             raw = ""
             try:
-                raw = llm.chat(messages, temperature=0.4, max_tokens=2048)
+                raw = llm.chat(with_profile(messages), temperature=0.4, max_tokens=2048)
                 outline = self._validate_outline(extract_json_object(raw))
                 if outline is not None:
                     break
@@ -381,7 +382,7 @@ class MaterialService:
         ]
         for attempt in range(_MAX_RETRY + 1):
             try:
-                raw = llm.chat(messages, temperature=0.5, max_tokens=4096)
+                raw = llm.chat(with_profile(messages), temperature=0.5, max_tokens=4096)
                 body = _clean_md(str(raw))
                 # 防御：模型有时仍会自带章标题 → 去掉。外层按目录统一补标题，
                 # 否则材料里会出现两个 `##`（前端靠数 `##` 算「已写 N 章」，会数错）。

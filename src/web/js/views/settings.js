@@ -28,7 +28,7 @@
     const page = document.createElement("div");
     page.className = "page";
     page.innerHTML = `
-      <div class="card">
+      <div class="card" id="llm-card">
         <h3 style="margin:0 0 4px">对话模型</h3>
         <p class="hint" style="margin-top:0">OpenAI 兼容端点均可<strong>直接手填</strong>，不必先选预设。<strong>接口地址与模型名两项都必须填</strong>，否则无法提问；填好后点「测试连接」确认可用。</p>
         <div class="field"><label>快速填充</label>
@@ -66,6 +66,19 @@
           <span class="hint" id="st-test-result"></span>
         </div>
         <p class="hint">断网使用：启动本机 Ollama 后，base_url 填 <code>http://127.0.0.1:11434/v1</code>，Key 留空，即可完全离线问答。</p>
+      </div>
+
+      <div class="card" id="pf-card">
+        <h3 style="margin:0 0 4px">关于你（用户画像）</h3>
+        <p class="hint" style="margin-top:0">
+          新手引导里收集的学习画像。每次生成课程 / 讲义 / 练习 / 回答时，会作为背景一起交给模型，
+          用来调整难度、举例与讲法。只保存在本机，随时可改。
+        </p>
+        <div id="pf-editor"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small" id="pf-replay">重新看新手引导</button>
+          <span class="hint" id="pf-result"></span>
+        </div>
       </div>
 
       <div class="card">
@@ -205,6 +218,38 @@
         </div>
       </div>`;
     host.appendChild(page);
+
+    // ── 用户画像（题目与渲染在 js/profile_fields.js）──────────
+    // 编辑器是「所见即所存」的全量保存（含跳过的空项），与向导的增量保存不同：
+    // 用户在设置页看到的状态就是真相。清空 = 所有字段传空串。
+    window.Profile.renderEditor(document.getElementById("pf-editor"), {
+      answers: window.Profile.fromSettings(cfg),
+      onSave: (a) => {
+        Api.put("/api/settings", { profile: window.Profile.toPayload(a) })
+          .then(() => { Toast("画像已保存"); })
+          .catch((e) => Toast(e.message, true));
+      },
+      onClear: () => {
+        Api.put("/api/settings", { profile: window.Profile.toPayload({}) })
+          .then(() => { Toast("画像已清空"); })
+          .catch((e) => Toast(e.message, true));
+      },
+    });
+    document.getElementById("pf-replay").onclick = () => {
+      Api.put("/api/settings", { guide: { done: false, step: "intro" } })
+        .then(() => window.Main.refreshModelBadge())
+        .then(() => { location.hash = "#/welcome"; })
+        .catch((e) => Toast(e.message, true));
+    };
+    // 新手引导第 3 步「去设置页配置」跳过来：定位并闪烁高亮「对话模型」卡。
+    if (/[?&]focus=api\b/.test(location.hash)) {
+      const card = document.getElementById("llm-card");
+      if (card) {
+        card.scrollIntoView({ behavior: "smooth", block: "start" });
+        card.classList.add("focus-flash");
+        setTimeout(() => card.classList.remove("focus-flash"), 2000);
+      }
+    }
 
     // 预设
     document.getElementById("st-preset").onchange = (e) => {
