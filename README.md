@@ -1,8 +1,7 @@
 # 知伴 ZhiBan · 本地 AI 学习伴侣
 
-> 复刻 Hyperknow 核心能力的**单机单人**本地软件。把课件、论文、教材放进本机，
-> 即可基于**自己的材料**提问、生成复习资料、被"像老师一样"引导式教学。
-> 数据不出本机，填入你自己的 API Key 即可使用。
+> **单机本地的引导式 AI 学习软件。** 把你的课件、论文、教材放进本机，即可基于**自己的材料**
+> 提问、生成课程与复习资料、被"像老师一样"引导着学。数据不出本机，填入你自己的 API Key 即可使用。
 
 | 项 | 说明 |
 |---|---|
@@ -10,10 +9,13 @@
 | 交付形态 | **免安装绿色包**：解压 → 双击 `知伴.exe`，无需安装 Python / Node / Docker |
 | 使用方式 | 单机单人，无注册登录，全部数据存本机 |
 | 数据位置 | 程序目录内 `data/`（拷走整包即完成迁移） |
+| 许可证 | [MIT](LICENSE) |
+| 技术栈 | Python 3.13 + FastAPI + SQLite(FTS5) + 零构建原生 JS 前端 |
+| 测试 | 19 套自动化套件 / 896 项断言（含 48 项打包后冻结态验证），全部通过 |
 
 ---
 
-## 一、30 秒上手
+## 一、快速开始（用户）
 
 1. 解压 `知伴.zip` 到任意目录（**建议放在空间充足的盘**，如 `D:\知伴\`）。
 2. 双击 `知伴.exe`，会自动打开应用窗口。
@@ -71,27 +73,7 @@
 
 ---
 
-## 四、目录结构
-
-```
-知伴/
-├─ 知伴.exe            ← 双击启动
-├─ _internal/          ← 程序与随包资源（只读，请勿改动）
-│  ├─ web/             ← 前端（含本地第三方库，离线可用）
-│  └─ models/          ← 本地语音模型（若打包时已包含）
-└─ data/               ← 你的全部数据（可写）
-   ├─ zhiban.db        ← SQLite 主库（文档、切片、会话、记忆、课程与练习记录）
-   ├─ files/           ← 上传的原始文档
-   ├─ exports/         ← 导出的 apkg / md / csv / png
-   ├─ secret.key       ← 本机加密主密钥（勿删，删了已存的 Key 将无法解密）
-   └─ logs/zhiban.log  ← 运行日志（已脱敏，不含 Key）
-```
-
-**迁移 / 备份**：把整个 `知伴/` 文件夹拷走即可。也可用 `scripts/backup.ps1` / `restore.ps1`。
-
----
-
-## 五、常见问题
+## 四、常见问题
 
 <details>
 <summary><b>「材料标注」页打开是空的 / 图片题没有配图？</b></summary>
@@ -145,9 +127,37 @@
 
 ---
 
-## 六、从源码运行 / 构建（仅开发者需要）
+## 五、开发者指南
 
-> ⚠️ 本仓库按 `.gitignore` 排除了**体积大或敏感**的东西，克隆后不能直接跑，需按下表补齐。
+### 5.1 技术栈与结构
+
+- **后端**：Python 3.13 + FastAPI + uvicorn，作为本机侧车服务（只绑 `127.0.0.1`，固定端口 8760，被占用顺延至 8770）
+- **存储**：SQLite（WAL 模式）+ FTS5 全文检索（CJK 逐字分词）；密钥用 Fernet 加密后落库，日志脱敏
+- **前端**：零构建原生 JS（IIFE 模块 + `<script>` 直载），无框架无打包器；第三方库存 `src/web/vendor/`
+- **桌面外壳**：`src/launcher.py` 拉起后端 + 打开 Edge/Chrome 应用窗口，窗口存活即服务存活
+- **构建**：PyInstaller 冻结态（`build/zhiban.spec`），随包分发 ASR + MeloTTS 模型
+- **测试**：`dev/*_check.py` 全部自带 mock 模型服务，**无需网络与真实 Key**
+
+```
+zhiban/
+├─ src/
+│  ├─ backend/            # FastAPI 侧车服务
+│  │  ├─ db/              # schema / migrations / connection
+│  │  ├─ services/        # courses / retrieval / tts / asr / diagram / embedder …
+│  │  ├─ routers/         # HTTP 端点
+│  │  └─ main.py
+│  ├─ web/                # 零构建前端（index.html + css + js，js/views/ 为页面模块）
+│  └─ launcher.py         # 桌面外壳入口
+├─ dev/                   # 自动化测试（19 套件，自带 mock）与 fixtures
+├─ scripts/               # 模型下载 / vendor 拉取 / 打包 / 备份恢复
+├─ build/                 # PyInstaller spec 与构建脚本
+├─ docs/                  # PRD / 架构 / 用户手册 / 模型兼容列表 / 依赖许可
+└─ requirements*.txt
+```
+
+### 5.2 克隆后必须补齐的内容
+
+> 本仓库按 `.gitignore` 排除了**体积大或敏感**的东西，克隆后不能直接跑，需按下表补齐。
 > 这些内容都是可重建的，不需要手动拷贝。
 
 | 未入库的内容 | 为什么 | 怎么补 |
@@ -156,8 +166,11 @@
 | `src/web/vendor/pdfjs/` | 同上 | `.venv\Scripts\python scripts\fetch_pdfjs.py` |
 | `models/asr/`（SenseVoice 229MB） | 模型权重过大 | `powershell -ExecutionPolicy Bypass -File scripts\download_models.ps1`（走 hf-mirror 国内镜像） |
 | `models/tts/`（MeloTTS 77MB） | 同上 | `.venv\Scripts\python scripts\download_tts_model.py`（走 ModelScope 镜像，支持断点续传） |
+| `models/embed/`（bge-small-zh INT8 25MB，可选） | 语义检索增强，默认关闭 | `.venv\Scripts\python scripts\download_bge_model.py` |
 | `data/` | **含 `secret.key` 与用户资料库** | 首次启动自动创建，无需处理 |
 | `.venv/`、`dist*/`、`build/*/` | 虚拟环境与构建产物 | 见下方步骤 1 与 4 |
+
+### 5.3 从源码运行
 
 ```powershell
 # 1) 建虚拟环境并装依赖（国内建议清华源）
@@ -172,25 +185,72 @@ powershell -ExecutionPolicy Bypass -File scripts\fetch_vendor.ps1
 powershell -ExecutionPolicy Bypass -File scripts\download_models.ps1
 .venv\Scripts\python scripts\download_tts_model.py
 
-# 4) 开发态直接跑（8760 端口），或一键打包
-.venv\Scripts\python -m backend.main            # 需设 PYTHONPATH=src
-powershell -ExecutionPolicy Bypass -File build\build.ps1
-# 打包产物：dist\知伴\
+# 4) 开发态运行（两种方式）
+.venv\Scripts\python -m backend.main            # 仅后端，需设 PYTHONPATH=src，端口 8760
+powershell -ExecutionPolicy Bypass -File scripts\run_dev.ps1   # 后端 + 浏览器窗口（完整桌面体验）
 ```
 
-运行自动化测试（自带 mock 模型服务，**无需网络与真实 Key**）：
+### 5.4 跑测试
+
+19 个套件全部**自带 mock 模型服务**，无需网络与真实 Key。跑前建议 `taskkill /IM python.exe /F`
+清残留测试进程（端口区间 8760–8770）：
+
+| 套件 | 覆盖 | 项数 |
+|---|---|---|
+| `dev/t01_t02_check.py` | 建库 / FTS / schema 迁移 | 15 |
+| `dev/t06_t11_check.py` | 后端主链路（设置/文档/检索/TTS/ASR） | 86 |
+| `dev/course_check.py` | 课程生成全链路（大纲→课件→练习→总结） | 255 |
+| `dev/course_ui_check.py` | 前端页面冒烟（含 CDP 真实浏览器交互，需 Chrome） | 201 |
+| `dev/tts_fallback_check.py` | 语音回退 / 密钥不外泄 / 失败分类 | 20 |
+| `dev/tts_prefetch_check.py` | 朗读预取与段间静音实测 | 17 |
+| `dev/tts_voices_check.py` | 音色发现 / 探测缓存 / 能力裁剪 | 14 |
+| `dev/tts_custom_check.py` | 自定义 TTS 适配器 | 5 |
+| `dev/diagram_ir_check.py` | 图示 IR 校验与确定性编译 | 64 |
+| `dev/viz_harness_check.py` | 课件可视化渲染链路 | 31 |
+| `dev/embedder_check.py` | 本地 bge 嵌入（模型缺则自动跳过） | 6 |
+| `dev/chrome_app_check.py` | Chrome `--app` 真窗冒烟 | 8 |
+| `dev/launcher_liveness_check.py` | 桌面外壳存活判定（真建窗口并最小化） | 31 |
+| `dev/hardening_check.py` | 上传预检 / 抓取上限 / 回环校验 / 安全头 | 18 |
+| `dev/topic_goal_check.py` | AI 材料建课学习目标 | 17 |
+| `dev/outline_units_check.py` | 大纲单元数量弹性 | 20 |
+| `dev/course_done_check.py` | 结课收尾 | 9 |
+| `dev/ui_fixes_check.py` | 前端改动端到端 | 31 |
+| `dev/frozen_check.py` | **打包后冻结态**（用 `ZHIBAN_DIST` 指定被测包） | 48 |
 
 ```powershell
-.venv\Scripts\python dev\t06_t11_check.py     # 后端主链路 81 项
-.venv\Scripts\python dev\course_check.py      # 课程链路 116 项
-.venv\Scripts\python dev\course_ui_check.py   # 前端页面冒烟 44 项（需本机 Chrome）
-# 打包后冻结态（48 项；务必用独立数据目录，别污染真实数据）
-#   ZHIBAN_DIST=dist39 ZHIBAN_DATA_DIR=<临时目录> .venv\Scripts\python dev\frozen_check.py
+# 单套示例
+.venv\Scripts\python dev\t06_t11_check.py
+
+# 冻结态验证（务必指定独立数据目录，别污染真实数据）
+$env:ZHIBAN_DIST="dist\知伴"; $env:ZHIBAN_DATA_DIR="$env:TEMP\zhiban-frozen"
+.venv\Scripts\python dev\frozen_check.py
+```
+
+### 5.5 构建打包
+
+```powershell
+# 1) PyInstaller 冻结态构建（产物 dist\知伴\）
+powershell -ExecutionPolicy Bypass -File build\build.ps1
+
+# 2) 冻结态验证（见 5.4，48 项全过才继续）
+
+# 3) 打免安装绿色包 zip（自动排除 data/ 与 secret.key，并做 testzip 校验）
+.venv\Scripts\python scripts\make_package.py --dist dist\知伴 --out 知伴-免安装绿色包-v<版本>.zip
+```
+
+约定：`dist` 目录只增不改（每次新编号），构建用 `--noconfirm` 前必须确认目标目录不存在——
+它会连 `data/`（用户库）一起删。
+
+### 5.6 备份与恢复
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\backup.ps1    # 备份 data/（db + secret.key + files）
+powershell -ExecutionPolicy Bypass -File scripts\restore.ps1   # 从备份恢复
 ```
 
 ---
 
-## 七、文档索引
+## 六、文档索引
 
 | 文档 | 内容 |
 |---|---|
@@ -198,8 +258,10 @@ powershell -ExecutionPolicy Bypass -File build\build.ps1
 | `docs/04-管理员手册.md` | 模型切换、日志、备份恢复、升级、数据迁移 |
 | `docs/05-模型兼容列表.md` | 已验证可用的模型端点清单 |
 | `docs/06-第三方依赖与许可.md` | 全部第三方依赖及其开源许可证 |
+| `docs/01-PRD.md` | 产品需求文档（48 条需求与验收标准） |
 | `docs/02-架构设计.md` | 系统架构、数据模型、接口契约（开发者向） |
+| `dev/REPORT_T01-T05.md` | 第一阶段（骨架/数据层/密钥/解析/检索）自检报告 |
 
 ## 许可
 
-本项目代码采用 MIT 许可，详见 `LICENSE`。第三方组件许可见上文清单。
+本项目代码采用 MIT 许可，详见 `LICENSE`。第三方组件许可见 `docs/06-第三方依赖与许可.md`。
