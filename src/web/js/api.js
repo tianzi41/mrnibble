@@ -1,12 +1,5 @@
 /* API 封装：统一解析 Envelope，SSE 流式读取。 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "无法连接本地服务，请确认知伴正在运行": "Cannot reach the local service; make sure ZhiBan is running",
-    "响应没有可读的流（HTTP ": "Response has no readable stream (HTTP ",
-    "请求失败（HTTP ": "Request failed (HTTP ",
-  } });
   "use strict";
 
   async function request(method, url, body, opts) {
@@ -22,11 +15,11 @@
     try {
       resp = await fetch(url, init);
     } catch (e) {
-      throw new ApiError(0, gt("无法连接本地服务，请确认知伴正在运行"));
+      throw new ApiError(0, "无法连接本地服务，请确认知伴正在运行");
     }
     const ct = resp.headers.get("content-type") || "";
     if (!ct.includes("application/json")) {
-      if (!resp.ok) throw new ApiError(resp.status, gt("请求失败（HTTP ") + resp.status + "）");
+      if (!resp.ok) throw new ApiError(resp.status, "请求失败（HTTP " + resp.status + "）");
       return await resp.blob();
     }
     const json = await resp.json();
@@ -76,7 +69,7 @@
               } catch (e) { /* 不是 JSON 就用状态码 */ }
               throw new Error(msg);
             }
-            if (!resp.body) throw new Error(gt("响应没有可读的流（HTTP ") + resp.status + "）");
+            if (!resp.body) throw new Error("响应没有可读的流（HTTP " + resp.status + "）");
             const reader = resp.body.getReader();
           const dec = new TextDecoder("utf-8");
           let buf = "";

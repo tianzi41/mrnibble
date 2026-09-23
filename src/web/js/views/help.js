@@ -4,10 +4,6 @@
  * 例如不写死模型名（DeepSeek 的模型迭代很快，写死了下次就得改），
  * 只写「预设选 DeepSeek，地址与模型名会自动填好」。 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-  } });
   "use strict";
 
   function render(host) {

@@ -1,58 +1,5 @@
 /* 主工作台：资料库 + 对话（流式/引导式/语音输入）+ 引用与记忆面板。 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "① 先在左边「资料库」勾选要参考的文件（可多选；不选 = 使用全库）<br>": "① Tick the files to reference in \"Library\" on the left (multi-select; none = whole library)<br>",
-    "回答会附带<strong>页码引用</strong>，点击角标可查看来源。": "Answers carry <strong>page citations</strong>; click a marker to see the source.",
-    "<summary>引导详情（拆解步骤 · 教学状态）</summary>": "<summary>Guided details (breakdown steps · teaching state)</summary>",
-    "还差一项：接口地址已填，但没填「模型名」→ 点右上角或去「设置」补上": "One thing left: the API URL is filled but the model name isn't → click the top-right badge or go to Settings",
-    "② 再按实际情况决定是否勾选下方的「允许材料外回答」——": "② Decide whether to tick \"Allow answers beyond materials\" below, based on your situation —",
-    "去设置 → 语音 填写端点与模型名，可点「测试连接」确认": "Go to Settings → Voice, fill in the endpoint and model name, and click \"Test connection\"",
-    "点击选择参考文件以进行提问（可多选；不选 = 使用全库）": "Click to pick reference files for questions (multi-select; none = whole library)",
-    "用当前嵌入模型重新解析（换过嵌入模型后需点这里重建索引）": "Re-parse with the current embedding model (needed after switching embedding models to rebuild the index)",
-    "输入问题，Enter 发送；Shift+Enter 换行": "Type a question; Enter to send, Shift+Enter for a new line",
-    "请先在「设置」里配置对话模型（接口地址 + 模型名）": "Configure the chat model in Settings first (API URL + model name)",
-    "③ 最后在下面的方框里提问<br><br>": "③ Finally, ask in the box below<br><br>",
-    "朗读已开启，之后的回答我会读出来。": "Read-aloud is on; I will read future answers aloud.",
-    "<b>三步开始：</b><br>": "<b>Three steps to start:</b><br>",
-    "云端嵌入不可用，已用本地检索兜底": "Cloud embeddings unavailable; fell back to local search",
-    "全屏预览（PDF 原页放大看）": "Full-screen preview (zoom the original PDF page)",
-    "本地语音识别（录音 → 文字）": "Local speech recognition (record → text)",
-    "请拖入文件（暂不支持文件夹）": "Drop files here (folders not supported yet)",
-    "在「设置 → 语音」中开启": "Enable it in Settings → Voice",
-    "拖动调整预览宽度；双击复位": "Drag to resize the preview; double-click to reset",
-    "语音模块未加载，请刷新页面": "Voice module not loaded; refresh the page",
-    "回答中的引用会显示在这里": "Citations from answers appear here",
-    "（无法加载原文）": "(cannot load the original)",
-    "🔊 朗读（云端）": "🔊 Read aloud (cloud)",
-    "在右侧预览原文": "Preview the original on the right",
-    "重新解析失败：": "Re-parse failed: ",
-    "删除该会话？": "Delete this conversation?",
-    "🎙 按住说话": "🎙 Hold to talk",
-    "🎯 请先回答": "🎯 Answer first",
-    "云端未配置": "Cloud not configured",
-    "加载失败：": "Load failed: ",
-    "范围：全库": "Scope: whole library",
-    "解析失败：": "Parse failed: ",
-    "还没有记忆": "No memories yet",
-    "加载中…": "Loading…",
-    "未知原因": "unknown reason",
-    "🔊 朗读": "🔊 Read aloud",
-    "事实": "Fact",
-    "偏好": "Preference",
-    "停止": "Stop",
-    "删除": "Delete",
-    "发送": "Send",
-    "展开": "Expand",
-    "引用": "Citation",
-    "收起": "Collapse",
-    "盲区": "Gaps",
-    "知伴": "ZhiBan",
-    "记忆": "Memory",
-    "进度": "Progress",
-    "预览": "Preview",
-  } });
   "use strict";
 
   const S = {
@@ -126,7 +73,7 @@
     docs.appendChild(head);
     // 用户反馈：不知道要先选文件再提问。这行放在「＋ 上传」正下方，最先被看到。
     docs.appendChild(el("div", "hint",
-      gt("点击选择参考文件以进行提问（可多选；不选 = 使用全库）")));
+      "点击选择参考文件以进行提问（可多选；不选 = 使用全库）"));
     const body = el("div", "panel-body");
     if (!S.documents.length) {
       body.appendChild(el("div", "empty",
@@ -141,11 +88,11 @@
       if (S.selectedDocs.includes(d.id)) item.appendChild(el("span", "picked", "✓"));
       item.appendChild(el("small", null, d.status === "ready" ? `${d.page_count || ""}` : d.status));
       const pv = el("button", "pv", "👁");
-      pv.title = gt("在右侧预览原文");
+      pv.title = "在右侧预览原文";
       pv.onclick = (ev) => { ev.stopPropagation(); openDocPreview(d); };
       item.appendChild(pv);
       const re = el("button", "r", "↻");
-      re.title = gt("用当前嵌入模型重新解析（换过嵌入模型后需点这里重建索引）");
+      re.title = "用当前嵌入模型重新解析（换过嵌入模型后需点这里重建索引）";
       re.onclick = async (ev) => {
         ev.stopPropagation();
         if (!confirm(`重新解析《${d.title}》？\n\n将用当前嵌入模型重建切片与向量索引，文档较大时耗时较久。`)) return;
@@ -153,18 +100,18 @@
         try {
           const r = await Api.post("/api/documents/" + d.id + "/reparse");
           const doc = (r && r.document) || {};
-          if (doc.status === "failed") Toast(gt("重新解析失败：") + (doc.error || gt("未知原因")), true);
+          if (doc.status === "failed") Toast("重新解析失败：" + (doc.error || "未知原因"), true);
           else if (doc.warning) Toast(doc.warning, true);
           else Toast(`《${d.title}》已重新解析，索引已重建`);
         } catch (e) {
-          Toast(gt("重新解析失败：") + e.message, true);
+          Toast("重新解析失败：" + e.message, true);
         } finally {
           await loadDocuments(); renderSide();
         }
       };
       item.appendChild(re);
       const del = el("button", "x", "✕");
-      del.title = gt("删除");
+      del.title = "删除";
       del.onclick = async (ev) => {
         ev.stopPropagation();
         if (!confirm(`删除《${d.title}》？其切片与索引会一并删除。`)) return;
@@ -205,7 +152,7 @@
       const del = el("button", "x", "✕");
       del.onclick = async (ev) => {
         ev.stopPropagation();
-        if (!confirm(gt("删除该会话？"))) return;
+        if (!confirm("删除该会话？")) return;
         await Api.del("/api/conversations/" + c.id);
         if (S.conversationId === c.id) { S.conversationId = null; S.messages = []; renderChat(); }
         await loadConversations(); renderSide();
@@ -236,7 +183,7 @@
         drop.classList.remove("dropping");
         const fl = ev.dataTransfer && ev.dataTransfer.files;
         if (fl && fl.length) uploadFiles(fl);
-        else Toast(gt("请拖入文件（暂不支持文件夹）"), true);
+        else Toast("请拖入文件（暂不支持文件夹）", true);
       };
     }
   }
@@ -247,12 +194,12 @@
     sc.innerHTML = "";
     if (!S.messages.length) {
       sc.appendChild(el("div", "empty",
-        gt("<b>三步开始：</b><br>") +
-        gt("① 先在左边「资料库」勾选要参考的文件（可多选；不选 = 使用全库）<br>") +
-        gt("② 再按实际情况决定是否勾选下方的「允许材料外回答」——") +
+        "<b>三步开始：</b><br>" +
+        "① 先在左边「资料库」勾选要参考的文件（可多选；不选 = 使用全库）<br>" +
+        "② 再按实际情况决定是否勾选下方的「允许材料外回答」——" +
         "不勾就只依据材料，材料里没有的会明确告知<br>" +
-        gt("③ 最后在下面的方框里提问<br><br>") +
-        gt("回答会附带<strong>页码引用</strong>，点击角标可查看来源。")));
+        "③ 最后在下面的方框里提问<br><br>" +
+        "回答会附带<strong>页码引用</strong>，点击角标可查看来源。"));
     }
     S.messages.forEach((m) => sc.appendChild(msgNode(m.role, m.content, m.citations, m.content_json)));
     sc.scrollTop = sc.scrollHeight;
@@ -260,7 +207,7 @@
 
   function msgNode(role, content, citations, guided) {
     const wrap = el("div", "msg " + (role === "user" ? "user" : "assistant"));
-    wrap.appendChild(el("div", "who", role === "user" ? "我" : gt("知伴")));
+    wrap.appendChild(el("div", "who", role === "user" ? "我" : "知伴"));
     const bubble = el("div", "bubble md");
     if (role === "user") bubble.textContent = content;
     else MD.mount(bubble, content || "");
@@ -276,13 +223,13 @@
       //   拆解步骤与教学状态收进折叠区，想看时点开。
       if (qs.length) {
         const ask = el("div", "guided-ask");
-        ask.appendChild(el("div", "ask-head", gt("🎯 请先回答")));
+        ask.appendChild(el("div", "ask-head", "🎯 请先回答"));
         qs.forEach((q) => ask.appendChild(el("div", "ask-q", escapeHtml(q))));
         wrap.appendChild(ask);
       }
       if (steps.length || guided.mode) {
         const det = el("details", "guided-more");
-        det.innerHTML = gt("<summary>引导详情（拆解步骤 · 教学状态）</summary>");
+        det.innerHTML = "<summary>引导详情（拆解步骤 · 教学状态）</summary>";
         const inner = el("div");
         steps.forEach((s) => inner.appendChild(el("div", "hint",
           `${s.step}. <b>${escapeHtml(s.title)}</b>${s.hint ? " — " + escapeHtml(s.hint) : ""}`)));
@@ -316,7 +263,7 @@
    *
    *  @param {string} title 展开态标题（可带计数）
    *  @param {string} key   S.fold 里的键
-   *  @param {string} short 收起态显示的短标签（"引用来源" → gt("引用")）——
+   *  @param {string} short 收起态显示的短标签（"引用来源" → "引用"）——
    *                        收起后只有 44px 宽，全称竖排会拖得很长
    *  @param {string} [extra] 展开态才显示的按钮 HTML
    *
@@ -329,10 +276,10 @@
     const h = el("div", "panel-head clickable");
     if (folded) {
       h.innerHTML = `<span class="fold-label">${short}</span>` +
-        `<span class="fold" title="${gt("展开")}">▸</span>`;
+        `<span class="fold" title="展开">▸</span>`;
     } else {
       h.innerHTML = `<span>${title}</span>` +
-        `<span class="ph-right">${extra || ""}<span class="fold" title="${gt("收起")}">◂</span></span>`;
+        `<span class="ph-right">${extra || ""}<span class="fold" title="收起">◂</span></span>`;
     }
     h.onclick = (e) => {
       if (e.target.closest("button")) return;   // 「管理」「关闭」这类按钮不触发折叠
@@ -348,9 +295,9 @@
     if (box) {
       box.className = "col col-right" + (S.fold.cites ? " folded" : "");
       box.innerHTML = "";
-      box.appendChild(foldHead(`引用来源（${S.citations.length}）`, "cites", gt("引用")));
+      box.appendChild(foldHead(`引用来源（${S.citations.length}）`, "cites", "引用"));
       const body = el("div", "panel-body");
-      if (!S.citations.length) body.appendChild(el("div", "empty", gt("回答中的引用会显示在这里")));
+      if (!S.citations.length) body.appendChild(el("div", "empty", "回答中的引用会显示在这里"));
       S.citations.forEach((c) => body.appendChild(citeCard(c)));
       box.appendChild(body);
     }
@@ -360,14 +307,14 @@
     if (mbox) {
       mbox.className = "col col-right" + (S.fold.memory ? " folded" : "");
       mbox.innerHTML = "";
-      mbox.appendChild(foldHead(`记忆（${S.memories.length}）`, "memory", gt("记忆"),
+      mbox.appendChild(foldHead(`记忆（${S.memories.length}）`, "memory", "记忆",
         `<button class="btn small" data-nav="#/memory">管理</button>`));
       const mbody = el("div", "panel-body");
       S.memories.forEach((m) => {
         mbody.appendChild(el("div", "hint",
           `<span class="pill ${m.type === "knowledge_gap" ? "warn" : ""}">${typeName(m.type)}</span> ${escapeHtml(m.content.slice(0, 60))}`));
       });
-      if (!S.memories.length) mbody.appendChild(el("div", "empty", gt("还没有记忆")));
+      if (!S.memories.length) mbody.appendChild(el("div", "empty", "还没有记忆"));
       mbox.appendChild(mbody);
       // ⚠️ 收起态 foldHead 不渲染「管理」按钮（见 foldHead 注释），这里必须判空 ——
       // 否则点 👁 预览时（会顺手把记忆面板折叠）renderRight 在这行抛
@@ -389,12 +336,12 @@
         pbox.innerHTML = "";
         // 拖拽把手：贴在面板左边缘（绝对定位，不占列宽）
         const rz = el("div", "pv-resizer");
-        rz.title = gt("拖动调整预览宽度；双击复位");
+        rz.title = "拖动调整预览宽度；双击复位";
         rz.onmousedown = startPreviewDrag;
         rz.ondblclick = () => { setPreviewWidth(PREVIEW_W_DEFAULT); renderRight(); };
         pbox.appendChild(rz);
-        pbox.appendChild(foldHead(`文档预览《${escapeHtml(d.title)}》`, "preview", gt("预览"),
-          `<button class="btn small" id="pv-full" title="${gt("全屏预览（PDF 原页放大看）")}">⤢</button>`
+        pbox.appendChild(foldHead(`文档预览《${escapeHtml(d.title)}》`, "preview", "预览",
+          `<button class="btn small" id="pv-full" title="全屏预览（PDF 原页放大看）">⤢</button>`
           + `<button class="btn small" id="pv-close">关闭</button>`));
         const pb = el("div", "panel-body");
         pbox.appendChild(pb);
@@ -410,7 +357,7 @@
   }
 
   function typeName(t) {
-    return { preference: gt("偏好"), progress: gt("进度"), knowledge_gap: gt("盲区"), fact: gt("事实") }[t] || t;
+    return { preference: "偏好", progress: "进度", knowledge_gap: "盲区", fact: "事实" }[t] || t;
   }
   function escapeHtml(s) {
     return String(s || "").replace(/[&<>"']/g, (c) =>
@@ -448,7 +395,7 @@
         if (d.document.warning) Toast(d.document.warning, true);
         await loadDocuments(); renderSide(); return;
       }
-      if (d.document.status === "failed") { Toast(gt("解析失败：") + d.document.error, true); return; }
+      if (d.document.status === "failed") { Toast("解析失败：" + d.document.error, true); return; }
       await new Promise((r) => setTimeout(r, 500));
     }
   }
@@ -471,21 +418,21 @@
     const badge = document.getElementById("model-badge");
     if (!badge.dataset.ok) {
       Toast(badge.dataset.missing === "model"
-        ? gt("还差一项：接口地址已填，但没填「模型名」→ 点右上角或去「设置」补上")
-        : gt("请先在「设置」里配置对话模型（接口地址 + 模型名）"), true);
+        ? "还差一项：接口地址已填，但没填「模型名」→ 点右上角或去「设置」补上"
+        : "请先在「设置」里配置对话模型（接口地址 + 模型名）", true);
       return;
     }
 
     if (!S.conversationId) await newConversation();
     ta.value = "";
     S.streaming = true;
-    setSendLabel(gt("停止"));
+    setSendLabel("停止");
     S.citations = [];
 
     const sc = document.getElementById("chat-scroll");
     sc.appendChild(msgNode("user", text, [], null));
     const live = el("div", "msg assistant");
-    live.appendChild(el("div", "who", gt("知伴")));
+    live.appendChild(el("div", "who", "知伴"));
     const bubble = el("div", "bubble md");
     bubble.innerHTML = '<span class="hint">思考中…</span>';
     live.appendChild(bubble);
@@ -500,7 +447,7 @@
       guided: S.guided, document_ids: S.selectedDocs.length ? S.selectedDocs : null,
       grounding: S.grounding,
     }, {
-      meta: (d) => { if (d.degraded) Toast(gt("云端嵌入不可用，已用本地检索兜底")); },
+      meta: (d) => { if (d.degraded) Toast("云端嵌入不可用，已用本地检索兜底"); },
       delta: (d) => { acc += d.text; paint(acc); },
       guided: (d) => {
         // 引导式结构化路径：直接展示服务端回填后的内容
@@ -515,7 +462,7 @@
       },
       done: async () => {
         paint(acc);
-        S.streaming = false; setSendLabel(gt("发送"));
+        S.streaming = false; setSendLabel("发送");
         // 朗读：**每条新回答到达时**都要读（此前只在勾选开关那一下调用过一次，
         // 所以用户开了朗读却听不到后续回答）。
         if (S.ttsOn) speak(acc);
@@ -523,10 +470,10 @@
       },
       error: (d) => {
         paint((acc || "") + `\n\n> ⚠️ ${d.message || "调用失败"}`);
-        S.streaming = false; setSendLabel(gt("发送"));
+        S.streaming = false; setSendLabel("发送");
         Toast(d.message || "调用失败", true);
       },
-      close: () => { S.streaming = false; setSendLabel(gt("发送")); },
+      close: () => { S.streaming = false; setSendLabel("发送"); },
     });
   }
 
@@ -631,7 +578,7 @@ function closeDocPreview() {
           const d = await Api.get(`/api/documents/${c.document_id}/preview${q}`);
           const pages = d.pages || [];
           return pages.map((p) => `【第 ${p.page_no} 页】\n${p.text}`).join("\n\n") || c.snippet || "";
-        } catch (e) { return c.snippet || gt("（无法加载原文）"); }
+        } catch (e) { return c.snippet || "（无法加载原文）"; }
       }
     );
   }
@@ -651,7 +598,7 @@ function closeDocPreview() {
          <span>${escapeHtml(title)}</span>
          <button class="btn small" id="zb-ov-x">关闭</button>
        </div>
-       <pre id="zb-ov-body" style="white-space:pre-wrap;overflow:auto;margin:12px 0 0;font-size:13px;flex:1">${gt("加载中…")}</pre>`;
+       <pre id="zb-ov-body" style="white-space:pre-wrap;overflow:auto;margin:12px 0 0;font-size:13px;flex:1">加载中…</pre>`;
     back.appendChild(card);
     back.onclick = (e) => { if (e.target === back) back.remove(); };
     document.body.appendChild(back);
@@ -664,7 +611,7 @@ function closeDocPreview() {
       })
       .catch((e) => {
         const b = document.getElementById("zb-ov-body");
-        if (b) b.textContent = gt("加载失败：") + e.message;
+        if (b) b.textContent = "加载失败：" + e.message;
       });
   }
 
@@ -683,7 +630,7 @@ function closeDocPreview() {
   function setSendLabel(t) {
     const b = document.getElementById("btn-send");
     b.textContent = t;
-    b.classList.toggle("danger", t === gt("停止"));
+    b.classList.toggle("danger", t === "停止");
   }
 
   /* ── 语音输入（本地 ASR）─────────────────
@@ -691,9 +638,9 @@ function closeDocPreview() {
    * 这里只负责把按钮与目标输入框接上去，避免两处各写一份。 */
   function toggleRecord() {
     const btn = document.getElementById("btn-mic");
-    if (!window.Asr) return Toast(gt("语音模块未加载，请刷新页面"), true);
+    if (!window.Asr) return Toast("语音模块未加载，请刷新页面", true);
     return Asr.toggle(btn, () => document.getElementById("chat-text"), {
-      idleText: gt("🎙 按住说话"),
+      idleText: "🎙 按住说话",
       toast: (m, bad) => Toast(m, bad),
     });
   }
@@ -728,16 +675,16 @@ function closeDocPreview() {
         <div class="chat-scroll" id="chat-scroll"></div>
         <div class="chat-input">
           <div class="box">
-            <button class="btn" id="btn-mic" title="${gt("本地语音识别（录音 → 文字）")}">${gt("🎙 按住说话")}</button>
-            <textarea id="chat-text" placeholder="${gt("输入问题，Enter 发送；Shift+Enter 换行")}"></textarea>
-            <button class="btn primary" id="btn-send">${gt("发送")}</button>
+            <button class="btn" id="btn-mic" title="本地语音识别（录音 → 文字）">🎙 按住说话</button>
+            <textarea id="chat-text" placeholder="输入问题，Enter 发送；Shift+Enter 换行"></textarea>
+            <button class="btn primary" id="btn-send">发送</button>
           </div>
           <div class="chat-opts">
             <label class="switch"><input type="checkbox" id="opt-guided"> 🎓 引导式学习（先追问，不直接给答案）</label>
             <label class="switch"><input type="checkbox" id="opt-loose"> 允许材料外回答</label>
             <span style="flex:1"></span>
             <span id="opt-tts-wrap"></span>
-            <span id="opt-scope">${gt("范围：全库")}</span>
+            <span id="opt-scope">范围：全库</span>
           </div>
         </div>
       </div>
@@ -761,7 +708,7 @@ function closeDocPreview() {
     const tw = document.getElementById("opt-tts-wrap");
     if (S.tts && S.tts.enabled && S.tts.mode !== "off") {
       const isCloud = S.tts.mode === "cloud";
-      const label = isCloud ? gt("🔊 朗读（云端）") : gt("🔊 朗读");
+      const label = isCloud ? "🔊 朗读（云端）" : "🔊 朗读";
       const lab = el("label", "switch", `<input type="checkbox" id="opt-tts"> ${label}`);
       tw.appendChild(lab);
       const cb = document.getElementById("opt-tts");
@@ -770,7 +717,7 @@ function closeDocPreview() {
         S.ttsOn = e.target.checked;
         if (S.ttsOn) {
           const last = [...S.messages].reverse().find((m) => m.role === "assistant");
-          speak(last ? last.content : gt("朗读已开启，之后的回答我会读出来。"), true);
+          speak(last ? last.content : "朗读已开启，之后的回答我会读出来。", true);
         } else {
           Voice.stop();   // cloud/melo/system 都要能停
         }
@@ -779,14 +726,14 @@ function closeDocPreview() {
       if (isCloud && S.tts.cloud_configured === false) {
         const pill = document.createElement("span");
         pill.className = "pill bad";
-        pill.textContent = gt("云端未配置");
+        pill.textContent = "云端未配置";
         pill.style.marginLeft = "8px";
-        pill.title = gt("去设置 → 语音 填写端点与模型名，可点「测试连接」确认");
+        pill.title = "去设置 → 语音 填写端点与模型名，可点「测试连接」确认";
         tw.appendChild(pill);
       }
     } else {
       tw.innerHTML = `<span class="pill">朗读未启用</span>`;
-      tw.title = gt("在「设置 → 语音」中开启");
+      tw.title = "在「设置 → 语音」中开启";
     }
 
     // 若上次会话存在则恢复
@@ -796,7 +743,7 @@ function closeDocPreview() {
 
   function updateScope() {
     const n = S.selectedDocs.length;
-    document.getElementById("opt-scope").textContent = n ? `范围：已选 ${n} 份` : gt("范围：全库");
+    document.getElementById("opt-scope").textContent = n ? `范围：已选 ${n} 份` : "范围：全库";
   }
 
   // 选中材料变化时同步提示

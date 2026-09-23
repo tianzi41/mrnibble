@@ -1,34 +1,5 @@
 /* 随堂练习：逐题作答（选项或文字输入）→ 提交判分 → 成绩与解析。 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "🖐 实操题 · 请先按题干实际操作，再回填结果": "🖐 Hands-on · do the actual operation per the prompt, then fill in the result",
-    "做完后把结果填进来，点「确认作答」给你判定。": "Fill in the result when done, then click \"Confirm answer\" for grading.",
-    "写完后点「确认作答」，会立刻给出评分与解析。": "Click \"Confirm answer\" when done for an immediate score and explanation.",
-    "填好后点「确认作答」，会立刻显示对错与解析。": "Click \"Confirm answer\" when done to see correctness and explanation immediately.",
-    "用自己的话作答（开放题由模型按参考答案评分）": "Answer in your own words (open questions are graded by the model against the reference answer)",
-    "点选答案后会立刻显示对错与解析。": "Correctness and explanation show immediately after picking an answer.",
-    "填入答案（不区分大小写与标点）": "Enter the answer (case- and punctuation-insensitive)",
-    "把你实际操作看到的结果填进来": "Fill in the result you actually observed",
-    "请先作答本题，再进入下一题": "Answer this question before moving on",
-    "🏆 恭喜，这门课学完了！": "🏆 Congratulations, you finished this course!",
-    "未作答时无法进入下一题": "Cannot move on without answering",
-    "❌ 回答不正确": "❌ Incorrect",
-    "提交并查看成绩": "Submit and see results",
-    " · 已作答": " · answered",
-    " · 已答对": " · correct",
-    "✅ 回答正确": "✅ Correct",
-    "✅ 确认作答": "✅ Confirm answer",
-    "判定失败：": "Grading failed: ",
-    "上一题": "Previous",
-    "下一题": "Next",
-    "判断题": "True/False",
-    "单选题": "Single choice",
-    "填空题": "Fill in the blank",
-    "实操题": "Hands-on",
-    "开放题": "Open question",
-  } });
   "use strict";
 
   const S = {
@@ -84,7 +55,7 @@
         answer: S.answers[q.id],
       });
     } catch (e) {
-      Toast(gt("判定失败：") + e.message, true);
+      Toast("判定失败：" + e.message, true);
     } finally {
       S.checking = false;
       renderBody(host);
@@ -99,7 +70,7 @@
     const box = el("div", "card");
     box.appendChild(el("div", "hint",
       `第 ${S.index + 1} / ${S.questions.length} 题 · ${typeName(q.type)}`
-      + (res ? (res.correct ? gt(" · 已答对") : gt(" · 已作答")) : "")));
+      + (res ? (res.correct ? " · 已答对" : " · 已作答") : "")));
     const stem = el("div", "stem md");
     MD.mount(stem, q.stem);
     box.appendChild(stem);
@@ -155,17 +126,17 @@
         }
         zone.appendChild(row);
       });
-      if (!res) zone.appendChild(el("div", "hint", gt("点选答案后会立刻显示对错与解析。")));
+      if (!res) zone.appendChild(el("div", "hint", "点选答案后会立刻显示对错与解析。"));
     } else if (q.type === "fill_in" || q.type === "hands_on") {
       // 实操题（hands_on）与填空题共用「单行输入 + 归一化匹配」的作答形式，
       // 区别只在题干上方的「🖐 实操题」徽章与操作指引文案。
       if (q.type === "hands_on") {
-        zone.appendChild(el("div", "hands-on-badge", gt("🖐 实操题 · 请先按题干实际操作，再回填结果")));
+        zone.appendChild(el("div", "hands-on-badge", "🖐 实操题 · 请先按题干实际操作，再回填结果"));
       }
       const inp = el("input", "fill-input");
       inp.type = "text";
       inp.placeholder = q.type === "hands_on"
-        ? gt("把你实际操作看到的结果填进来") : gt("填入答案（不区分大小写与标点）");
+        ? "把你实际操作看到的结果填进来" : "填入答案（不区分大小写与标点）";
       inp.value = S.answers[q.id] || "";
       inp.disabled = !!res;
       inp.oninput = () => { S.answers[q.id] = inp.value; };
@@ -175,24 +146,24 @@
       zone.appendChild(inp);
       if (!res) {
         zone.appendChild(el("div", "hint", q.type === "hands_on"
-          ? gt("做完后把结果填进来，点「确认作答」给你判定。")
-          : gt("填好后点「确认作答」，会立刻显示对错与解析。")));
+          ? "做完后把结果填进来，点「确认作答」给你判定。"
+          : "填好后点「确认作答」，会立刻显示对错与解析。"));
       }
     } else {
       const ta = el("textarea", "fill-input");
       ta.rows = 5;
-      ta.placeholder = gt("用自己的话作答（开放题由模型按参考答案评分）");
+      ta.placeholder = "用自己的话作答（开放题由模型按参考答案评分）";
       ta.value = S.answers[q.id] || "";
       ta.disabled = !!res;
       ta.oninput = () => { S.answers[q.id] = ta.value; };
       zone.appendChild(ta);
-      if (!res) zone.appendChild(el("div", "hint", gt("写完后点「确认作答」，会立刻给出评分与解析。")));
+      if (!res) zone.appendChild(el("div", "hint", "写完后点「确认作答」，会立刻给出评分与解析。"));
     }
     box.appendChild(zone);
 
     // 非选择题不给「选择即判定」的时机，需要一个明确的确认动作。
     if (!objective && !res) {
-      const cbtn = el("button", "btn small primary", gt("✅ 确认作答"));
+      const cbtn = el("button", "btn small primary", "✅ 确认作答");
       cbtn.style.marginTop = "10px";
       cbtn.onclick = () => checkOne(host, q);
       box.appendChild(cbtn);
@@ -201,7 +172,7 @@
     // 即时反馈：对错 → 参考答案 → 解析（紧跟在作答之后）
     if (res) {
       const fb = el("div", "q-feedback " + (res.correct ? "ok" : "bad"));
-      fb.appendChild(el("div", "fb-head", res.correct ? gt("✅ 回答正确") : gt("❌ 回答不正确")));
+      fb.appendChild(el("div", "fb-head", res.correct ? "✅ 回答正确" : "❌ 回答不正确"));
       if (res.expected && !res.correct) {
         fb.appendChild(el("div", "hint", `参考答案：${esc(res.expected)}`));
       }
@@ -219,31 +190,31 @@
     const last = S.index === S.questions.length - 1;
     const nav = el("div", "row");
     nav.style.marginTop = "14px";
-    const prev = el("button", "btn small", gt("上一题"));
+    const prev = el("button", "btn small", "上一题");
     prev.id = "q-prev";
     prev.disabled = S.index === 0;
     prev.onclick = () => { S.index--; renderBody(host); };
-    const next = el("button", "btn small primary", last ? gt("提交并查看成绩") : gt("下一题"));
+    const next = el("button", "btn small primary", last ? "提交并查看成绩" : "下一题");
     next.id = "q-next";
     next.disabled = !answered;
     next.title = answered ? "" : "请先作答本题";
     next.onclick = async () => {
-      if (!isAnswered(q)) return Toast(gt("请先作答本题，再进入下一题"), true);
+      if (!isAnswered(q)) return Toast("请先作答本题，再进入下一题", true);
       if (!last) { S.index++; renderBody(host); return; }
       await submit(host);
     };
     nav.appendChild(prev);
     nav.appendChild(el("span", null,
       `<span class="hint">已答 ${S.questions.filter(isAnswered).length}/${S.questions.length}</span>`));
-    if (!answered) nav.appendChild(el("span", "hint", gt("未作答时无法进入下一题")));
+    if (!answered) nav.appendChild(el("span", "hint", "未作答时无法进入下一题"));
     nav.appendChild(next);
     box.appendChild(nav);
     host.appendChild(box);
   }
 
   function typeName(t) {
-    return { single: gt("单选题"), boolean: gt("判断题"), fill_in: gt("填空题"),
-             hands_on: gt("实操题"), open: gt("开放题") }[t] || t;
+    return { single: "单选题", boolean: "判断题", fill_in: "填空题",
+             hands_on: "实操题", open: "开放题" }[t] || t;
   }
 
   async function submit(host) {
@@ -314,7 +285,7 @@
         // 最后一讲完成 = 整门课结课：回课堂页看「🏆 已学完」横幅，
         // 而不是甩回课程列表 + 一句就消失的提示（用户实测：以为没学完）。
         if (all.length && all.every((l) => l.status === "done")) {
-          Toast(gt("🏆 恭喜，这门课学完了！"));
+          Toast("🏆 恭喜，这门课学完了！");
           location.hash = "#/lessons/" + S.lesson.id;
           return;
         }
@@ -331,7 +302,7 @@
         location.hash = "#/lessons/" + nextLesson.id;
         return;
       }
-      Toast(gt("🏆 恭喜，这门课学完了！"));
+      Toast("🏆 恭喜，这门课学完了！");
       location.hash = "#/lessons/" + S.lesson.id;
     };
   }

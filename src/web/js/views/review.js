@@ -1,15 +1,5 @@
 /* 闪卡复习页：翻面 + 记住了/忘记了（答错回写知识盲区）。 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "想一想：真的记住了吗？": "Think: do you really remember it?",
-    "点击卡片显示答案": "Click a card to show the answer",
-    "显示答案": "Show answer",
-    "有点模糊": "A bit fuzzy",
-    "忘记了": "Forgot",
-    "完成": "Done",
-  } });
   "use strict";
 
   const S = { cards: [], idx: 0, flipped: false, generationId: null, stats: { good: 0, again: 0 } };
@@ -67,14 +57,14 @@
     const hint = document.createElement("div");
     hint.className = "hint";
     hint.style.textAlign = "center";
-    hint.textContent = S.flipped ? gt("想一想：真的记住了吗？") : gt("点击卡片显示答案");
+    hint.textContent = S.flipped ? "想一想：真的记住了吗？" : "点击卡片显示答案";
     box.appendChild(hint);
 
     const bar = document.createElement("div");
     bar.className = "row";
     bar.style.cssText = "justify-content:center;margin-top:14px";
     if (S.flipped) {
-      [["again", gt("忘记了"), "danger"], ["hard", gt("有点模糊"), ""], ["good", "记住了", "primary"], ["easy", "很简单", ""]].forEach(([k, label, cls]) => {
+      [["again", "忘记了", "danger"], ["hard", "有点模糊", ""], ["good", "记住了", "primary"], ["easy", "很简单", ""]].forEach(([k, label, cls]) => {
         const b = document.createElement("button");
         b.className = "btn " + cls;
         b.textContent = label;
@@ -83,7 +73,7 @@
       });
     } else {
       const b = document.createElement("button");
-      b.className = "btn primary"; b.textContent = gt("显示答案");
+      b.className = "btn primary"; b.textContent = "显示答案";
       b.onclick = () => { S.flipped = true; paint(); };
       bar.appendChild(b);
     }
@@ -98,7 +88,7 @@
       if (S.idx >= S.cards.length) {
         document.getElementById("rv-body").innerHTML =
           `<div class="empty">🎉 本轮复习完成（答对 ${S.stats.good} / 答错 ${S.stats.again}）。<br>答错的已记入知识盲区，可在「记忆」里查看。</div>`;
-        document.getElementById("rv-progress").textContent = gt("完成");
+        document.getElementById("rv-progress").textContent = "完成";
         return;
       }
       paint();

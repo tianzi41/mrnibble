@@ -7,21 +7,6 @@
 用 ``gen`` 计数器保证 ``stop()`` 能中断整批队列。
 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "未找到中文系统语音，朗读可能无声或发音不准；请在 Windows「设置 → 时间和语言 → 语音」添加中文语音包": "No Chinese system voice found; read-aloud may be silent or mispronounced. Add a Chinese voice pack in Windows Settings → Time & Language → Speech",
-    "当前浏览器不支持本地朗读，可在「设置 → 语音」改用云端朗读": "This browser does not support local read-aloud; switch to cloud read-aloud in Settings → Voice",
-    "；已停在本页，可在「设置」里换一个朗读引擎后重试": "; stopped at this page — switch the read-aloud engine in Settings and retry",
-    "。请到「设置 → 语音」填写语音端点与模型名，": ". Fill in the voice endpoint and model name in Settings → Voice,",
-    "点「测试连接」确认可用后再试。": "Click \"Test connection\" to confirm before retrying.",
-    " …（内容较长，后续省略）": " … (long content, truncated)",
-    "本地语音合成失败：": "Local synthesis failed: ",
-    "（此处是代码块）": "(code block)",
-    "云端朗读失败：": "Cloud read-aloud failed: ",
-    "本地朗读失败：": "Local read-aloud failed: ",
-    "未知原因": "unknown reason",
-  } });
   "use strict";
 
   // 语音列表是**异步**加载的：首次 getVoices() 常返回空数组，
@@ -47,7 +32,7 @@
     return String(md || "")
       .replace(/\[\[c:\d+\]\]/g, "")
       .replace(/\[\d+\]/g, "")
-      .replace(/```[\s\S]*?```/g, gt("（此处是代码块）"))
+      .replace(/```[\s\S]*?```/g, "（此处是代码块）")
       .replace(/`([^`]*)`/g, "$1")
       .replace(/[#*>`_~|]/g, " ")
       .replace(/\s+/g, " ")
@@ -333,7 +318,7 @@
     const clean = plainText(text);
     if (!clean) return;
     // 总长 20000 字为安全上限（避免误塞过长文本）
-    const capped = clean.length > 20000 ? clean.slice(0, 20000) + gt(" …（内容较长，后续省略）") : clean;
+    const capped = clean.length > 20000 ? clean.slice(0, 20000) + " …（内容较长，后续省略）" : clean;
 
     const myGen = ++_gen;
 
@@ -351,8 +336,8 @@
     if (_engine === "melo" || _engine === "cloud") {
       const isCloud = _engine === "cloud";
       if (isCloud && _cloudReason) {
-        fail(_cloudReason + gt("。请到「设置 → 语音」填写语音端点与模型名，")
-             + gt("点「测试连接」确认可用后再试。"));
+        fail(_cloudReason + "。请到「设置 → 语音」填写语音端点与模型名，"
+             + "点「测试连接」确认可用后再试。");
         return;
       }
       _parked = null;                    // 新的一次朗读作废任何停机现场
@@ -363,7 +348,7 @@
     }
 
     if (!window.speechSynthesis) {
-      fail(gt("当前浏览器不支持本地朗读，可在「设置 → 语音」改用云端朗读"));
+      fail("当前浏览器不支持本地朗读，可在「设置 → 语音」改用云端朗读");
       return;
     }
     const chunks = cut(capped);
@@ -382,7 +367,7 @@
         let errTried = false;      // 本页是否已重试过（见下面 onerror）
         u.onerror = (e) => {
           if (myGen !== _gen) return;
-          const err = (e && e.error) || gt("未知原因");
+          const err = (e && e.error) || "未知原因";
           if (err === "interrupted" || err === "canceled") return;   // stop()/切页的正常取消
           if (!errTried) {
             // 同页重试一次：偶发失败（引擎忙、丢事件）能自愈，不必惊动用户
@@ -394,14 +379,14 @@
           // ⚠️ 绝不能顺手 speakNext(idx+1) —— 那会让每一页都"报错→翻页"，
           // 整讲几秒钟刷完、还被标记成已讲完（实测把课堂页的三条状态断言全打红，
           // 对用户更是假进度）。停下来 + 给出可操作的提示，才是诚实的处理。
-          fail(gt("本地朗读失败：") + err + gt("；已停在本页，可在「设置」里换一个朗读引擎后重试"));
+          fail("本地朗读失败：" + err + "；已停在本页，可在「设置」里换一个朗读引擎后重试");
         };
       u.onend = () => {
         if (myGen === _gen) speakNext(idx + 1);
       };
       speechSynthesis.speak(u);
       if (!v) {
-        warn(gt("未找到中文系统语音，朗读可能无声或发音不准；请在 Windows「设置 → 时间和语言 → 语音」添加中文语音包"));
+        warn("未找到中文系统语音，朗读可能无声或发音不准；请在 Windows「设置 → 时间和语言 → 语音」添加中文语音包");
       }
     }
     speakNext(0);
@@ -445,7 +430,7 @@
       for (let attempt = 1; !got.ok && attempt <= RETRY_MAX; attempt++) {
         if (myGen !== _gen) return;
         if (opts.onRetry) {
-          opts.onRetry(attempt, RETRY_MAX, (got.e && got.e.message) || gt("未知原因"));
+          opts.onRetry(attempt, RETRY_MAX, (got.e && got.e.message) || "未知原因");
         }
         await new Promise((r) => setTimeout(r, RETRY_BASE_MS * Math.pow(2, attempt - 1)));
         if (myGen !== _gen) return;
@@ -461,8 +446,8 @@
         // 重试也耗尽：**保留停机现场**。「↻ 重试朗读」/点字幕条能把朗读从
         // 这一句重新拉起；停机不清现场，恢复时从 i 继续（前面已播的段不重播）。
         _parked = { chunks, from: i, opts, fetchOne, isCloud, gen: myGen };
-        fail((isCloud ? gt("云端朗读失败：") : gt("本地语音合成失败："))
-             + ((got.e && got.e.message) || gt("未知原因"))
+        fail((isCloud ? "云端朗读失败：" : "本地语音合成失败：")
+             + ((got.e && got.e.message) || "未知原因")
              + `（已自动重试 ${RETRY_MAX} 次）。点「↻ 重试朗读」再试一次`);
         return;                              // 明确失败，不降级
       }

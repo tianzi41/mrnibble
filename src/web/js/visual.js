@@ -9,11 +9,6 @@
  *     Promise<true|false>，调用方需对「返回值是 Promise」的情况 await。
  */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "系列": "Series",
-  } });
   "use strict";
 
   let _mermaidInit = false;          // mermaid.initialize 只跑一次（模块级布尔）
@@ -152,7 +147,7 @@
       },
       series: series.map(function (s, i) {
         return {
-          name: s.name || (gt("系列") + (i + 1)), type: type,
+          name: s.name || ("系列" + (i + 1)), type: type,
           data: (s.data || []).map(function (v) { return Number(v); }),
           label: { show: true, fontSize: 11, position: "top" },
           smooth: type === "line",

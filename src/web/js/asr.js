@@ -15,15 +15,6 @@
 2026-09-13 新增：课堂页提问框也要语音输入，从 workbench.js 抽出。
 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "当前浏览器不支持录音；请用 Chrome / Edge 打开（本地地址或 https）": "This browser does not support recording; open with Chrome / Edge (local address or https)",
-    "无法访问麦克风：": "Cannot access microphone: ",
-    "识别失败：": "Recognition failed: ",
-    "⏹ 结束": "⏹ Stop",
-    "识别中…": "Recognizing…",
-  } });
   "use strict";
 
     // 当前录音会话（没有则为 null）。
@@ -95,7 +86,7 @@
       if (session) { const s = session; session = null; await s.stop(); return; }
       if (opening) return;              // 正在取麦克风：这次点击直接忽略（防并发开会话）
       if (!supported()) {
-        toast(gt("当前浏览器不支持录音；请用 Chrome / Edge 打开（本地地址或 https）"), true);
+        toast("当前浏览器不支持录音；请用 Chrome / Edge 打开（本地地址或 https）", true);
         return;
       }
 
@@ -107,7 +98,7 @@
           audio: { channelCount: 1, echoCancellation: true },
         });
       } catch (e) {
-        toast(gt("无法访问麦克风：") + (e && e.message || e), true);
+        toast("无法访问麦克风：" + (e && e.message || e), true);
         if (btn) btn.disabled = false;
         return;
       } finally {
@@ -122,12 +113,12 @@
     proc.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
     src.connect(proc); proc.connect(ctx.destination);
 
-    setBtn(btn, gt("⏹ 结束"), true);
+    setBtn(btn, "⏹ 结束", true);
     if (opts.onStart) opts.onStart();
 
     session = {
       stop: async () => {
-        setBtn(btn, gt("识别中…"), false);
+        setBtn(btn, "识别中…", false);
         btn.dataset.busy = "1"; btn.disabled = true;
         try {
           src.disconnect(); proc.disconnect();
@@ -146,7 +137,7 @@
           toast(`识别完成（${((d && d.duration_ms || 0) / 1000).toFixed(1)}s / ${(d && d.latency_ms) || 0}ms）`);
           if (opts.onResult) opts.onResult((d && d.text) || "");
         } catch (e) {
-          toast(gt("识别失败：") + (e && e.message || e), true);
+          toast("识别失败：" + (e && e.message || e), true);
         } finally {
           delete btn.dataset.busy;
           setBtn(btn, idle, false);

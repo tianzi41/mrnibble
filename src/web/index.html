@@ -17,27 +17,16 @@
   } catch (e) {}
 })();
 </script>
-<!-- 首屏防语言闪烁：在样式加载前就把 lang 设好（完整逻辑见 js/i18n.js）。
-     默认 zh，与现有中文界面 / 测试零影响；选过 en 才变。 -->
-<script>
-(function () {
-  try {
-    var v = localStorage.getItem("zhiban-lang") === "en" ? "en" : "zh";
-    document.documentElement.setAttribute("lang", v);
-  } catch (e) {}
-})();
-</script>
 <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
 <div id="app">
   <!-- ── 顶栏 ─────────────────────────────── -->
   <header class="topbar">
-    <div class="brand"><span class="logo">知</span><span>知伴</span><small id="brand-sub">本地 AI 学习伴侣</small></div>
+    <div class="brand"><span class="logo">知</span><span>知伴</span><small>本地 AI 学习伴侣</small></div>
     <nav class="nav" id="nav"></nav>
     <div class="topbar-right">
       <select id="theme-sel" class="theme-sel" title="外观（浅色 / 护眼 / 暗色）"></select>
-      <select id="lang-sel" class="theme-sel" title="语言"></select>
       <span id="conn-dot" class="dot" title="服务状态"></span>
       <span id="model-badge" class="badge">未配置模型</span>
     </div>
@@ -73,10 +62,6 @@
 <script src="/static/vendor/echarts/echarts.min.js"></script>
 <script src="/static/vendor/markmap/markmap-view.js"></script>
 <script src="/static/vendor/markmap/markmap-lib.js"></script>
-<!-- i18n / theme 必须在所有视图与工具模块之前：视图 IIFE 顶部就调用
-     window.I18n.merge(...)，晚于视图加载会让 merge 被跳过、t() 直接返回 key。 -->
-<script src="/static/js/i18n.js"></script>
-<script src="/static/js/theme.js"></script>
 <script src="/static/js/visual.js"></script>
 
 <script src="/static/js/api.js"></script>
@@ -97,6 +82,7 @@
 <script src="/static/js/views/settings.js"></script>
 <script src="/static/js/views/welcome.js"></script>
 <script src="/static/js/views/help.js"></script>
+<script src="/static/js/theme.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
 </html>

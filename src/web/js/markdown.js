@@ -1,9 +1,5 @@
 /* Markdown 渲染：marked + DOMPurify 清洗 + highlight.js 高亮 + KaTeX 公式。 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-  } });
   "use strict";
 
   const renderer = new marked.Renderer();

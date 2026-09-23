@@ -15,23 +15,6 @@
  *    → 页面显示「没有可显示的文本」，看起来就是「预览失败」。
  */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "（这份材料没有可提取的文字）如果是扫描版 PDF（页面是图片、没有文字层），": "(this material has no extractable text) If it is a scanned PDF (pages are images with no text layer),",
-    "这是正常的 —— 请用上面的「原页」方式查看，或直接看课程里的引用配图。": "This is normal — view it with the \"Original page\" mode above, or see the referenced figures in the course.",
-    "PDF 渲染组件未加载，下面按文字显示。": "PDF renderer not loaded; showing text instead.",
-    "当前缩放（100% = 按容器宽适配）": "Current zoom (100% = fit container width)",
-    "适应容器宽度": "Fit width",
-    "（无文字层）": "(no text layer)",
-    "加载中…": "Loading…",
-    "读取失败": "Read failed",
-    "上一页": "Previous",
-    "下一页": "Next",
-    "放大": "Zoom in",
-    "缩小": "Zoom out",
-    "适宽": "Fit",
-  } });
   "use strict";
 
   const el = (tag, cls, html) => {
@@ -102,7 +85,7 @@
           `原页渲染失败：${esc(e.message)}<br>下面按文字显示。`));
       }
     } else if (isPdf) {
-      host.appendChild(el("div", "hint", gt("PDF 渲染组件未加载，下面按文字显示。")));
+      host.appendChild(el("div", "hint", "PDF 渲染组件未加载，下面按文字显示。"));
     }
     // 文本路径同样返回跳页句柄（否则调用方的「跳原文」在 md/txt 材料上会静默失效）
     return await mountText(host, doc, opts);
@@ -118,10 +101,10 @@
     const zoomOut = el("button", "btn small", "−");
     const zoomIn = el("button", "btn small", "＋");
     const zoomPct = el("span", "pv-page", "100%");
-    const fit = el("button", "btn small on", gt("适宽"));
-    prev.title = gt("上一页"); next.title = gt("下一页");
-    zoomOut.title = gt("缩小"); zoomIn.title = gt("放大"); fit.title = gt("适应容器宽度");
-    zoomPct.title = gt("当前缩放（100% = 按容器宽适配）");
+    const fit = el("button", "btn small on", "适宽");
+    prev.title = "上一页"; next.title = "下一页";
+    zoomOut.title = "缩小"; zoomIn.title = "放大"; fit.title = "适应容器宽度";
+    zoomPct.title = "当前缩放（100% = 按容器宽适配）";
     bar.append(prev, label, next, zoomOut, zoomIn, zoomPct, fit);
 
     const stage = el("div", "pv-stage");
@@ -223,7 +206,7 @@
       const blk = el("div", "pv-text-page");
       blk.dataset.page = String(p);
       const pre = el("pre", "doc-preview");
-      pre.textContent = total > 1 ? `【第 ${p} 页】加载中…` : gt("加载中…");
+      pre.textContent = total > 1 ? `【第 ${p} 页】加载中…` : "加载中…";
       blk.appendChild(pre);
       blocks.set(p, blk);
       wrap.appendChild(blk);
@@ -240,15 +223,15 @@
         any = any || !!txt;
         pre.textContent = txt
           ? (total > 1 ? `【第 ${p} 页】\n${txt}` : txt)
-          : (total > 1 ? `【第 ${p} 页】（这一页没有可提取的文字）` : gt("（无文字层）"));
+          : (total > 1 ? `【第 ${p} 页】（这一页没有可提取的文字）` : "（无文字层）");
       } catch (e) {
-        pre.textContent = total > 1 ? `【第 ${p} 页】读取失败` : gt("读取失败");
+        pre.textContent = total > 1 ? `【第 ${p} 页】读取失败` : "读取失败";
       }
     }
     if (!any) {
       wrap.appendChild(el("div", "hint",
-        gt("（这份材料没有可提取的文字）如果是扫描版 PDF（页面是图片、没有文字层），") +
-        gt("这是正常的 —— 请用上面的「原页」方式查看，或直接看课程里的引用配图。")));
+        "（这份材料没有可提取的文字）如果是扫描版 PDF（页面是图片、没有文字层），" +
+        "这是正常的 —— 请用上面的「原页」方式查看，或直接看课程里的引用配图。"));
     }
     let cur = Math.max(1, opts.page || opts.startPage || 1);
     return {

@@ -1,129 +1,5 @@
 /* 讲次课堂：讲义白板 / 材料标注 / 单元总结 + 引用 + 课堂提问 + 导出 + 朗读。 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "选「高亮」或「圈注」后在材料上拖出矩形即可标注；在右侧写旁注，连线会自动指向对应位置。标注会随课程保存。": "Pick \"Highlight\" or \"Circle\", then drag a rectangle on the material to annotate; write margin notes on the right and connectors point to the spot automatically. Annotations are saved with the course.",
-    "还没有单元总结。<br>点上方按钮生成，会结合本单元的练习表现给出薄弱点与下一步建议。": "No unit summary yet.<br>Click the button above to generate one — it combines this unit's practice performance into weak points and next-step suggestions.",
-    "点「▶ 开始上课」后，这里会实时显示我正在讲的内容，讲过的段落都会保留，可以往上翻。": "After clicking \"▶ Start class\", what I'm saying shows here in real time; spoken paragraphs are kept and you can scroll up.",
-    "这里是讲义全文（供你通读与复习）；上课时逐页展示的课件，请切到上面的「课件」页签。": "This is the full handout (for reading and review); the page-by-page slides shown in class are under the \"Slides\" tab above.",
-    "这一讲已标记为完成。重新生成会用新内容覆盖现有的讲义、讲稿与标注，继续吗？": "This lesson is marked complete. Regenerating will overwrite the existing handout, script, and annotations. Continue?",
-    "本页还没有标注。<br>选「高亮」或「圈注」后在材料上拖一下。": "No annotations on this page yet.<br>Pick \"Highlight\" or \"Circle\", then drag on the material.",
-    "这一节是<b>随堂练习</b>，没有课件内容。<br>": "This section is <b>in-class practice</b> with no slide content.<br>",
-    "对这一节有疑问？直接在下面输入，回答只依据你的材料。": "Questions about this section? Type below; answers are based only on your materials.",
-    "点下面的按钮，系统会依据你的材料生成本讲的白板内容。": "Click the button below and the system will generate this lesson's whiteboard content from your materials.",
-    "未配置语音朗读，上课不会有声音 —— 点此前往设置": "Read-aloud not configured — class will be silent. Click to open Settings",
-    "针对这一节提问，Enter 发送；也可以点🎙直接说": "Ask about this section; Enter to send, or click 🎙 to speak",
-    "本地语音识别：点一下开始录音，再点一下转成文字": "Local speech recognition: click once to record, again to transcribe",
-    "pdf.js 未加载，无法渲染材料原页。": "pdf.js not loaded; cannot render the material's original page.",
-    "已停止，可点「▶ 开始上课」从头再讲一遍": "Stopped — click \"▶ Start class\" to teach from the beginning again",
-    "点条目可跳到「材料标注」页查看对应位置。": "Click an entry to jump to the \"Material annotation\" page at that spot.",
-    "这一讲讲完了，正在为你生成随堂测验…": "This lesson is done — generating an in-class quiz for you…",
-    "随堂测验已生成，回到课堂即可开始。": "Quiz generated — return to class to start.",
-    "<span>旁注</span>": "<span>Margin note</span>",
-    "这一节还没有课件内容。<br>": "This section has no slide content yet.<br>",
-    "这门课没有绑定材料，无法标注。": "This course has no bound materials; cannot annotate.",
-    "点下面的按钮，即可开始答题。": "Click the button below to start answering.",
-    "讲义中的材料引用会显示在这里": "Material citations from the handout appear here",
-    "请先在「设置」里配置对话模型": "Configure the chat model in Settings first",
-    "收起原件栏，把宽度让给讲义": "Collapse the original panel to give the handout more width",
-    "语音合成失败——点这里重试": "Speech synthesis failed — click to retry",
-    "（可在右侧「去测验」重试）": "(retry via \"Go to quiz\" on the right)",
-    "📝 生成本讲测验（5 题）": "📝 Generate quiz for this lesson (5 questions)",
-    "➡ 没有疑问，进入下一课": "➡ No questions — next lesson",
-    "写下这条旁注（自动保存）": "Write this margin note (auto-saved)",
-    "已暂停——点这里继续上课": "Paused — click to resume class",
-    "这一节没有可讲的课件内容": "This section has no teachable slide content",
-    "🏆 恭喜，这门课学完了！": "🏆 Congratulations, you finished this course!",
-    "正在加载材料渲染组件…": "Loading the material renderer…",
-    "还没有讲义，先生成讲义": "No handout yet — generate one first",
-    "这一讲的随堂测验已生成": "This lesson's quiz has been generated",
-    "切换这门课的其他材料": "Switch to other materials of this course",
-    "点击展开查看引用出处": "Click to expand and see the citation source",
-    "这门课还没绑定材料。": "This course has no bound materials yet.",
-    "📝 去测验（5 题）": "📝 Go to quiz (5 questions)",
-    "🔁 从第一讲再学一遍": "🔁 Learn again from lesson 1",
-    "在材料中查看这一页": "View this page in the material",
-    "查看 / 继续答题": "View / continue answering",
-    "正在导出讲义图片…": "Exporting handout images…",
-    "生成讲义，开始学习": "Generate handout and start learning",
-    "随堂测验生成失败：": "Quiz generation failed: ",
-    "🏆 学完本讲，结课": "🏆 Finish this lesson, wrap up",
-    "找不到所属单元。": "Cannot find the owning unit.",
-    "生成超时，请重试": "Generation timed out; retry",
-    "随堂测验已生成。": "Quiz generated.",
-    "预览组件未加载。": "Preview component not loaded.",
-    "📚 回到课程列表": "📚 Back to course list",
-    "📚 返回课程大纲": "📚 Back to course outline",
-    "📝 再做一次测验": "📝 Take the quiz again",
-    "导出对话失败：": "Failed to export conversation: ",
-    "标注保存失败：": "Failed to save annotation: ",
-    "正在重试朗读…": "Retrying read-aloud…",
-    "还没有总结内容": "No summary content yet",
-    "还没有讲义内容": "No handout content yet",
-    "（还没有旁注）": "(no margin notes yet)",
-    "↻ 重试朗读": "↻ Retry read-aloud",
-    "▶ 开始上课": "▶ Start class",
-    "● 正在上《": "● In class: 《",
-    "❓ 还有疑问": "❓ Still have questions",
-    "本讲讲完了。": "This lesson is finished.",
-    "本页没有标注": "No annotations on this page",
-    "点击继续上课": "Click to resume class",
-    "点击重试朗读": "Click to retry read-aloud",
-    "返回课程列表": "Back to course list",
-    "重新生成讲义": "Regenerate handout",
-    "● 进行中": "● In progress",
-    "✔ 已讲完": "✔ Finished",
-    "准备开始…": "Getting ready…",
-    "标注已保存": "Annotation saved",
-    "讲义已生成": "Handout generated",
-    "⏸ 暂停": "⏸ Pause",
-    "⏹ 停止": "⏹ Stop",
-    "▶ 继续": "▶ Resume",
-    "关键术语": "Key terms",
-    "单元总结": "Unit summary",
-    "导出图片": "Export image",
-    "开始上课": "Start class",
-    "开始练习": "Start practice",
-    "本讲回顾": "Lesson review",
-    "本讲导览": "Lesson walkthrough",
-    "本讲要点": "Lesson key points",
-    "材料原文": "Material original",
-    "材料标注": "Material annotation",
-    "点击收起": "Click to collapse",
-    "生成失败": "Failed",
-    "生成讲义": "Generate handout",
-    "练习表现": "Practice performance",
-    "继续练习": "Continue practice",
-    "课本原件": "Textbook original",
-    "🎙 语音": "🎙 Voice",
-    "下一步": "Next",
-    "已掌握": "Mastered",
-    "待开始": "Not started",
-    "正在讲": "Speaking",
-    " 页": " pages",
-    "例子": "Example",
-    "公式": "Formula",
-    "删除": "Delete",
-    "原件": "Original",
-    "发送": "Send",
-    "图示": "Diagram",
-    "图表": "Chart",
-    "圈注": "Circle",
-    "对比": "Comparison",
-    "展开": "Expand",
-    "收起": "Collapse",
-    "材料": "Materials",
-    "概念": "Concept",
-    "知伴": "ZhiBan",
-    "稍后": "Later",
-    "练习": "Practice",
-    "补充": "Supplement",
-    "讲义": "Handout",
-    "课件": "Slides",
-    "金句": "Key quote",
-    "高亮": "Highlight",
-  } });
   "use strict";
 
   const S = {
@@ -179,11 +55,11 @@
    *  底色**必须走 CSS 变量**，不能写死色值 —— 写死的话主题（暗色）管不到它，
    *  卡片保持浅底、而文字跟着主题变浅 → 「浅底浅字」直接看不清（2026-09-17 实测踩到）。 */
   const KIND = {
-    concept: [gt("概念"), "var(--card-concept)"], example: [gt("例子"), "var(--card-example)"],
-    formula: [gt("公式"), "var(--card-formula)"], quote: [gt("材料原文"), "var(--card-quote)"],
-    note: [gt("补充"), "var(--card-note)"],
-    diagram: [gt("图示"), "var(--card-diagram)"], chart: [gt("图表"), "var(--card-chart)"],
-    table: [gt("对比"), "var(--card-table)"], takeaway: [gt("金句"), "var(--card-takeaway)"],
+    concept: ["概念", "var(--card-concept)"], example: ["例子", "var(--card-example)"],
+    formula: ["公式", "var(--card-formula)"], quote: ["材料原文", "var(--card-quote)"],
+    note: ["补充", "var(--card-note)"],
+    diagram: ["图示", "var(--card-diagram)"], chart: ["图表", "var(--card-chart)"],
+    table: ["对比", "var(--card-table)"], takeaway: ["金句", "var(--card-takeaway)"],
   };
 
   const el = (tag, cls, html) => {
@@ -216,7 +92,7 @@
     try {
       const cfg = await Api.get("/api/settings");
       if ((cfg.tts || {}).enabled) return;
-      Toast(gt("未配置语音朗读，上课不会有声音 —— 点此前往设置"), true);
+      Toast("未配置语音朗读，上课不会有声音 —— 点此前往设置", true);
       const t = document.getElementById("toast");
       if (t) {
         t.style.cursor = "pointer";
@@ -253,7 +129,7 @@
       // fmt / page_count 来自文档列表（原件预览靠 fmt 决定走 PDF 原页还是文本）
       return {
         id,
-        title: (hit && hit.document_title) || m.title || gt("材料"),
+        title: (hit && hit.document_title) || m.title || "材料",
         fmt: m.fmt || "",
         page_count: m.page_count || 0,
       };
@@ -318,7 +194,7 @@
     // 收起态：一条竖标签，点一下展开
     if (S.originFolded) {
       const bar = el("div", "panel-head clickable");
-      bar.innerHTML = '<span class="fold-label">课本</span><span class="fold" title=gt("展开")>▸</span>';
+      bar.innerHTML = '<span class="fold-label">课本</span><span class="fold" title="展开">▸</span>';
       bar.onclick = () => { S.originFolded = false; renderOrigin(); };
       box.appendChild(bar);
       return;
@@ -336,23 +212,23 @@
     }
 
     const head = el("div", "panel-head");
-    head.appendChild(el("span", null, gt("课本原件")));
+    head.appendChild(el("span", null, "课本原件"));
     const right = el("span", "ph-right");
     if (docs.length > 1) {
       const sel = el("select", "mini-sel");
-      sel.title = gt("切换这门课的其他材料");
+      sel.title = "切换这门课的其他材料";
       docs.forEach((x) => {
         const o = document.createElement("option");
         o.value = x.id;
-        o.textContent = x.title || gt("材料");
+        o.textContent = x.title || "材料";
         if (doc && x.id === doc.id) o.selected = true;
         sel.appendChild(o);
       });
       sel.onchange = () => { S.originDoc = sel.value; S.originPage = 1; renderOrigin(); };
       right.appendChild(sel);
     }
-    const fold = el("button", "btn small", gt("收起"));
-    fold.title = gt("收起原件栏，把宽度让给讲义");
+    const fold = el("button", "btn small", "收起");
+    fold.title = "收起原件栏，把宽度让给讲义";
     fold.onclick = () => { S.originFolded = true; renderOrigin(); };
     right.appendChild(fold);
     head.appendChild(right);
@@ -361,11 +237,11 @@
     const body = el("div", "panel-body");
     box.appendChild(body);
     if (!doc) {
-      body.appendChild(el("div", "empty", gt("这门课还没绑定材料。")));
+      body.appendChild(el("div", "empty", "这门课还没绑定材料。"));
       return;
     }
     if (!window.DocPreview) {
-      body.appendChild(el("div", "empty", gt("预览组件未加载。")));
+      body.appendChild(el("div", "empty", "预览组件未加载。"));
       return;
     }
     // 元信息还没到（首次）→ 先渲染，拿到后自动重建一次
@@ -404,7 +280,7 @@
     }
     const meta = (S.docMeta || {})[c.document_id] || {};
     const job = {
-      name: c.document_title || meta.title || gt("原件"),
+      name: c.document_title || meta.title || "原件",
       page: c.page_no != null ? c.page_no : null,
       snippet: c.snippet || "",
       docId: c.document_id || null,
@@ -484,10 +360,10 @@
       const job = await Api.get("/api/courses/jobs/" + jobId);
       if (onStage) onStage(job.stage);
       if (job.status === "ready") return job;
-      if (job.status === "failed") throw new Error(job.error || gt("生成失败"));
+      if (job.status === "failed") throw new Error(job.error || "生成失败");
       await new Promise((r) => setTimeout(r, 700));
     }
-    throw new Error(gt("生成超时，请重试"));
+    throw new Error("生成超时，请重试");
   }
 
   /* ── 页签 1：讲义白板 ─────────────────── */
@@ -498,8 +374,8 @@
       // 空状态也必须挂到 host 上（曾经这里直接 return，导致整页空白）
       const empty = el("div", "empty");
       empty.innerHTML = "这一节还没有讲义。<br>"
-        + gt("点下面的按钮，系统会依据你的材料生成本讲的白板内容。");
-      const go = el("button", "btn primary", gt("生成讲义，开始学习"));
+        + "点下面的按钮，系统会依据你的材料生成本讲的白板内容。";
+      const go = el("button", "btn primary", "生成讲义，开始学习");
       go.style.marginTop = "14px";
       go.onclick = () => startLecture(go);
       const holder = el("div");
@@ -510,14 +386,14 @@
       return;
     }
     wrap.appendChild(el("div", "hint",
-      gt("这里是讲义全文（供你通读与复习）；上课时逐页展示的课件，请切到上面的「课件」页签。")));
+      "这里是讲义全文（供你通读与复习）；上课时逐页展示的课件，请切到上面的「课件」页签。"));
 
     if (board.summary) wrap.appendChild(el("div", "board-summary", esc(board.summary)));
 
     const outline = board.outline || [];
     if (outline.length) {
       const box = el("div", "board-sec");
-      box.appendChild(el("div", "sec-title", gt("本讲要点")));
+      box.appendChild(el("div", "sec-title", "本讲要点"));
       const ol = el("ol");
       outline.forEach((o) => ol.appendChild(el("li", null, citeHtml(o))));
       box.appendChild(ol);
@@ -527,7 +403,7 @@
     const kps = board.keypoints || [];
     if (kps.length) {
       const box = el("div", "board-sec");
-      box.appendChild(el("div", "sec-title", gt("关键术语")));
+      box.appendChild(el("div", "sec-title", "关键术语"));
       const tbl = el("table", "tbl");
       tbl.innerHTML = "<thead><tr><th style='width:30%'>术语</th><th>说明</th></tr></thead>";
       const tb = el("tbody");
@@ -543,7 +419,7 @@
 
     if (board.recap) {
       const box = el("div", "board-sec");
-      box.appendChild(el("div", "sec-title", gt("本讲回顾")));
+      box.appendChild(el("div", "sec-title", "本讲回顾"));
       const b = el("div", "md");
       MD.mount(b, board.recap);
       box.appendChild(b);
@@ -554,8 +430,8 @@
     const marks = board.marks || [];
     if (marks.length) {
       const box = el("div", "board-sec");
-      box.appendChild(el("div", "sec-title", gt("材料标注")));
-      box.appendChild(el("div", "hint", gt("点条目可跳到「材料标注」页查看对应位置。")));
+      box.appendChild(el("div", "sec-title", "材料标注"));
+      box.appendChild(el("div", "hint", "点条目可跳到「材料标注」页查看对应位置。"));
       marks.forEach((m) => {
         const row = el("div", "mark-row");
         row.innerHTML = `<span class="pill ${m.kind === "circle" ? "warn" : ""}">`
@@ -586,16 +462,16 @@
   function renderMarks(host) {
     const docs = courseDocuments();
     if (!docs.length) {
-      host.appendChild(el("div", "empty", gt("这门课没有绑定材料，无法标注。")));
+      host.appendChild(el("div", "empty", "这门课没有绑定材料，无法标注。"));
       return;
     }
     if (!window.PdfView) {
-      host.appendChild(el("div", "empty", gt("pdf.js 未加载，无法渲染材料原页。")));
+      host.appendChild(el("div", "empty", "pdf.js 未加载，无法渲染材料原页。"));
       return;
     }
     if (!window.PdfView.available()) {
       // 组件是 ES module，可能还在加载：等它就绪后自动重画一次。
-      host.appendChild(el("div", "empty", gt("正在加载材料渲染组件…")));
+      host.appendChild(el("div", "empty", "正在加载材料渲染组件…"));
       window.PdfView.ready().then((ok) => {
         if (ok) { renderTabBody(); return; }
         host.innerHTML = '<div class="empty">pdf.js 加载失败，请刷新页面重试。'
@@ -617,8 +493,8 @@
       <span class="sep-v"></span>
       <span class="hint">工具</span>
       <button class="btn small" data-mode="view">浏览</button>
-      <button class="btn small" data-mode="highlight">${gt("高亮")}</button>
-      <button class="btn small" data-mode="circle">${gt("圈注")}</button>
+      <button class="btn small" data-mode="highlight">高亮</button>
+      <button class="btn small" data-mode="circle">圈注</button>
       <span class="sep-v"></span>
       <button class="btn small danger" id="mk-clear">清除本页</button>
       <span style="flex:1"></span>
@@ -637,7 +513,7 @@
 
     const side = el("div", "mk-notes");
     const head = el("div", "panel-head");
-    head.innerHTML = gt("<span>旁注</span>");
+    head.innerHTML = "<span>旁注</span>";
     side.appendChild(head);
     const noteBody = el("div", "panel-body");
     side.appendChild(noteBody);
@@ -648,7 +524,7 @@
     layout.appendChild(svg);
     host.appendChild(layout);
     host.appendChild(el("div", "hint",
-      gt("选「高亮」或「圈注」后在材料上拖出矩形即可标注；在右侧写旁注，连线会自动指向对应位置。标注会随课程保存。")));
+      "选「高亮」或「圈注」后在材料上拖出矩形即可标注；在右侧写旁注，连线会自动指向对应位置。标注会随课程保存。"));
 
     document.getElementById("mk-prev").onclick = () => {
       if (S.pageNo > 1) { S.pageNo--; renderTabBody(); }
@@ -665,7 +541,7 @@
     document.getElementById("mk-clear").onclick = async () => {
       const before = S.marks.length;
       S.marks = S.marks.filter((m) => !(m.document_id === doc.id && m.page_no === S.pageNo));
-      if (S.marks.length === before) return Toast(gt("本页没有标注"), true);
+      if (S.marks.length === before) return Toast("本页没有标注", true);
       await saveMarks();
       renderTabBody();
     };
@@ -701,7 +577,7 @@
         box.style.width = m.w * 100 + "%";
         box.style.height = m.h * 100 + "%";
         box.dataset.idx = String(S.marks.indexOf(m));
-        box.title = m.text || gt("（还没有旁注）");
+        box.title = m.text || "（还没有旁注）";
         overlay.appendChild(box);
       });
     if (S.drag) {
@@ -725,7 +601,7 @@
 
     if (!pageMarks.length) {
       noteBody.appendChild(el("div", "empty",
-        gt("本页还没有标注。<br>选「高亮」或「圈注」后在材料上拖一下。")));
+        "本页还没有标注。<br>选「高亮」或「圈注」后在材料上拖一下。"));
       drawLinks([], overlay, svg);
       return;
     }
@@ -739,11 +615,11 @@
         </div>`;
       const ta = el("textarea", "note-input");
       ta.rows = 2;
-      ta.placeholder = gt("写下这条旁注（自动保存）");
+      ta.placeholder = "写下这条旁注（自动保存）";
       ta.value = m.text || "";
       ta.oninput = () => { m.text = ta.value; scheduleSave(); };
       card.appendChild(ta);
-      const del = el("button", "btn small danger", gt("删除"));
+      const del = el("button", "btn small danger", "删除");
       del.onclick = async () => {
         S.marks.splice(idx, 1);
         await saveMarks();
@@ -844,11 +720,11 @@
       S.marks = r.marks || S.marks;
       const box = document.getElementById("mk-status");
       if (box) {
-        box.textContent = gt("标注已保存");
-        setTimeout(() => { if (box.textContent === gt("标注已保存")) box.textContent = ""; }, 1500);
+        box.textContent = "标注已保存";
+        setTimeout(() => { if (box.textContent === "标注已保存") box.textContent = ""; }, 1500);
       }
     } catch (e) {
-      Toast(gt("标注保存失败：") + e.message, true);
+      Toast("标注保存失败：" + e.message, true);
     }
   }
 
@@ -856,7 +732,7 @@
   function renderSummary(host) {
     const unit = S.unit;
     if (!unit) {
-      host.appendChild(el("div", "empty", gt("找不到所属单元。")));
+      host.appendChild(el("div", "empty", "找不到所属单元。"));
       return;
     }
     // 已生成过但本地还没取过（例如从课程页直接跳进来）：补一次拉取，导出才有内容。
@@ -893,8 +769,8 @@
     if (data) {
       if (data.recap) host.appendChild(el("div", "board-summary", esc(data.recap)));
       const grid = el("div", "board-grid");
-      [[gt("已掌握"), data.mastered, ""], ["待巩固", data.weak_points, "warn"],
-       [gt("下一步"), data.next_steps, ""]].forEach(([name, items, tone]) => {
+      [["已掌握", data.mastered, ""], ["待巩固", data.weak_points, "warn"],
+       ["下一步", data.next_steps, ""]].forEach(([name, items, tone]) => {
         if (!items || !items.length) return;
         const box = el("div", "board-card");
         box.appendChild(el("div", "card-kind", name));
@@ -912,7 +788,7 @@
       host.appendChild(grid);
       if (data.score_note) {
         const box = el("div", "board-sec");
-        box.appendChild(el("div", "sec-title", gt("练习表现")));
+        box.appendChild(el("div", "sec-title", "练习表现"));
         box.appendChild(el("div", "hint", esc(data.score_note)));
         host.appendChild(box);
       }
@@ -923,7 +799,7 @@
       }
     } else if (status !== "running") {
       host.appendChild(el("div", "empty",
-        gt("还没有单元总结。<br>点上方按钮生成，会结合本单元的练习表现给出薄弱点与下一步建议。")));
+        "还没有单元总结。<br>点上方按钮生成，会结合本单元的练习表现给出薄弱点与下一步建议。"));
     }
 
     document.getElementById("sum-gen").onclick = async () => {
@@ -943,7 +819,7 @@
     };
     document.getElementById("sum-export").onclick = () => {
       const md = (S.unitSummary && S.unitSummary.markdown) || "";
-      if (!md) return Toast(gt("还没有总结内容"), true);
+      if (!md) return Toast("还没有总结内容", true);
       BoardExport.downloadText(md, `单元总结-${unit.title}.md`);
     };
   }
@@ -960,14 +836,14 @@
     const head = el("div", "panel-head clickable");
     head.innerHTML = `<span>引用来源（${cites.length}）</span>`
       + `<span class="fold">${S.citesOpen ? "▾ 收起" : "▸ 展开"}</span>`;
-    head.title = S.citesOpen ? gt("点击收起") : gt("点击展开查看引用出处");
+    head.title = S.citesOpen ? "点击收起" : "点击展开查看引用出处";
     head.onclick = () => { S.citesOpen = !S.citesOpen; renderCitations(); };
     box.appendChild(head);
 
     if (!S.citesOpen) return;
 
     const body = el("div", "panel-body");
-    if (!cites.length) body.appendChild(el("div", "empty", gt("讲义中的材料引用会显示在这里")));
+    if (!cites.length) body.appendChild(el("div", "empty", "讲义中的材料引用会显示在这里"));
     cites.forEach((c) => {
       const snip = String(c.snippet || "").replace(/\s+/g, " ").trim();
       const card = el("div", "cite-card",
@@ -976,7 +852,7 @@
          <div class="snip">${esc(snip.slice(0, 90))}</div>`);
       if (c.document_id && c.page_no != null) {
         card.style.cursor = "pointer";
-        card.title = gt("在材料中查看这一页");
+        card.title = "在材料中查看这一页";
         card.onclick = () => {
           jumpToMark({ document_id: c.document_id, page_no: c.page_no });
           S.tab = "marks";
@@ -1009,11 +885,11 @@
     if (!sc) return;
     sc.innerHTML = "";
     if (!S.messages.length) {
-      sc.appendChild(el("div", "empty", gt("对这一节有疑问？直接在下面输入，回答只依据你的材料。")));
+      sc.appendChild(el("div", "empty", "对这一节有疑问？直接在下面输入，回答只依据你的材料。"));
     }
     S.messages.forEach((m) => {
       const wrap = el("div", "msg " + (m.role === "user" ? "user" : "assistant"));
-      wrap.appendChild(el("div", "who", m.role === "user" ? "我" : gt("知伴")));
+      wrap.appendChild(el("div", "who", m.role === "user" ? "我" : "知伴"));
       const bubble = el("div", "bubble md");
       if (m.role === "user") {
         bubble.textContent = String(m.content || "").replace(CTX_RE, "");
@@ -1036,7 +912,7 @@
     const text = ta.value.trim();
     if (!text) return;
     const badge = document.getElementById("model-badge");
-    if (!badge.dataset.ok) return Toast(gt("请先在「设置」里配置对话模型"), true);
+    if (!badge.dataset.ok) return Toast("请先在「设置」里配置对话模型", true);
 
     ta.value = "";
     S.streaming = true;
@@ -1044,7 +920,7 @@
     sc.appendChild(el("div", "msg user",
       `<div class="who">我</div><div class="bubble">${esc(text)}</div>`));
     const live = el("div", "msg assistant");
-    live.appendChild(el("div", "who", gt("知伴")));
+    live.appendChild(el("div", "who", "知伴"));
     const bubble = el("div", "bubble md", '<span class="hint">思考中…</span>');
     live.appendChild(bubble);
     sc.appendChild(live);
@@ -1087,8 +963,8 @@
    */
   function visibleTabs() {
     return (S.lesson && S.lesson.kind === "practice")
-      ? [["practice", gt("练习")], ["summary", gt("单元总结")]]
-      : [["slides", gt("课件")], ["board", gt("讲义")], ["marks", gt("材料标注")], ["summary", gt("单元总结")]];
+      ? [["practice", "练习"], ["summary", "单元总结"]]
+      : [["slides", "课件"], ["board", "讲义"], ["marks", "材料标注"], ["summary", "单元总结"]];
   }
 
   function renderTabs() {
@@ -1118,14 +994,14 @@
 
   /* ── 导出 / 朗读 ──────────────────────── */
   function exportBoardPng() {
-    if (!S.lesson.board) return Toast(gt("还没有讲义，先生成讲义"), true);
+    if (!S.lesson.board) return Toast("还没有讲义，先生成讲义", true);
     BoardExport.downloadPng(S.lesson.board,
       `讲义-${S.lesson.title}.png`, { title: S.lesson.title, width: 900 });
-    Toast(gt("正在导出讲义图片…"));
+    Toast("正在导出讲义图片…");
   }
 
   function exportBoardMd() {
-    if (!S.lesson.board_md) return Toast(gt("还没有讲义内容"), true);
+    if (!S.lesson.board_md) return Toast("还没有讲义内容", true);
     BoardExport.downloadText(
       `# ${S.lesson.title}\n\n> 目标：${S.lesson.objective || ""}\n\n${S.lesson.board_md}\n`,
       `讲义-${S.lesson.title}.md`);
@@ -1138,7 +1014,7 @@
       const text = await resp.text();
       BoardExport.downloadText(text, `课堂对话-${S.lesson.title}.md`);
     } catch (e) {
-      Toast(gt("导出对话失败：") + e.message, true);
+      Toast("导出对话失败：" + e.message, true);
     }
   }
 
@@ -1170,14 +1046,14 @@
 
     // 兼容旧课程：没有 slides/scripts 字段时，仍可从 board.cards 临时派生。
     const out = [];
-    if (b.summary) out.push({ id: "slide-1", kind: "concept", title: gt("本讲导览"), bullets: [b.summary], body: "" });
+    if (b.summary) out.push({ id: "slide-1", kind: "concept", title: "本讲导览", bullets: [b.summary], body: "" });
     (b.cards || []).forEach((c, i) => {
       const body = String(c.body || "");
       const bullets = body.split(/[。；;\n]+/).map((x) => x.trim()).filter(Boolean).slice(0, 3);
       out.push({ id: "slide-" + (out.length + 1), kind: c.kind, title: c.title || "", bullets, body: "" });
       void i;
     });
-    if (b.recap) out.push({ id: "slide-" + (out.length + 1), kind: "note", title: gt("本讲回顾"), bullets: [b.recap], body: "" });
+    if (b.recap) out.push({ id: "slide-" + (out.length + 1), kind: "note", title: "本讲回顾", bullets: [b.recap], body: "" });
     return out;
   }
 
@@ -1233,9 +1109,9 @@
       // 没有课件：分两种情况给出可操作的引导，而不是一句冷冰冰的空提示。
       if (S.lesson && S.lesson.kind === "practice") {
         const empty = el("div", "empty card");
-        empty.innerHTML = gt("这一节是<b>随堂练习</b>，没有课件内容。<br>")
-          + gt("点下面的按钮，即可开始答题。");
-        const go = el("button", "btn primary", gt("开始练习"));
+        empty.innerHTML = "这一节是<b>随堂练习</b>，没有课件内容。<br>"
+          + "点下面的按钮，即可开始答题。";
+        const go = el("button", "btn primary", "开始练习");
         go.style.marginTop = "14px";
         go.onclick = () => startPractice(go);
         const holder = el("div");
@@ -1244,9 +1120,9 @@
         wrap.appendChild(empty);
       } else {
         const empty = el("div", "empty card");
-        empty.innerHTML = gt("这一节还没有课件内容。<br>")
+        empty.innerHTML = "这一节还没有课件内容。<br>"
           + "点下面的按钮，系统会依据你的材料生成本讲的课件与讲义。";
-        const go = el("button", "btn primary", gt("生成讲义，开始学习"));
+        const go = el("button", "btn primary", "生成讲义，开始学习");
         go.style.marginTop = "14px";
         go.onclick = () => startLecture(go);
         const holder = el("div");
@@ -1267,7 +1143,7 @@
       const md = outlineMarkdown();
       if (md && window.MD && typeof window.MD.mindmap === "function") {
         const oCard = el("div", "card lesson-outline-card");
-        oCard.appendChild(el("div", "card-kind", gt("本讲导览")));
+        oCard.appendChild(el("div", "card-kind", "本讲导览"));
         const oBox = el("div");
         oCard.appendChild(oBox);
         wrap.appendChild(oCard);
@@ -1295,7 +1171,7 @@
         + (S.teaching && i < shown ? " past" : ""));
       card.style.background = bg;
       card.id = "slide-" + i;
-      card.appendChild(el("div", "card-kind", name + " · 第 " + (i + 1) + gt(" 页")));
+      card.appendChild(el("div", "card-kind", name + " · 第 " + (i + 1) + " 页"));
       if (sl.title) card.appendChild(el("div", "card-title", esc(sl.title)));
       // P1/P2 可视化页：title 之后、bullets 之前插入渲染容器，交给 Viz 渲染。
       // 失败回退由 Viz 内部放置 .viz-fallback（bullets 仍照常渲染，不归此处管）。
@@ -1363,11 +1239,11 @@
     card.innerHTML = html;
     const row = el("div", "row");
     row.style.marginTop = "14px";
-    const start = el("button", "btn primary", S.questionCount ? gt("继续练习") : gt("开始练习"));
+    const start = el("button", "btn primary", S.questionCount ? "继续练习" : "开始练习");
     start.onclick = () => startPractice(start);
     row.appendChild(start);
     if (S.questionCount) {
-      const cont = el("button", "btn small", gt("查看 / 继续答题"));
+      const cont = el("button", "btn small", "查看 / 继续答题");
       cont.onclick = () => { location.hash = "#/practice/" + l.id; };
       row.appendChild(cont);
     }
@@ -1396,9 +1272,9 @@
     if (!sub) return;
     // 字幕文本优先级：主动暂停提示 > 合成失败重试提示 > 正在朗读的句子 > 已讲完提示 > 待开始提示
     const parked = Voice.parked();
-    const text = S.voicePaused ? gt("已暂停——点这里继续上课")
-      : (parked ? gt("语音合成失败——点这里重试") : (S.subtitle || (S.finished ? gt("本讲讲完了。") : "")));
-    sub.textContent = text || gt("准备开始…");
+    const text = S.voicePaused ? "已暂停——点这里继续上课"
+      : (parked ? "语音合成失败——点这里重试" : (S.subtitle || (S.finished ? "本讲讲完了。" : "")));
+    sub.textContent = text || "准备开始…";
     // 暂停时整条字幕就是「继续」按钮：点字幕条任意位置即恢复播放
     // （用户反馈：单独冒出一个提示条还要去找顶栏的 ▶ 继续，太绕）。
     // 合成失败停机时同理：点字幕条 = 重试朗读（从失败的那一句继续）。
@@ -1406,7 +1282,7 @@
       if (parked) {
         S.voicePaused = false;
         Voice.retry();
-        Toast(gt("正在重试朗读…"), false);
+        Toast("正在重试朗读…", false);
       } else {
         S.voicePaused = false;
         Voice.resume();
@@ -1420,7 +1296,7 @@
       renderStage();
     } : null;
     sub.style.cursor = (S.voicePaused || parked) ? "pointer" : "";
-    sub.title = parked ? gt("点击重试朗读") : (S.voicePaused ? gt("点击继续上课") : "");
+    sub.title = parked ? "点击重试朗读" : (S.voicePaused ? "点击继续上课" : "");
   }
 
   /* ── 右侧「讲师讲述」：历史可上翻 + 完成后下一步 ── */
@@ -1428,7 +1304,7 @@
     const box = document.getElementById("lesson-speaking");
     if (!box) return;
     box.innerHTML = "";
-    const status = S.teaching ? gt("● 进行中") : (S.finished ? gt("✔ 已讲完") : gt("待开始"));
+    const status = S.teaching ? "● 进行中" : (S.finished ? "✔ 已讲完" : "待开始");
     box.appendChild(el("div", "panel-head",
       `<span>讲师讲述（${S.speakLog.length} 段）</span><span class="fold">${status}</span>`));
     const body = el("div", "panel-body");
@@ -1436,7 +1312,7 @@
     body.style.overflowY = "auto";
 
     if (!S.teaching && !S.speakLog.length && !S.finished) {
-      body.appendChild(el("div", "empty", gt("点「▶ 开始上课」后，这里会实时显示我正在讲的内容，讲过的段落都会保留，可以往上翻。")));
+      body.appendChild(el("div", "empty", "点「▶ 开始上课」后，这里会实时显示我正在讲的内容，讲过的段落都会保留，可以往上翻。"));
     } else {
       // 历史段：已讲完的每页讲稿，按页排列、可上翻
       S.speakLog.forEach((it) => {
@@ -1448,7 +1324,7 @@
       // 当前正在讲的（高亮）
       if (S.teaching && S.speaking) {
         const cur = el("div", "speak-item live");
-        cur.appendChild(el("div", "who", gt("正在讲")));
+        cur.appendChild(el("div", "who", "正在讲"));
         cur.appendChild(el("div", "speak-text", esc(S.speaking)));
         body.appendChild(cur);
       }
@@ -1468,11 +1344,11 @@
           `《${esc((S.course || {}).title || "")}》共 ${prog.total} 讲，全部完成。`));
         const row = el("div", "row");
         const quiz = el("button", "btn small primary",
-          S.questionCount ? gt("📝 再做一次测验") : gt("📝 生成本讲测验（5 题）"));
+          S.questionCount ? "📝 再做一次测验" : "📝 生成本讲测验（5 题）");
         quiz.onclick = () => startPractice(quiz);
-        const list = el("button", "btn small", gt("📚 回到课程列表"));
+        const list = el("button", "btn small", "📚 回到课程列表");
         list.onclick = () => { location.hash = "#/courses"; };
-        const again = el("button", "btn small", gt("🔁 从第一讲再学一遍"));
+        const again = el("button", "btn small", "🔁 从第一讲再学一遍");
         const first = allLessons()[0];
         again.onclick = () => { if (first) location.hash = "#/lessons/" + first.id; };
         row.appendChild(quiz); row.appendChild(list); row.appendChild(again);
@@ -1485,11 +1361,11 @@
           `全课程共 ${prog.total} 讲，已标记完成 ${prog.done} 讲 —— 点「🏆 学完本讲，结课」收个尾。`));
         const row = el("div", "row");
         const quiz = el("button", "btn small primary",
-          S.questionCount ? gt("📝 去测验（5 题）") : gt("📝 生成本讲测验（5 题）"));
+          S.questionCount ? "📝 去测验（5 题）" : "📝 生成本讲测验（5 题）");
         quiz.onclick = () => startPractice(quiz);
-        const fin = el("button", "btn small primary", gt("🏆 学完本讲，结课"));
+        const fin = el("button", "btn small primary", "🏆 学完本讲，结课");
         fin.onclick = () => { const b = document.getElementById("b-done"); if (b) { b.click(); } };
-        const outline = el("button", "btn small", gt("📚 返回课程大纲"));
+        const outline = el("button", "btn small", "📚 返回课程大纲");
         outline.onclick = () => { location.hash = "#/courses"; };
         row.appendChild(quiz); row.appendChild(fin); row.appendChild(outline);
         card.appendChild(row);
@@ -1497,13 +1373,13 @@
         card.appendChild(el("div", "t", "这一讲讲完了，接下来可以："));
         const row = el("div", "row");
         const quiz = el("button", "btn small primary",
-          S.questionCount ? gt("📝 去测验（5 题）") : gt("📝 生成本讲测验（5 题）"));
+          S.questionCount ? "📝 去测验（5 题）" : "📝 生成本讲测验（5 题）");
         quiz.onclick = () => startPractice(quiz);
-        const ask = el("button", "btn small", gt("❓ 还有疑问"));
+        const ask = el("button", "btn small", "❓ 还有疑问");
         ask.onclick = () => { S.finished = false; renderSpeaking(); const ta = document.getElementById("lesson-input"); if (ta) ta.focus(); };
-        const next = el("button", "btn small", gt("➡ 没有疑问，进入下一课"));
+        const next = el("button", "btn small", "➡ 没有疑问，进入下一课");
         next.onclick = () => { const b = document.getElementById("b-done"); if (b) { b.click(); } };
-        const outline = el("button", "btn small", gt("📚 返回课程大纲"));
+        const outline = el("button", "btn small", "📚 返回课程大纲");
         outline.onclick = () => { location.hash = "#/courses"; };
         row.appendChild(quiz); row.appendChild(ask); row.appendChild(next); row.appendChild(outline);
         card.appendChild(row);
@@ -1625,7 +1501,7 @@
     const say = (t) => { if (sub) sub.textContent = t; };
     try {
       if (!S.questionCount) {
-          say(gt("这一讲讲完了，正在为你生成随堂测验…"));
+          say("这一讲讲完了，正在为你生成随堂测验…");
           const r = await postRetryOnBusy(
             "/api/courses/lessons/" + l.id + "/practice", { count: 5 });
           await pollJob(r.job_id, (stage) => say("正在出题…" + (stage || "")));
@@ -1641,12 +1517,12 @@
         say("测验已生成，正在进入答题…");
         location.hash = "#/practice/" + l.id;
       } else {
-        say(navigate ? gt("随堂测验已生成，回到课堂即可开始。") : gt("随堂测验已生成。"));
-        Toast(gt("这一讲的随堂测验已生成"), false);
+        say(navigate ? "随堂测验已生成，回到课堂即可开始。" : "随堂测验已生成。");
+        Toast("这一讲的随堂测验已生成", false);
       }
     } catch (e) {
-      say(gt("随堂测验生成失败：") + e.message + gt("（可在右侧「去测验」重试）"));
-      Toast(gt("随堂测验生成失败：") + e.message, true);
+      say("随堂测验生成失败：" + e.message + "（可在右侧「去测验」重试）");
+      Toast("随堂测验生成失败：" + e.message, true);
     }
   }
 
@@ -1667,7 +1543,7 @@
     renderSpeaking();
     renderStage();
     updateReturnPill();
-    Toast(gt("已停止，可点「▶ 开始上课」从头再讲一遍"));
+    Toast("已停止，可点「▶ 开始上课」从头再讲一遍");
   }
 
   function toggleSpeak(btn) {
@@ -1675,7 +1551,7 @@
       stopTeaching();
       return;
     }
-    if (!S.lesson.board) return Toast(gt("还没有讲义，先生成讲义"), true);
+    if (!S.lesson.board) return Toast("还没有讲义，先生成讲义", true);
     startTeaching();
   }
 
@@ -1740,7 +1616,7 @@
     const p = courseProgress();
     if (!p.allDone) return "";
     return `<div class="course-done-banner">🏆 这门课你已经学完了（${p.done}/${p.total} 讲）`
-      + `<button class="btn small" id="b-done-list">${gt("📚 返回课程大纲")}</button></div>`;
+      + `<button class="btn small" id="b-done-list">📚 返回课程大纲</button></div>`;
   }
 
   function positionLabel() {
@@ -1782,7 +1658,7 @@
     if (!box) return;
       box.innerHTML = `
         <div class="lesson-bar">
-          <button class="btn small" id="b-back" title="${gt("返回课程列表")}">← 返回课程</button>
+          <button class="btn small" id="b-back" title="返回课程列表">← 返回课程</button>
           <span class="lesson-pos" id="lesson-pos">${esc(positionLabel())}</span>
           <b class="lesson-title">${esc(l.title)}</b>
           <span class="pill">${esc(l.kind_name)}</span>
@@ -1810,13 +1686,13 @@
     // buildSlides() 是纯函数（只读 S.lesson、无副作用），在这里调用是安全的。
     const hasSlides = buildSlides().length > 0;
     box.innerHTML = `
-      ${hasSlides ? `<button class="btn small" id="b-speak">${S.teaching ? gt("⏹ 停止") : gt("▶ 开始上课")}</button>` : ""}
+      ${hasSlides ? `<button class="btn small" id="b-speak">${S.teaching ? "⏹ 停止" : "▶ 开始上课"}</button>` : ""}
       ${S.teaching ? `<button class="btn small" id="b-pause">${
-        Voice.parked() ? gt("↻ 重试朗读")
-          : (S.voicePaused ? gt("▶ 继续") : gt("⏸ 暂停"))}</button>` : ""}
+        Voice.parked() ? "↻ 重试朗读"
+          : (S.voicePaused ? "▶ 继续" : "⏸ 暂停")}</button>` : ""}
       ${l.kind === "practice" ? "" : `<button class="btn small" id="b-lecture">${
-        l.board ? gt("重新生成讲义") : gt("生成讲义")}</button>`}
-      ${hasSlides ? '<button class="btn small" id="b-png">${gt("导出图片")}</button>' : ""}
+        l.board ? "重新生成讲义" : "生成讲义"}</button>`}
+      ${hasSlides ? '<button class="btn small" id="b-png">导出图片</button>' : ""}
       ${hasSlides ? '<button class="btn small" id="b-md">导出讲义</button>' : ""}
       <button class="btn small" id="b-conv">导出对话</button>
       ${primaryAction(l)}`;
@@ -1835,7 +1711,7 @@
       // 正是重试（旧行为下点暂停/继续毫无反应，只能停止整堂课重来）。
       if (Voice.parked()) {
         Voice.retry();
-        Toast(gt("正在重试朗读…"), false);
+        Toast("正在重试朗读…", false);
         renderActions();
         renderStage();
         return;
@@ -1843,7 +1719,7 @@
       S.voicePaused = !S.voicePaused;
       if (S.voicePaused) Voice.pause(); else Voice.resume();
       const b = document.getElementById("b-pause");
-      if (b) b.textContent = S.voicePaused ? gt("▶ 继续") : gt("⏸ 暂停");
+      if (b) b.textContent = S.voicePaused ? "▶ 继续" : "⏸ 暂停";
       renderStage();
     };
     const png = document.getElementById("b-png");
@@ -1875,7 +1751,7 @@
     // 界面上看不出区别（核验确认的静默覆盖）。只对这一种情形要用户确认；
     // 普通的「重新生成讲义」不加确认，免得每次都要多点一下。
     if (!opts.auto && l.board && l.status === "done"
-      && !confirm(gt("这一讲已标记为完成。重新生成会用新内容覆盖现有的讲义、讲稿与标注，继续吗？"))) {
+      && !confirm("这一讲已标记为完成。重新生成会用新内容覆盖现有的讲义、讲稿与标注，继续吗？")) {
       return;
     }
     if (btn) btn.disabled = true;
@@ -1897,7 +1773,7 @@
       if (opts.auto) {
         showReadyModal();
       } else {
-        Toast(gt("讲义已生成"));
+        Toast("讲义已生成");
       }
     } catch (e) {
       Toast(e.message, true);
@@ -1972,8 +1848,8 @@
       屏幕中下方会同步显示字幕（不想听声音时可以直接读），讲完自动进入随堂测验。</div>`;
     const row = el("div", "row");
     row.style.marginTop = "16px";
-    const go = el("button", "btn primary", gt("开始上课"));
-    const later = el("button", "btn", gt("稍后"));
+    const go = el("button", "btn primary", "开始上课");
+    const later = el("button", "btn", "稍后");
     go.onclick = () => { mask.remove(); startTeaching(); };
     later.onclick = () => mask.remove();
     row.appendChild(go); row.appendChild(later);
@@ -1987,7 +1863,7 @@
     if (!S.lesson.board) return;
     S.slides = buildSlides();
     S.scripts = buildScripts();
-    if (!S.slides.length) return Toast(gt("这一节没有可讲的课件内容"), true);
+    if (!S.slides.length) return Toast("这一节没有可讲的课件内容", true);
     S.slideIndex = -1;
     S.teaching = true;
     S.finished = false;
@@ -2028,7 +1904,7 @@
       renderHead();
       renderSpeaking();
       renderStage();
-      Toast(gt("🏆 恭喜，这门课学完了！"));
+      Toast("🏆 恭喜，这门课学完了！");
     } catch (e) {
       Toast(e.message, true);
       btn.disabled = false;
@@ -2089,9 +1965,9 @@
             <div class="chat-scroll" id="lesson-chat"></div>
             <div class="chat-input">
               <div class="box">
-                <button class="btn" id="b-mic" title="${gt("本地语音识别：点一下开始录音，再点一下转成文字")}">${gt("🎙 语音")}</button>
-                <textarea id="lesson-input" placeholder="${gt("针对这一节提问，Enter 发送；也可以点🎙直接说")}"></textarea>
-                <button class="btn primary" id="b-send">${gt("发送")}</button>
+                <button class="btn" id="b-mic" title="本地语音识别：点一下开始录音，再点一下转成文字">🎙 语音</button>
+                <textarea id="lesson-input" placeholder="针对这一节提问，Enter 发送；也可以点🎙直接说"></textarea>
+                <button class="btn primary" id="b-send">发送</button>
               </div>
             </div>
           </div>
@@ -2126,7 +2002,7 @@
     if (mic) {
       mic.onclick = () => window.Asr && Asr.toggle(
         mic, () => document.getElementById("lesson-input"),
-        { idleText: gt("🎙 语音"), toast: (m, bad) => Toast(m, bad) });
+        { idleText: "🎙 语音", toast: (m, bad) => Toast(m, bad) });
     }
 
     renderTabs();
@@ -2177,7 +2053,7 @@
     const show = !!(S.lessonId && (S.teaching || S.finished)
       && !location.hash.startsWith("#/lessons/" + S.lessonId));
     if (show) {
-      _returnPill.textContent = gt("● 正在上《") + (S.lesson ? S.lesson.title : "") + "》 · 回到课堂";
+      _returnPill.textContent = "● 正在上《" + (S.lesson ? S.lesson.title : "") + "》 · 回到课堂";
       _returnPill.hidden = false;
     } else {
       _returnPill.hidden = true;

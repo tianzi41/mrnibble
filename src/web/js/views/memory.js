@@ -1,30 +1,12 @@
 /* 记忆管理页：查看 / 编辑 / 删除（硬删除）/ 导出。 */
 (function () {
-  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
-
-  window.I18n && window.I18n.merge({ en: {
-    "类型：preference / progress / knowledge_gap / fact": "Type: preference / progress / knowledge_gap / fact",
-    "记忆内容（如：讲解时希望配具体例证）：": "Memory content (e.g. \"use concrete examples when explaining\"):",
-    "删除这条记忆？删除后不会再被召回。": "Delete this memory? It will no longer be recalled.",
-    "确认清空全部记忆？此操作不可恢复。": "Clear all memories? This cannot be undone.",
-    "知识盲区": "Knowledge gaps",
-    "已删除": "Deleted",
-    "已更新": "Updated",
-    "已添加": "Added",
-    "已清空": "Cleared",
-    "事实": "Fact",
-    "偏好": "Preference",
-    "删除": "Delete",
-    "编辑": "Edit",
-    "进度": "Progress",
-  } });
   "use strict";
 
   const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   const S = { items: [], total: 0, page: 1, type: "", editing: null };
-  const TYPE_NAMES = { preference: gt("偏好"), progress: gt("进度"), knowledge_gap: gt("知识盲区"), fact: gt("事实") };
+  const TYPE_NAMES = { preference: "偏好", progress: "进度", knowledge_gap: "知识盲区", fact: "事实" };
 
   async function render(host) {
     host.innerHTML = "";
@@ -35,8 +17,8 @@
         <div class="field" style="max-width:200px"><label>类型</label>
           <select id="mm-type">
             <option value="">全部</option>
-            <option value="preference">${gt("偏好")}</option><option value="progress">${gt("进度")}</option>
-            <option value="knowledge_gap">${gt("知识盲区")}</option><option value="fact">${gt("事实")}</option>
+            <option value="preference">偏好</option><option value="progress">进度</option>
+            <option value="knowledge_gap">知识盲区</option><option value="fact">事实</option>
           </select></div>
         <span style="flex:1"></span>
         <button class="btn" id="mm-add">＋ 新增</button>
@@ -52,8 +34,8 @@
     document.getElementById("mm-add").onclick = add;
     document.getElementById("mm-export").onclick = () => Api.download("/api/memories/export?format=md");
     document.getElementById("mm-clear").onclick = async () => {
-      if (!confirm(gt("确认清空全部记忆？此操作不可恢复。"))) return;
-      await Api.del("/api/memories"); Toast(gt("已清空")); load();
+      if (!confirm("确认清空全部记忆？此操作不可恢复。")) return;
+      await Api.del("/api/memories"); Toast("已清空"); load();
     };
     await load();
   }
@@ -83,13 +65,13 @@
         <td class="hint">${(m.updated_at || "").replace("T", " ").slice(0, 16)}</td>`;
       const ops = document.createElement("td");
       const edit = document.createElement("button");
-      edit.className = "btn small"; edit.textContent = gt("编辑");
+      edit.className = "btn small"; edit.textContent = "编辑";
       edit.onclick = () => editItem(m, tr);
       const del = document.createElement("button");
-      del.className = "btn small danger"; del.textContent = gt("删除"); del.style.marginLeft = "6px";
+      del.className = "btn small danger"; del.textContent = "删除"; del.style.marginLeft = "6px";
       del.onclick = async () => {
-        if (!confirm(gt("删除这条记忆？删除后不会再被召回。"))) return;
-        await Api.del("/api/memories/" + m.id); Toast(gt("已删除")); load();
+        if (!confirm("删除这条记忆？删除后不会再被召回。")) return;
+        await Api.del("/api/memories/" + m.id); Toast("已删除"); load();
       };
       ops.appendChild(edit); ops.appendChild(del);
       tr.appendChild(ops);
@@ -109,17 +91,17 @@
     input.onkeydown = async (e) => {
       if (e.key === "Enter") {
         await Api.patch("/api/memories/" + m.id, { content: input.value });
-        Toast(gt("已更新")); load();
+        Toast("已更新"); load();
       } else if (e.key === "Escape") load();
     };
   }
 
   function add() {
-    const content = prompt(gt("记忆内容（如：讲解时希望配具体例证）："));
+    const content = prompt("记忆内容（如：讲解时希望配具体例证）：");
     if (!content || !content.trim()) return;
-    const type = prompt(gt("类型：preference / progress / knowledge_gap / fact"), "preference") || "preference";
+    const type = prompt("类型：preference / progress / knowledge_gap / fact", "preference") || "preference";
     Api.post("/api/memories", { type, content: content.trim() })
-      .then(() => { Toast(gt("已添加")); load(); })
+      .then(() => { Toast("已添加"); load(); })
       .catch((e) => Toast(e.message, true));
   }
 
