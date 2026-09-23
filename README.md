@@ -157,6 +157,11 @@ mrnibble/
 
 ### 5.2 克隆后必须补齐的内容
 
+```bash
+git clone https://github.com/tianzi41/mrnibble.git
+cd mrnibble
+```
+
 > 本仓库按 `.gitignore` 排除了**体积大或敏感**的东西，克隆后不能直接跑，需按下表补齐。
 > 这些内容都是可重建的，不需要手动拷贝。
 
