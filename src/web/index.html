@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>知伴 · 本地 AI 学习伴侣</title>
+<title>啃书先生 · 本地 AI 学习伴侣</title>
 <link rel="stylesheet" href="/static/vendor/highlight/github.min.css">
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
 <!-- 首屏防闪：在样式加载前就把 data-theme 设好（完整逻辑见 js/theme.js） -->
 <script>
 (function () {
   try {
-    var v = localStorage.getItem("zhiban-theme") || "auto";
+    var v = localStorage.getItem("mrnibble-theme") || "auto";
     var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     var t = v === "auto" ? (dark ? "dark" : "") : v;
     if (t) document.documentElement.setAttribute("data-theme", t);
@@ -23,7 +23,7 @@
 <div id="app">
   <!-- ── 顶栏 ─────────────────────────────── -->
   <header class="topbar">
-    <div class="brand"><span class="logo">知</span><span>知伴</span><small>本地 AI 学习伴侣</small></div>
+    <div class="brand"><span class="logo">啃</span><span>啃书先生</span><small>本地 AI 学习伴侣</small></div>
     <nav class="nav" id="nav"></nav>
     <div class="topbar-right">
       <select id="theme-sel" class="theme-sel" title="外观（浅色 / 护眼 / 暗色）"></select>

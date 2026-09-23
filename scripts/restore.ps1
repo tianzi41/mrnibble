@@ -1,5 +1,5 @@
-# ZhiBan restore script: extract a backup zip back into data/
-# Usage: powershell -ExecutionPolicy Bypass -File scripts\restore.ps1 -Zip D:\backup\zhiban-backup-xxxx.zip
+# MrNibble restore script: extract a backup zip back into data/
+# Usage: powershell -ExecutionPolicy Bypass -File scripts\restore.ps1 -Zip D:\backup\mrnibble-backup-xxxx.zip
 
 param([Parameter(Mandatory = $true)][string]$Zip)
 $ErrorActionPreference = "Stop"
@@ -14,13 +14,13 @@ Write-Host "  $dataDir" -ForegroundColor Yellow
 $confirm = Read-Host "Type YES to continue"
 if ($confirm -ne "YES") { Write-Host "Aborted."; exit 1 }
 
-$tmp = Join-Path $env:TEMP ("zhiban-restore-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+$tmp = Join-Path $env:TEMP ("mrnibble-restore-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 Expand-Archive -Path $Zip -DestinationPath $tmp -Force
 
-if (-not (Test-Path (Join-Path $tmp "zhiban.db"))) { Write-Error "backup does not contain zhiban.db" }
+if (-not (Test-Path (Join-Path $tmp "mrnibble.db"))) { Write-Error "backup does not contain mrnibble.db" }
 
 if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force -Path $dataDir | Out-Null }
-foreach ($f in @("zhiban.db", "zhiban.db-wal", "zhiban.db-shm")) {
+foreach ($f in @("mrnibble.db", "mrnibble.db-wal", "mrnibble.db-shm")) {
     $src = Join-Path $tmp $f
     if (Test-Path $src) { Copy-Item $src $dataDir -Force }
 }

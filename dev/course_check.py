@@ -90,14 +90,14 @@ def main() -> int:
     # 直接终止进程且无 traceback）。旧目录留 .tmp 由人工清理。
     DATA.mkdir(parents=True)
 
-    env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": "8762",
+    env = {**os.environ, "MRNIBBLE_DATA_DIR": str(DATA), "MRNIBBLE_PORT": "8762",
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
     procs = [
-        # mock 端口用 ZHIBAN_MOCK_PORT 固定为 8763，与主自测（8761）互不干扰。
-        # ZHIBAN_MOCK_SPY：mock-spy-* 模型把收到的 messages 落到此文件（验证提示词注入）。
+        # mock 端口用 MRNIBBLE_MOCK_PORT 固定为 8763，与主自测（8761）互不干扰。
+        # MRNIBBLE_MOCK_SPY：mock-spy-* 模型把收到的 messages 落到此文件（验证提示词注入）。
         subprocess.Popen([str(PY), str(ROOT / "dev" / "mock_llm.py")],
-                         env={**env, "ZHIBAN_MOCK_PORT": "8763",
-                              "ZHIBAN_MOCK_SPY": str(DATA / "mock-spy.json")},
+                         env={**env, "MRNIBBLE_MOCK_PORT": "8763",
+                              "MRNIBBLE_MOCK_SPY": str(DATA / "mock-spy.json")},
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
         subprocess.Popen([str(PY), "-m", "backend.main"], cwd=str(ROOT), env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
@@ -1490,7 +1490,7 @@ def main() -> int:
         # - 15 分钟前的 running job（僵尸）→ 不挡；
         # - 刚创建的 running job → 挡，返回 1005「任务冲突」。
         import datetime as _dt  # noqa: E402
-        db4 = sqlite3.connect(str(DATA / "zhiban.db"))
+        db4 = sqlite3.connect(str(DATA / "mrnibble.db"))
         db4.row_factory = sqlite3.Row
         # 先建一门课，等它的大纲任务跑完（拿到稳定课程 id 与空闲状态）。
         r = post("/api/courses", {"goal": "P0-4 并发防重入", "document_ids": [doc_id],

@@ -313,11 +313,11 @@ class MemoryService:
         items, _ = self.list(page=1, page_size=100000)
         stamp = now_iso()[:10]
         if fmt == "md":
-            lines = ["# 知伴 · 长期记忆导出", ""]
+            lines = ["# 啃书先生 · 长期记忆导出", ""]
             for it in items:
                 lines.append(f"- **[{it['type']}]** {it['content']}  ")
                 lines.append(f"  （{it['created_at']}，召回 {it['recall_count']} 次）")
-            return "\n".join(lines), f"zhiban-memories-{stamp}.md", "text/markdown; charset=utf-8"
+            return "\n".join(lines), f"mrnibble-memories-{stamp}.md", "text/markdown; charset=utf-8"
         if fmt == "csv":
             buf = io.StringIO()
             writer = csv.writer(buf)
@@ -327,10 +327,10 @@ class MemoryService:
                     it["id"], it["type"], it["content"], it["source"],
                     it["confidence"], it["created_at"], it["recall_count"],
                 ])
-            return buf.getvalue(), f"zhiban-memories-{stamp}.csv", "text/csv; charset=utf-8"
+            return buf.getvalue(), f"mrnibble-memories-{stamp}.csv", "text/csv; charset=utf-8"
         return (
             json.dumps(items, ensure_ascii=False, indent=2),
-            f"zhiban-memories-{stamp}.json",
+            f"mrnibble-memories-{stamp}.json",
             "application/json; charset=utf-8",
         )
 

@@ -96,11 +96,11 @@
     host.innerHTML = `
 <div class="welcome">
   <div class="welcome-head">
-    <b>欢迎使用知伴</b>
+    <b>欢迎使用啃书先生</b>
     <span class="welcome-step">第 1 步 / 共 3 步 · 认识界面</span>
   </div>
   <p class="hint" style="margin:0">
-    知伴把你的资料变成一堂课：上传文件 → 自动生成课件 → 像老师一样讲给你听。
+    啃书先生把你的资料变成一堂课：上传文件 → 自动生成课件 → 像老师一样讲给你听。
     下图是上课界面，四个红框分别是：
   </p>
   <img class="welcome-img" src="/static/assets/intro.png" alt="上课界面">
@@ -192,11 +192,11 @@
     host.innerHTML = `
 <div class="welcome">
   <div class="welcome-head">
-    <b>最后一步：给知伴配一把「钥匙」</b>
+    <b>最后一步：给啃书先生配一把「钥匙」</b>
     <span class="welcome-step">第 3 步 / 共 3 步 · 配置接口</span>
   </div>
   <div class="card">
-    <b>知伴自己不含 AI 能力，生成课程、回答问题都要调用云端大模型</b>
+    <b>啃书先生自己不含 AI 能力，生成课程、回答问题都要调用云端大模型</b>
     <p class="hint" style="margin:8px 0 0">
       所以需要一个「API Key」——相当于你在大模型服务商那里的账号钥匙。
       各家都有免费额度，几元钱能用很久，全程约 5 分钟。
@@ -206,7 +206,7 @@
           在「API Keys」里创建并<b>立即复制</b>（只显示一次）</li>
       <li>想用更自然的云端朗读，再配一个<b>阶跃星辰</b>的语音 Key
           （步骤见顶栏「不会用，点这里」帮助页）</li>
-      <li>回到知伴<b>设置</b>页，把地址、模型名、Key 填进去，点「测试连接」</li>
+      <li>回到啃书先生<b>设置</b>页，把地址、模型名、Key 填进去，点「测试连接」</li>
     </ol>
     <p class="hint" style="margin-top:10px">
       不配也能用：内置朗读、资料解析、检索都在本机完成；只有「生成 / 提问」需要钥匙。

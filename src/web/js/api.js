@@ -15,7 +15,7 @@
     try {
       resp = await fetch(url, init);
     } catch (e) {
-      throw new ApiError(0, "无法连接本地服务，请确认知伴正在运行");
+      throw new ApiError(0, "无法连接本地服务，请确认啃书先生正在运行");
     }
     const ct = resp.headers.get("content-type") || "";
     if (!ct.includes("application/json")) {

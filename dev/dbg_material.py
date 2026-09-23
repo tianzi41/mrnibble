@@ -21,7 +21,7 @@ BACKEND = "http://127.0.0.1:8760"
 MOCK = "http://127.0.0.1:8761"
 C = dict(trust_env=False, timeout=60.0)
 
-SRC_TXT = ROOT / "dist4" / "知伴" / "data" / "files" / "446a930ad67141568eb330d030ea71bd.txt"
+SRC_TXT = ROOT / "dist4" / "啃书先生" / "data" / "files" / "446a930ad67141568eb330d030ea71bd.txt"
 
 QUERIES = [
     "开始学习",
@@ -40,7 +40,7 @@ def main() -> int:
     if DATA.exists():
         shutil.rmtree(DATA)
     DATA.mkdir(parents=True)
-    env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA),
+    env = {**os.environ, "MRNIBBLE_DATA_DIR": str(DATA),
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
     py = str(ROOT / ".venv" / "Scripts" / "python.exe")
     mock = subprocess.Popen([py, str(ROOT / "dev" / "mock_llm.py")], env=env,

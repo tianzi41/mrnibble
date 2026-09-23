@@ -169,7 +169,7 @@ class IngestService:
         try:
             with make_client(url, timeout=20.0, follow_redirects=True) as client:
                 with client.stream("GET", url,
-                                   headers={"User-Agent": "ZhiBan/1.0"}) as resp:
+                                   headers={"User-Agent": "MrNibble/1.0"}) as resp:
                     resp.raise_for_status()
                     for chunk in resp.iter_bytes(64 * 1024):
                         buf.extend(chunk)

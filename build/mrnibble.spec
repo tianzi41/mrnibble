@@ -3,12 +3,12 @@
 
 用法（在项目根目录）::
 
-    .venv\\Scripts\\pyinstaller build/zhiban.spec --noconfirm --distpath dist
+    .venv\\Scripts\\pyinstaller build/mrnibble.spec --noconfirm --distpath dist
 
 产出（--onedir 免安装绿色包）::
 
-    dist/知伴/
-    ├─ 知伴.exe
+    dist/啃书先生/
+    ├─ 啃书先生.exe
     ├─ _internal/            # = sys._MEIPASS（只读随包资源在这里）
     │  ├─ web/               # 前端（含 vendor，零 CDN）
     │  ├─ models/            # 本地语音模型（若执行过 download_models.ps1）
@@ -84,7 +84,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="知伴",
+    name="啃书先生",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -99,5 +99,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="知伴",
+    name="啃书先生",
 )

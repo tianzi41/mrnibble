@@ -2,7 +2,7 @@
 
 背景（2026-09-20 用户实测）：
     暂停课程 → 把课程窗口与后台窗口都最小化 → 等一会儿 → 后台已退出。
-    日志实证：服务是被**启动器自己**优雅停掉的（``知伴服务已停止`` + WAL
+    日志实证：服务是被**启动器自己**优雅停掉的（``啃书先生服务已停止`` + WAL
     checkpoint，而不是崩溃/被 taskkill），退出时应用窗口**还在**（浏览器
     profile 在 27 秒后才落盘）。根因：唯一防线是「5 秒页面心跳 + 15 秒宽限」，
     而浏览器在窗口最小化/被遮挡时会节流甚至冻结隐藏页的 JS 定时器。
@@ -55,7 +55,7 @@ TMP = ROOT / ".tmp" / ("test-data-launcher-%d" % int(time.time()))
 # 两者是同一条不变量（启动器认的窗口标题 == index.html 的 <title>）。
 # 若测试用同一个常量既建窗口又做匹配，常量写错了也照样全绿——
 # 第一次写这个脚本时就踩了这个坑（证伪时改了标记仍全过）。
-EXPECT_TITLE = "知伴 · 本地 AI 学习伴侣"
+EXPECT_TITLE = "啃书先生 · 本地 AI 学习伴侣"
 
 PASS: list[str] = []
 FAIL: list[str] = []
@@ -119,7 +119,7 @@ def main() -> int:
     TMP.mkdir(parents=True, exist_ok=True)
     (TMP / "logs").mkdir(parents=True, exist_ok=True)
     (TMP / "logs" / "launcher.log").unlink(missing_ok=True)
-    os.environ["ZHIBAN_DATA_DIR"] = str(TMP)
+    os.environ["MRNIBBLE_DATA_DIR"] = str(TMP)
 
     import launcher
     from backend import heartbeat
@@ -184,10 +184,10 @@ def main() -> int:
     check("W2 最小化/无响应时标题带后缀 → 仍命中",
           launcher._app_window_alive(titles=[(1, mark + "（无响应）")]) is True)
     check("W3 用户自己的 Edge 标签页（标题不含标记）→ 不命中",
-          launcher._app_window_alive(titles=[(1, "知伴资料 - Microsoft Edge"),
+          launcher._app_window_alive(titles=[(1, "啃书先生资料 - Microsoft Edge"),
                                              (2, "新标签页")]) is False)
-    check("W4 同名文件夹资源管理器窗口 → 不命中（标题是「知伴」而非完整标记）",
-          launcher._app_window_alive(titles=[(1, "知伴")]) is False)
+    check("W4 同名文件夹资源管理器窗口 → 不命中（标题是「啃书先生」而非完整标记）",
+          launcher._app_window_alive(titles=[(1, "啃书先生")]) is False)
     check("W5 空列表 → 返回 None（保守：宁可多等，不误杀）",
           launcher._app_window_alive(titles=[]) is None)
 

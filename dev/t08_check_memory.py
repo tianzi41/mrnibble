@@ -25,11 +25,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from backend.services.memory import get_memory_service  # noqa: E402
 
-DB_PATH = ROOT / "data" / "zhiban.db"
+DB_PATH = ROOT / "data" / "mrnibble.db"
 BASE = "http://127.0.0.1:8760"
 PASSED = 0
 
-UNIQUE = "知伴记忆唯一标记样本"  # 用于精确断言删除后不可召回
+UNIQUE = "啃书先生记忆唯一标记样本"  # 用于精确断言删除后不可召回
 
 
 def check(name: str, condition: bool, extra: str = "") -> None:

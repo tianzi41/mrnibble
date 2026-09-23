@@ -45,7 +45,7 @@ DATA = ROOT / ".tmp" / ("test-data-prefetch-%d" % int(time.time()))
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 # 用户数据目录放 Q 盘**纯 ASCII** 路径（中文路径下 Chrome 行为不稳定）；
 # 详见 course_ui_check.py 里 UI_TMP / ui_profile() 的说明。本脚本用固定目录 + 主动清理。
-UI_TMP = Path(os.environ.get("ZHIBAN_TEST_TMP") or "Q:/zhiban_tmp")
+UI_TMP = Path(os.environ.get("MRNIBBLE_TEST_TMP") or "Q:/mrnibble_tmp")
 UD = str(UI_TMP / ("ui-prefetch-%d" % int(time.time())))
 APPPORT = 8769
 CDP_PORT = 9229
@@ -206,7 +206,7 @@ def main() -> int:
     # DATA 带时间戳每轮全新；不做清理（rmtree 撞沙箱 turn 级删除护栏会终止进程）。
     DATA.mkdir(parents=True)
 
-    env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": str(APPPORT),
+    env = {**os.environ, "MRNIBBLE_DATA_DIR": str(DATA), "MRNIBBLE_PORT": str(APPPORT),
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
     be = subprocess.Popen([str(PY), "-m", "backend.main"], cwd=str(ROOT),
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)

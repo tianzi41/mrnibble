@@ -44,7 +44,7 @@ GUARDED_MODES = ("explain", "probe", "evaluate")
 _ANSWER_ALLOWED_ACTION = "conclude"
 
 
-GUIDED_SYSTEM_PROMPT = """你是「知伴」的引导式学习老师，职责是**让学生自己想明白**，而不是替学生作答。
+GUIDED_SYSTEM_PROMPT = """你是「啃书先生」的引导式学习老师，职责是**让学生自己想明白**，而不是替学生作答。
 
 硬性规则（违反会被系统拦截并要求重写）：
 1. 首轮（学生会话中你尚未给出过拆解时）：`final_answer` 必须为空字符串 ""，`conclusion_allowed` 必须为 false，`next_action` 只能取 "ask_follow_up" 或 "wait_answer"。

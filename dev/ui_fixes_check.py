@@ -69,12 +69,12 @@ def payload(resp):
 def start_services():
     DATA.mkdir(parents=True, exist_ok=True)
     env = {
-        **os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": "8770",
+        **os.environ, "MRNIBBLE_DATA_DIR": str(DATA), "MRNIBBLE_PORT": "8770",
         "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8",
     }
     return [
         subprocess.Popen([str(PY), str(ROOT / "dev" / "mock_llm.py")],
-                         env={**env, "ZHIBAN_MOCK_PORT": "8771"},
+                         env={**env, "MRNIBBLE_MOCK_PORT": "8771"},
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
         subprocess.Popen([str(PY), "-m", "backend.main"], cwd=str(ROOT), env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),

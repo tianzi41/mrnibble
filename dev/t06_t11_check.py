@@ -56,7 +56,7 @@ def main() -> int:
 
     DATA.mkdir(parents=True)
 
-    env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "PYTHONPATH": str(ROOT / "src"),
+    env = {**os.environ, "MRNIBBLE_DATA_DIR": str(DATA), "PYTHONPATH": str(ROOT / "src"),
            "PYTHONIOENCODING": "utf-8"}
     mock = subprocess.Popen([str(PY), str(ROOT / "dev" / "mock_llm.py")], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -242,7 +242,7 @@ def main() -> int:
         rec2 = httpx.post(f"{BACKEND}/api/memories/recall", json={"query": "讲解 例证"}, timeout=15).json()["data"]
         check("H2 删除后不再召回（红线 #5）", not any(x["id"] == m["id"] for x in rec2["items"]))
         import sqlite3
-        con = sqlite3.connect(DATA / "zhiban.db")
+        con = sqlite3.connect(DATA / "mrnibble.db")
         fts_rows = con.execute("SELECT COUNT(*) FROM memories_fts").fetchone()[0]
         mem_rows = con.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
         con.close()
@@ -366,14 +366,14 @@ def main() -> int:
             except Exception:
                 pass
         check("M1 日志中无 Key 明文", hit == 0, f"命中 {hit} 次")
-        db_txt = (DATA / "zhiban.db").read_bytes()
+        db_txt = (DATA / "mrnibble.db").read_bytes()
         check("M2 DB 中 Key 为密文", FAKE_KEY.encode() not in db_txt)
 
         # ── N. 重新解析（换嵌入模型后重建索引）──────────
         print("[N] 重新解析")
 
         def chunk_count() -> int:
-            con = sqlite3.connect(DATA / "zhiban.db")
+            con = sqlite3.connect(DATA / "mrnibble.db")
             try:
                 return int(con.execute(
                     "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
@@ -394,7 +394,7 @@ def main() -> int:
         check("N4 重建索引后仍可检索", len(r2["data"]["hits"]) > 0, str(len(r2["data"]["hits"])))
         # 重新解析必须换用「当前」嵌入通道：向量维度应等于当前 provider 的维度
         cur_dim = None
-        con = sqlite3.connect(DATA / "zhiban.db")
+        con = sqlite3.connect(DATA / "mrnibble.db")
         try:
             row = con.execute(
                 "SELECT embedding_dim FROM chunks WHERE document_id = ? AND embedding IS NOT NULL "

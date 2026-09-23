@@ -7,7 +7,7 @@
  * 这里负责「下拉联动 + 持久化 + 跟随系统变化」，并在页面加载后再应用一次（幂等）。
  */
 (function () {
-  const KEY = "zhiban-theme";
+  const KEY = "mrnibble-theme";
   const OPTS = [
     ["", "默认（浅色）"],
     ["sepia", "米黄（护眼）"],

@@ -10,7 +10,7 @@
 - 目标是**回环地址**（127.0.0.1 / localhost / ::1）→ ``trust_env=False``，直连；
 - 目标是**外部地址** → ``trust_env=True``，尊重系统代理（部分用户确实需要代理
   才能访问 OpenAI 等端点）；
-- 环境变量 ``ZHIBAN_DISABLE_PROXY=1`` 可强制全局禁用代理（排障用）。
+- 环境变量 ``MRNIBBLE_DISABLE_PROXY=1`` 可强制全局禁用代理（排障用）。
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def make_client(base_url: str, *, timeout: httpx.Timeout | float, **kwargs) -> h
         配置好代理策略的客户端。**调用方负责用 ``with`` 关闭。**
     """
     trust_env = True
-    if os.environ.get("ZHIBAN_DISABLE_PROXY", "").strip() in {"1", "true", "yes"}:
+    if os.environ.get("MRNIBBLE_DISABLE_PROXY", "").strip() in {"1", "true", "yes"}:
         trust_env = False
     elif is_loopback_url(base_url):
         trust_env = False

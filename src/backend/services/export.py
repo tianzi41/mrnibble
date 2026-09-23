@@ -31,7 +31,7 @@ __all__ = ["ExportService", "get_export_service"]
 
 # genanki 需要稳定的数字 id（同 deck 重复导入才不重复建卡组）。
 _ANKI_MODEL_ID = 1607392319
-_ANKI_MODEL_NAME = "ZhiBan Basic (Q/A)"
+_ANKI_MODEL_NAME = "MrNibble Basic (Q/A)"
 
 _SAFE_NAME = re.compile(r"[^\w\u4e00-\u9fff\-]+")
 

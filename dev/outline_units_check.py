@@ -122,8 +122,8 @@ def group3() -> None:
     print("\n[3] regenerate_outline → _run_outline 的 unit_count 传递（monkeypatch）")
 
     # 进程内临时库，避免起服务。
-    tmp = Path(tempfile.mkdtemp(prefix="zhiban-units-"))
-    os.environ["ZHIBAN_DATA_DIR"] = str(tmp)
+    tmp = Path(tempfile.mkdtemp(prefix="mrnibble-units-"))
+    os.environ["MRNIBBLE_DATA_DIR"] = str(tmp)
     from backend.db.connection import get_db
     db = get_db()
     db.migrate()  # 建表（Database 构造不自动迁移）
@@ -231,14 +231,14 @@ def group4() -> None:
     print("\n[4] 端到端：mock-outline-units 解析提示词返回 N 个单元")
     import httpx
 
-    tmp = Path(tempfile.mkdtemp(prefix="zhiban-units-e2e-"))
+    tmp = Path(tempfile.mkdtemp(prefix="mrnibble-units-e2e-"))
     backend_url = "http://127.0.0.1:8768"
     mock_url = "http://127.0.0.1:8769"
-    env = {**os.environ, "ZHIBAN_DATA_DIR": str(tmp), "ZHIBAN_PORT": "8768",
+    env = {**os.environ, "MRNIBBLE_DATA_DIR": str(tmp), "MRNIBBLE_PORT": "8768",
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
     procs = [
         subprocess.Popen([str(PY), str(ROOT / "dev" / "mock_llm.py")],
-                         env={**env, "ZHIBAN_MOCK_PORT": "8769"},
+                         env={**env, "MRNIBBLE_MOCK_PORT": "8769"},
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
         subprocess.Popen([str(PY), "-m", "backend.main"], cwd=str(ROOT), env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
@@ -252,7 +252,7 @@ def group4() -> None:
             return
         check("端到端：服务启动", True)
 
-        db_path = tmp / "zhiban.db"
+        db_path = tmp / "mrnibble.db"
         cid = "course_e2e"
         doc_id = "doc_e2e"
         _insert_fixture(db_path, cid, doc_id)

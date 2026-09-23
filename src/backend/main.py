@@ -63,7 +63,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning("启动清扫未完成任务时出错", exc_info=True)
 
     logger.info(
-        "知伴服务启动完成",
+        "啃书先生服务启动完成",
         extra={"extra_fields": {"version": cfg.version, "data_dir": str(cfg.data_dir)}},
     )
     try:
@@ -73,7 +73,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             db.checkpoint()
             db.close_all()
         finally:
-            logger.info("知伴服务已停止")
+            logger.info("啃书先生服务已停止")
 
 
 def _register_static_mime_types() -> None:
@@ -91,7 +91,7 @@ def create_app() -> FastAPI:
     """创建并装配 FastAPI 应用。"""
     _register_static_mime_types()
     app = FastAPI(
-        title="知伴 ZhiBan",
+        title="啃书先生 MrNibble",
         description="单机单人的本地 AI 学习助手（本机侧车服务）",
         version=__version__,
         lifespan=_lifespan,
@@ -139,7 +139,7 @@ def run_server(reload: bool = False) -> None:
     port = select_port(cfg)
     write_runtime_json(port, cfg)
     logger.info(
-        "启动知伴服务",
+        "启动啃书先生服务",
         extra={"extra_fields": {"host": cfg.host, "port": port, "reload": reload}},
     )
     uvicorn.run(

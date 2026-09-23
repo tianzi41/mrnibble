@@ -32,7 +32,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-app = FastAPI(title="ZhiBan Mock LLM")
+app = FastAPI(title="MrNibble Mock LLM")
 
 # mock 嵌入的维度。
 #
@@ -384,13 +384,13 @@ def _dedup_dirty_payload() -> str:
 
 
 def _spy_dump(body: dict) -> None:
-    """把收到的 messages 原样落到 ZHIBAN_MOCK_SPY 文件（测试用：看提示词注入实况）。
+    """把收到的 messages 原样落到 MRNIBBLE_MOCK_SPY 文件（测试用：看提示词注入实况）。
 
     **JSONL 追加写**：一次业务动作可能连发多次模型调用（如大纲 → 对齐校验），
     覆盖写会让后一次抹掉前一次的落盘；每行一条完整 messages 数组，测试端逐行读。
     """
     import os
-    path = os.environ.get("ZHIBAN_MOCK_SPY")
+    path = os.environ.get("MRNIBBLE_MOCK_SPY")
     if not path:
         return
     try:
@@ -1083,11 +1083,11 @@ async def embeddings(request: Request):
 
 
 if __name__ == "__main__":
-    # 端口可用 ZHIBAN_MOCK_PORT 覆盖（多套自测并行时避免抢 8761）。
+    # 端口可用 MRNIBBLE_MOCK_PORT 覆盖（多套自测并行时避免抢 8761）。
     import os
 
     uvicorn.run(
         app, host="127.0.0.1",
-        port=int(os.environ.get("ZHIBAN_MOCK_PORT", "8761")),
+        port=int(os.environ.get("MRNIBBLE_MOCK_PORT", "8761")),
         log_level="warning",
     )

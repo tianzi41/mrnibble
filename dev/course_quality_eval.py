@@ -18,9 +18,9 @@
 设计约束（踩过的坑，别改）：
   1. 沙箱会回收工具调用内拉起的进程 → 全流程必须**单脚本一次跑完**。
   2. `data/browser-profile` 有 Chrome 锁定的文件、且文件数远超批量删除阈值 →
-     **绝不 copytree 整个 data/**，只复制 zhiban.db / secret.key。
+     **绝不 copytree 整个 data/**，只复制 mrnibble.db / secret.key。
   3. 复制过来的库要清空业务表，否则新上传的测试材料会被去重跳过。
-  4. 用**源码后端 + 独立端口**，不 taskkill 用户正在运行的知伴.exe。
+  4. 用**源码后端 + 独立端口**，不 taskkill 用户正在运行的啃书先生.exe。
   5. 目录名带时间戳、**不做删除**（rmtree 会被批量删除保护拦下）。
 """
 
@@ -39,7 +39,7 @@ from pathlib import Path
 
 import httpx
 
-ROOT = Path(__file__).resolve().parent.parent          # zhiban/
+ROOT = Path(__file__).resolve().parent.parent          # mrnibble/
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
 LAUNCHER = Path(__file__).resolve().parent / "eval_backend_launcher.py"
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
@@ -51,13 +51,13 @@ def newest_dist() -> Path:
 
     不把 dist 号写死：每次构建后 dist 号会递增、旧目录会被清理。
     """
-    cands = [p for p in ROOT.glob("dist*") if (p / "知伴" / "data" / "zhiban.db").exists()]
+    cands = [p for p in ROOT.glob("dist*") if (p / "啃书先生" / "data" / "mrnibble.db").exists()]
     if not cands:
-        return ROOT / "dist24" / "知伴"
+        return ROOT / "dist24" / "啃书先生"
     def _num(p: Path) -> int:
         m = re.search(r"(\d+)$", p.name)
         return int(m.group(1)) if m else 0
-    return sorted(cands, key=_num)[-1] / "知伴"
+    return sorted(cands, key=_num)[-1] / "啃书先生"
 
 # 保留（配置类）；其余一律清空（内容类）
 _KEEP_TABLES = {"settings", "schema_meta", "sqlite_sequence"}
@@ -108,14 +108,14 @@ def prepare_env(dist: Path) -> tuple[Path, Path, Path]:
     data = work / "data"
     data.mkdir(parents=True, exist_ok=True)
     src = dist / "data"
-    for name in ("zhiban.db", "secret.key"):
+    for name in ("mrnibble.db", "secret.key"):
         if (src / name).exists():
             shutil.copy2(src / name, data / name)
-    dbf = data / "zhiban.db"
+    dbf = data / "mrnibble.db"
     if dbf.exists():
         _reset_business_tables(dbf)
     else:
-        say(f"⚠ {dist} 下没有 zhiban.db —— 将用全新空库（需要自己配模型与 Key）")
+        say(f"⚠ {dist} 下没有 mrnibble.db —— 将用全新空库（需要自己配模型与 Key）")
     say(f"配置来源：{src}")
     say(f"隔离数据目录就绪（已清空业务数据）：{data}")
     return work, data, work / "receipts.jsonl"
@@ -246,8 +246,8 @@ def main() -> int:
     # 用包装启动器：拦截 diagram.compile_ir，把真实回执（规则码 + 失败 IR）落盘
     proc = subprocess.Popen([str(PY), str(LAUNCHER)], cwd=str(ROOT),
                             stdout=logf, stderr=subprocess.STDOUT,
-                            env={**os.environ, "ZHIBAN_DATA_DIR": str(data),
-                                 "ZHIBAN_PORT": str(args.port), "PYTHONPATH": str(ROOT / "src"),
+                            env={**os.environ, "MRNIBBLE_DATA_DIR": str(data),
+                                 "MRNIBBLE_PORT": str(args.port), "PYTHONPATH": str(ROOT / "src"),
                                  "E2E_RECEIPTS": str(receipts),
                                  "PYTHONIOENCODING": "utf-8"})
     result: dict = {"ok": False, "stages": {}, "lessons": [], "errors": [],

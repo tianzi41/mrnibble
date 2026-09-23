@@ -40,7 +40,7 @@ def main() -> int:
         url = f"{MIRROR}/{remote}"
         print(f"  下载 {url}")
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "zhiban/1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "mrnibble/1.0"})
             with urllib.request.urlopen(req, timeout=600) as resp, \
                     open(dst, "wb") as f:
                 f.write(resp.read())

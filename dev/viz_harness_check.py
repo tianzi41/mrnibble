@@ -1,6 +1,6 @@
 """课件可视化渲染自测：无头 Chrome 加载 vendor + visual.js，验证 P1/P2/P3。
 
-不依赖知伴后端。起一个本地静态服务（serve src/web），加载 vendor 与 visual.js、
+不依赖啃书先生后端。起一个本地静态服务（serve src/web），加载 vendor 与 visual.js、
 markdown.js（含 MD.mindmap），真实调用 window.Viz.render / window.MD.mindmap，
 断言返回值与 DOM，并整页截图。
 
@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # （本项目路径含中文）。历史上写死在 C 盘的临时目录，每跑一次留 4 个约 15MB 的 profile、
 # 且从不清理 → 累积 3.6 GB 把 C 盘吃满（2026-09-18 用户清理 C 盘时发现）。
 # 现在统一落到 Q 盘纯 ASCII 目录；ui_profile() 每次启动还会清掉 24 小时前的旧目录。
-UI_TMP = Path(os.environ.get("ZHIBAN_TEST_TMP") or "Q:/zhiban_tmp")
+UI_TMP = Path(os.environ.get("MRNIBBLE_TEST_TMP") or "Q:/mrnibble_tmp")
 
 
 def ui_profile(kind: str) -> str:

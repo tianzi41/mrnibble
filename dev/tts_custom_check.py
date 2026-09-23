@@ -6,7 +6,7 @@
   ③ 返回非音频（JSON）→ 4003 且报出真实 Content-Type（不能把 JSON 当音频塞给前端）；
   ④ 端口不通 → 4003 且回显地址模板（省得用户猜是哪儿写错了）。
 
-进程内跑，不依赖后端服务；用独立临时 ZHIBAN_DATA_DIR。
+进程内跑，不依赖后端服务；用独立临时 MRNIBBLE_DATA_DIR。
 
 用法::
     .venv/Scripts/python.exe dev/tts_custom_check.py
@@ -55,7 +55,7 @@ class FakeTTS(BaseHTTPRequestHandler):
 
 def main() -> int:
     TMP.mkdir(parents=True, exist_ok=True)
-    os.environ["ZHIBAN_DATA_DIR"] = str(TMP)
+    os.environ["MRNIBBLE_DATA_DIR"] = str(TMP)
 
     from backend.db.connection import get_db
     from backend.errors import AppError

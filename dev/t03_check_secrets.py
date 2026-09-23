@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 FAKE_KEY = "sk-test-1234567890abcdef"
 BASE = "http://127.0.0.1:8760"
-DB_PATH = ROOT / "data" / "zhiban.db"
+DB_PATH = ROOT / "data" / "mrnibble.db"
 LOG_DIR = ROOT / "data" / "logs"
 
 PASSED = 0

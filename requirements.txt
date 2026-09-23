@@ -1,4 +1,4 @@
-# 知伴（ZhiBan）运行时依赖（锁定版本，实测 win_amd64 / Python 3.13）
+# 啃书先生（MrNibble）运行时依赖（锁定版本，实测 win_amd64 / Python 3.13）
 # 安装：pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # ── 后端框架 ───────────────────────────────────────────

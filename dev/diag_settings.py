@@ -29,7 +29,7 @@ def start_backend() -> subprocess.Popen:
     DATA.mkdir(parents=True)
     env = {
         **os.environ,
-        "ZHIBAN_DATA_DIR": str(DATA),
+        "MRNIBBLE_DATA_DIR": str(DATA),
         "PYTHONPATH": str(ROOT / "src"),
         "PYTHONIOENCODING": "utf-8",
     }

@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # （本项目路径含中文）。历史上写死在 C 盘的临时目录，每跑一次留 4 个约 15MB 的 profile、
 # 且从不清理 → 累积 3.6 GB 把 C 盘吃满（2026-09-18 用户清理 C 盘时发现）。
 # 现在统一落到 Q 盘纯 ASCII 目录；ui_profile() 每次启动还会清掉 24 小时前的旧目录。
-UI_TMP = Path(os.environ.get("ZHIBAN_TEST_TMP") or "Q:/zhiban_tmp")
+UI_TMP = Path(os.environ.get("MRNIBBLE_TEST_TMP") or "Q:/mrnibble_tmp")
 
 
 def ui_profile(kind: str) -> str:
@@ -41,7 +41,7 @@ def ui_profile(kind: str) -> str:
     # ⚠️ 2026-09-22 起**不再自动清理**旧目录：沙箱删除护栏是 turn 级删除预算，
     # 同一回合里删过目录之后，后续 rmtree 会被 SAFE_DELETE_BULK_CONFIRM_REQUIRED
     # **直接终止进程**（try/except 兜不住、连 traceback 都没有）—— 症状是
-    # 「断言成片假红 / 测试中途消失」。旧 profile 留在 Q:/zhiban_tmp 由人工清理。
+    # 「断言成片假红 / 测试中途消失」。旧 profile 留在 Q:/mrnibble_tmp 由人工清理。
     return str(UI_TMP / ("ui-%s-%d" % (kind, int(time.time() * 1000) % 10_000_000)))
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
 DATA = ROOT / ".tmp" / ("test-data-courseui-%d" % int(time.time()))
@@ -104,7 +104,7 @@ async def dump_wait(url: str, marker: str, timeout: float = 25.0) -> str:
     import websockets as _ws
 
     chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-    ud = str(Path(_os.environ.get("ZHIBAN_TEST_TMP", "Q:/zhiban_tmp"))
+    ud = str(Path(_os.environ.get("MRNIBBLE_TEST_TMP", "Q:/mrnibble_tmp"))
              / ("dumpwait-%d" % (int(time.time() * 1000) % 1000000)))
     try:
         _os.makedirs(ud, exist_ok=True)
@@ -503,7 +503,7 @@ async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
                 await _asyncio.sleep(0.4)
                 return await ev("""(function(){
                     var cs=getComputedStyle(document.documentElement);
-                    var saved=null; try{saved=localStorage.getItem('zhiban-theme');}catch(e){}
+                    var saved=null; try{saved=localStorage.getItem('mrnibble-theme');}catch(e){}
                     return {attr: document.documentElement.getAttribute('data-theme'),
                             bg: cs.getPropertyValue('--bg').trim(),
                             paper: cs.getPropertyValue('--paper').trim(),
@@ -1773,11 +1773,11 @@ def main() -> int:
         else:
             shutil.rmtree(DATA)
     DATA.mkdir(parents=True)
-    env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": "8764",
+    env = {**os.environ, "MRNIBBLE_DATA_DIR": str(DATA), "MRNIBBLE_PORT": "8764",
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
     procs = [
         subprocess.Popen([str(PY), str(ROOT / "dev" / "mock_llm.py")],
-                         env={**env, "ZHIBAN_MOCK_PORT": "8765"},
+                         env={**env, "MRNIBBLE_MOCK_PORT": "8765"},
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
         subprocess.Popen([str(PY), "-m", "backend.main"], cwd=str(ROOT), env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),

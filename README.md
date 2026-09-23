@@ -1,4 +1,4 @@
-# 知伴 ZhiBan · 本地 AI 学习伴侣
+# 啃书先生 MrNibble · 本地 AI 学习伴侣
 
 > **单机本地的引导式 AI 学习软件。** 把你的课件、论文、教材放进本机，即可基于**自己的材料**
 > 提问、生成课程与复习资料、被"像老师一样"引导着学。数据不出本机，填入你自己的 API Key 即可使用。
@@ -6,7 +6,7 @@
 | 项 | 说明 |
 |---|---|
 | 运行平台 | Windows 10 / 11 x64 |
-| 交付形态 | **免安装绿色包**：解压 → 双击 `知伴.exe`，无需安装 Python / Node / Docker |
+| 交付形态 | **免安装绿色包**：解压 → 双击 `啃书先生.exe`，无需安装 Python / Node / Docker |
 | 使用方式 | 单机单人，无注册登录，全部数据存本机 |
 | 数据位置 | 程序目录内 `data/`（拷走整包即完成迁移） |
 | 许可证 | [MIT](LICENSE) |
@@ -17,8 +17,8 @@
 
 ## 一、快速开始（用户）
 
-1. 解压 `知伴.zip` 到任意目录（**建议放在空间充足的盘**，如 `D:\知伴\`）。
-2. 双击 `知伴.exe`，会自动打开应用窗口。
+1. 解压 `啃书先生.zip` 到任意目录（**建议放在空间充足的盘**，如 `D:\啃书先生\`）。
+2. 双击 `啃书先生.exe`，会自动打开应用窗口。
 3. 进入 **设置 → 对话模型**，填三样东西：
    - `base_url`（OpenAI 兼容端点，可用顶部"快速填充"）
    - `模型名`
@@ -65,7 +65,7 @@
 **完全离线方案（不填任何 Key）**：
 
 1. 安装并启动 [Ollama](https://ollama.com/)，拉一个模型，如 `ollama pull qwen2.5:7b`
-2. 知伴「设置 → 对话模型」中 `base_url` 填 `http://127.0.0.1:11434/v1`，模型名 `qwen2.5:7b`，Key 留空
+2. 啃书先生「设置 → 对话模型」中 `base_url` 填 `http://127.0.0.1:11434/v1`，模型名 `qwen2.5:7b`，Key 留空
 3. 断网后依然可以：上传文档 → 检索 → 问答 → 生成资料 → 语音输入 → 本地朗读
 
 **隐私说明**：你上传的文档**只会**发送到**你自己配置**的模型端点。未配置端点时，
@@ -86,7 +86,7 @@
 <details>
 <summary><b>双击后窗口没弹出来？</b></summary>
 
-看 `data/logs/zhiban.log` 与控制台窗口的报错。最常见原因：端口被占用
+看 `data/logs/mrnibble.log` 与控制台窗口的报错。最常见原因：端口被占用
 （程序会自动从 8760 顺延到 8770，再不行会提示）；杀毒软件拦截（把程序目录加入白名单）。
 </details>
 
@@ -122,7 +122,7 @@
 <details>
 <summary><b>如何彻底卸载？</b></summary>
 
-删除整个 `知伴/` 文件夹即可，系统内不留任何残留（数据都在这个文件夹里）。
+删除整个 `啃书先生/` 文件夹即可，系统内不留任何残留（数据都在这个文件夹里）。
 </details>
 
 ---
@@ -135,11 +135,11 @@
 - **存储**：SQLite（WAL 模式）+ FTS5 全文检索（CJK 逐字分词）；密钥用 Fernet 加密后落库，日志脱敏
 - **前端**：零构建原生 JS（IIFE 模块 + `<script>` 直载），无框架无打包器；第三方库存 `src/web/vendor/`
 - **桌面外壳**：`src/launcher.py` 拉起后端 + 打开 Edge/Chrome 应用窗口，窗口存活即服务存活
-- **构建**：PyInstaller 冻结态（`build/zhiban.spec`），随包分发 ASR + MeloTTS 模型
+- **构建**：PyInstaller 冻结态（`build/mrnibble.spec`），随包分发 ASR + MeloTTS 模型
 - **测试**：`dev/*_check.py` 全部自带 mock 模型服务，**无需网络与真实 Key**
 
 ```
-zhiban/
+mrnibble/
 ├─ src/
 │  ├─ backend/            # FastAPI 侧车服务
 │  │  ├─ db/              # schema / migrations / connection
@@ -215,27 +215,27 @@ powershell -ExecutionPolicy Bypass -File scripts\run_dev.ps1   # 后端 + 浏览
 | `dev/outline_units_check.py` | 大纲单元数量弹性 | 20 |
 | `dev/course_done_check.py` | 结课收尾 | 9 |
 | `dev/ui_fixes_check.py` | 前端改动端到端 | 31 |
-| `dev/frozen_check.py` | **打包后冻结态**（用 `ZHIBAN_DIST` 指定被测包） | 48 |
+| `dev/frozen_check.py` | **打包后冻结态**（用 `MRNIBBLE_DIST` 指定被测包） | 48 |
 
 ```powershell
 # 单套示例
 .venv\Scripts\python dev\t06_t11_check.py
 
 # 冻结态验证（务必指定独立数据目录，别污染真实数据）
-$env:ZHIBAN_DIST="dist\知伴"; $env:ZHIBAN_DATA_DIR="$env:TEMP\zhiban-frozen"
+$env:MRNIBBLE_DIST="dist\啃书先生"; $env:MRNIBBLE_DATA_DIR="$env:TEMP\mrnibble-frozen"
 .venv\Scripts\python dev\frozen_check.py
 ```
 
 ### 5.5 构建打包
 
 ```powershell
-# 1) PyInstaller 冻结态构建（产物 dist\知伴\）
+# 1) PyInstaller 冻结态构建（产物 dist\啃书先生\）
 powershell -ExecutionPolicy Bypass -File build\build.ps1
 
 # 2) 冻结态验证（见 5.4，48 项全过才继续）
 
 # 3) 打免安装绿色包 zip（自动排除 data/ 与 secret.key，并做 testzip 校验）
-.venv\Scripts\python scripts\make_package.py --dist dist\知伴 --out 知伴-免安装绿色包-v<版本>.zip
+.venv\Scripts\python scripts\make_package.py --dist dist\啃书先生 --out 啃书先生-免安装绿色包-v<版本>.zip
 ```
 
 约定：`dist` 目录只增不改（每次新编号），构建用 `--noconfirm` 前必须确认目标目录不存在——

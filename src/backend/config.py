@@ -6,7 +6,7 @@
 
 主理人拍板决策：
 - 端口固定默认 ``8760``，被占用则向上探测至 ``8770``（最多），并写 ``data/runtime.json``。
-- 数据目录默认程序目录内 ``data/``（绿色便携），可用 ``ZHIBAN_DATA_DIR`` 覆盖。
+- 数据目录默认程序目录内 ``data/``（绿色便携），可用 ``MRNIBBLE_DATA_DIR`` 覆盖。
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ class AppConfig:
     @property
     def db_path(self) -> Path:
         """SQLite 主库文件路径。"""
-        return data_path("zhiban.db")
+        return data_path("mrnibble.db")
 
     @property
     def files_dir(self) -> Path:
@@ -122,22 +122,22 @@ def get_config() -> AppConfig:
     global _config
     if _config is None:
         _load_dotenv_once()
-        host = _env_str("ZHIBAN_HOST", "127.0.0.1")
+        host = _env_str("MRNIBBLE_HOST", "127.0.0.1")
         # 2026-09-21 代码审查 P2-2：原实现允许 `.env` 把 host 覆盖成 0.0.0.0，
         # 与类文档里「绝不绑 0.0.0.0」的声明不符 —— 绑到外网卡会把资料库与
         # 模型 Key 暴露给同网段的其他人。这里直接拒绝，把红线做成可执行约束。
         if host not in _LOOPBACK_HOSTS:
             raise ValueError(
-                f"ZHIBAN_HOST 只允许回环地址（当前 {host!r}）：知伴是单机软件，"
+                f"MRNIBBLE_HOST 只允许回环地址（当前 {host!r}）：啃书先生是单机软件，"
                 f"绑定其它地址会让同网段的人访问到你的资料库与模型 Key。"
             )
         _config = AppConfig(
             host=host,
-            port_pref=_env_int("ZHIBAN_PORT", 8760),
-            port_max=_env_int("ZHIBAN_PORT_MAX", 8770),
+            port_pref=_env_int("MRNIBBLE_PORT", 8760),
+            port_max=_env_int("MRNIBBLE_PORT_MAX", 8770),
             data_dir=data_root(),
-            log_level=_env_str("ZHIBAN_LOG_LEVEL", "INFO").upper(),
-            max_upload_mb=_env_int("ZHIBAN_MAX_UPLOAD_MB", 200),
+            log_level=_env_str("MRNIBBLE_LOG_LEVEL", "INFO").upper(),
+            max_upload_mb=_env_int("MRNIBBLE_MAX_UPLOAD_MB", 200),
             frozen=is_frozen(),
             version=__version__,
         )
@@ -185,7 +185,7 @@ def select_port(cfg: AppConfig | None = None) -> int:
         if _port_available(cfg.host, port):
             return port
     raise RuntimeError(
-        f"端口 {cfg.port_pref}-{cfg.port_max} 均被占用，无法启动知伴服务"
+        f"端口 {cfg.port_pref}-{cfg.port_max} 均被占用，无法启动啃书先生服务"
     )
 
 

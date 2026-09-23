@@ -3,7 +3,7 @@
 验证 settings_service.SettingsService.tts_effective() 的回退逻辑，并真正发一次
 请求证明「同主机沿用 Key / 异主机不发 Key」的行为。
 
-- 数据目录用独立临时目录（ZHIBAN_DATA_DIR），**不污染 data/**；
+- 数据目录用独立临时目录（MRNIBBLE_DATA_DIR），**不污染 data/**；
 - 用标准库起进程内 ThreadingHTTPServer 当 mock 语音端点，记录收到的
   Authorization 头，断言同主机带 Key、异主机不带 Key（防密钥外泄）。
 
@@ -24,8 +24,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # 必须在导入 backend 之前设置隔离数据目录（config 在首次访问时定稿）。
-_TMP = tempfile.mkdtemp(prefix="zhiban_tts_")
-os.environ["ZHIBAN_DATA_DIR"] = _TMP
+_TMP = tempfile.mkdtemp(prefix="mrnibble_tts_")
+os.environ["MRNIBBLE_DATA_DIR"] = _TMP
 
 sys.path.insert(0, str(ROOT / "src"))
 

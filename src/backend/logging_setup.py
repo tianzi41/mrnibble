@@ -161,7 +161,7 @@ def setup_logging(
     global _configured
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "zhiban.log"
+    log_file = log_dir / "mrnibble.log"
 
     root = logging.getLogger()
     numeric_level = getattr(logging, str(level).upper(), logging.INFO)

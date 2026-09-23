@@ -10,9 +10,9 @@
     host.innerHTML = `
 <div class="page" style="max-width:900px;margin:0 auto">
   <div class="card">
-    <b style="font-size:16px">知伴怎么用</b>
+    <b style="font-size:16px">啃书先生怎么用</b>
     <p class="hint" style="margin:6px 0 0">
-      知伴是装在你电脑上的学习软件：把材料拆成能「上课」的课程，并基于材料回答你的问题。
+      啃书先生是装在你电脑上的学习软件：把材料拆成能「上课」的课程，并基于材料回答你的问题。
       全部数据都在本机（程序目录的 <code>data/</code> 文件夹），换电脑整个目录拷走即可。
     </p>
 
@@ -20,7 +20,7 @@
 
     <b>第一次用，其实只要做一件事：配一个模型接口</b>
     <p class="hint" style="margin:6px 0 0">
-      知伴自己不含 AI 能力，需要你填一个「对话模型」的接口。推荐
+      啃书先生自己不含 AI 能力，需要你填一个「对话模型」的接口。推荐
       <b>DeepSeek</b> —— 便宜、够用，几元钱能用很久。
     </p>
 
@@ -29,7 +29,7 @@
       <ol style="margin:8px 0 0;padding-left:22px;line-height:2">
         <li>打开 DeepSeek 开放平台：<code>platform.deepseek.com</code></li>
         <li>注册并登录（手机号 / 邮箱都行）</li>
-        <li>在左侧菜单找到 <b>API Keys</b>，点「创建 API key」，起个名字（随便写，比如 <code>zhiban</code>）</li>
+        <li>在左侧菜单找到 <b>API Keys</b>，点「创建 API key」，起个名字（随便写，比如 <code>mrnibble</code>）</li>
         <li><b>立刻复制生成的 Key</b>（形如 <code>sk-xxxxxxxx</code>）——
             它<b>只显示这一次</b>，关掉就再也看不到了（丢了就删掉重建一个）</li>
         <li>充值：新账号一般有少量赠送额度够你试；用完后在充值页面充几元即可</li>
@@ -37,7 +37,7 @@
     </div>
 
     <div style="margin-top:14px">
-      <b>② 填到知伴里（填一次，以后不用管）</b>
+      <b>② 填到啃书先生里（填一次，以后不用管）</b>
       <ol style="margin:8px 0 0;padding-left:22px;line-height:2">
         <li>点右上角 <b>设置</b></li>
         <li>在「对话模型」一栏，预设选 <b>DeepSeek</b> —— 会自动填好这两项：
@@ -49,7 +49,7 @@
 
     <p class="hint" style="margin-top:12px">
       用的是别的服务商、或单位/学校给的中转接口？那就把三项都换成它给你的值 ——
-      只要它兼容 <b>OpenAI 的对话接口</b>（绝大多数服务都兼容），知伴就能接。
+      只要它兼容 <b>OpenAI 的对话接口</b>（绝大多数服务都兼容），啃书先生就能接。
     </p>
 
     <p class="hint" style="margin-top:12px">
@@ -75,7 +75,7 @@
       <ol style="margin:8px 0 0;padding-left:22px;line-height:2">
         <li>打开阶跃星辰开放平台：<code>platform.stepfun.com</code></li>
         <li>注册并登录（手机号 / 邮箱都行）</li>
-        <li>进入控制台的 <b>账户管理 → 接口密钥</b>，点「创建密钥」，起个名字（随便写，比如 <code>zhiban-tts</code>）</li>
+        <li>进入控制台的 <b>账户管理 → 接口密钥</b>，点「创建密钥」，起个名字（随便写，比如 <code>mrnibble-tts</code>）</li>
         <li><b>立刻复制生成的 Key</b>（形如 <code>sk-xxxxxxxx</code>）—— 它<b>只显示这一次</b>，
             关掉就再也看不到了（丢了就删掉重建一个）</li>
         <li>新账号一般有赠送额度；如需更多，在官网的充值/套餐页按需开通（以官网当前活动为准）</li>
@@ -83,7 +83,7 @@
     </div>
 
     <div style="margin-top:14px">
-      <b>② 填到知伴里（设置 → 语音朗读）</b>
+      <b>② 填到啃书先生里（设置 → 语音朗读）</b>
       <ol style="margin:8px 0 0;padding-left:22px;line-height:2">
         <li>点右上角 <b>设置</b>，找到「语音朗读」一栏</li>
         <li><b>接口地址</b>填 <code>https://api.stepfun.com/v1</code>（注意带 <code>/v1</code>，别多也别少）</li>
@@ -115,14 +115,14 @@
           确认结构（结构和标题都能改）→ 按讲生成讲义。</li>
       <li><b>上课</b> —— 打开讲次，看白板讲义（可翻页），点朗读听讲；学完做随堂练习。</li>
       <li><b>提问</b> —— 工作台先勾选材料再提问，回答会带页码引用，点角标可看原文。
-          知伴会记住你的偏好和盲区，可在「记忆」里查看或删除。</li>
+          啃书先生会记住你的偏好和盲区，可在「记忆」里查看或删除。</li>
     </ol>
 
     <div class="sep"></div>
 
     <b>三个常见疑问</b>
     <ul style="margin:8px 0 0;padding-left:22px;line-height:2">
-      <li><b>要联网吗？</b>只有当知伴在「生成内容」和「回答问题」时需要联网（走你填的模型接口）；
+      <li><b>要联网吗？</b>只有当啃书先生在「生成内容」和「回答问题」时需要联网（走你填的模型接口）；
           资料解析、检索、本地语音识别与本地朗读都在本机完成、不出网。</li>
       <li><b>我的材料会被传上去吗？</b>不会整份上传。生成时只会把<b>用得上的少量材料片段</b>
           随请求发给你配置的模型服务 —— 这也是为了让它有据可依、能给出页码引用。</li>

@@ -889,7 +889,7 @@
     }
     S.messages.forEach((m) => {
       const wrap = el("div", "msg " + (m.role === "user" ? "user" : "assistant"));
-      wrap.appendChild(el("div", "who", m.role === "user" ? "我" : "知伴"));
+      wrap.appendChild(el("div", "who", m.role === "user" ? "我" : "啃书先生"));
       const bubble = el("div", "bubble md");
       if (m.role === "user") {
         bubble.textContent = String(m.content || "").replace(CTX_RE, "");
@@ -920,7 +920,7 @@
     sc.appendChild(el("div", "msg user",
       `<div class="who">我</div><div class="bubble">${esc(text)}</div>`));
     const live = el("div", "msg assistant");
-    live.appendChild(el("div", "who", "知伴"));
+    live.appendChild(el("div", "who", "啃书先生"));
     const bubble = el("div", "bubble md", '<span class="hint">思考中…</span>');
     live.appendChild(bubble);
     sc.appendChild(live);

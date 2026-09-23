@@ -1,4 +1,4 @@
-# 知伴（ZhiBan）第一阶段（T01~T05）自检报告
+# 啃书先生（MrNibble）第一阶段（T01~T05）自检报告
 
 - 执行人：寇豆码（工程师）
 - 环境：`Q:\xiaolongxia\xiaxia\hyperknow调研\zhiban`，Python 3.13.14（`.venv`）

@@ -4,7 +4,7 @@
 跑完会自动关掉那个窗口。标准回归清单里不含本脚本。
 
 它在干什么：
-    1. 用临时数据目录真起一次 ``src/launcher.py``（= 双击知伴.exe 的同一条路径）；
+    1. 用临时数据目录真起一次 ``src/launcher.py``（= 双击啃书先生.exe 的同一条路径）；
     2. 等到应用窗口出现，然后**把它最小化**（复现用户的操作）；
     3. 期间反复读 ``/api/health`` 的 ``heartbeat.idle_s``（心跳静默秒数）；
     4. 断言：启动器进程仍然活着、``launcher.log`` 里没有 exit 记录。
@@ -35,7 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-EXPECT_TITLE = "知伴 · 本地 AI 学习伴侣"
+EXPECT_TITLE = "啃书先生 · 本地 AI 学习伴侣"
 TMP = ROOT / ".tmp" / "e2e-launcher"
 
 PASS: list[str] = []
@@ -101,7 +101,7 @@ def main() -> int:
     TMP.mkdir(parents=True, exist_ok=True)
     (TMP / "logs").mkdir(parents=True, exist_ok=True)
     (TMP / "logs" / "launcher.log").unlink(missing_ok=True)
-    env = dict(os.environ, ZHIBAN_DATA_DIR=str(TMP))
+    env = dict(os.environ, MRNIBBLE_DATA_DIR=str(TMP))
     out_log = (TMP / "launcher-stdout.log").open("wb")
 
     proc = subprocess.Popen([sys.executable, "-u", str(ROOT / "src" / "launcher.py")],

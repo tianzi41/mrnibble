@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from backend.services.citations import CONCLUSION_PATTERNS  # noqa: E402
 
-DB_PATH = ROOT / "data" / "zhiban.db"
+DB_PATH = ROOT / "data" / "mrnibble.db"
 BASE = "http://127.0.0.1:8760"
 MOCK_BASE = "http://127.0.0.1:8761/v1"
 PASSED = 0

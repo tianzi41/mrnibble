@@ -1,15 +1,15 @@
 """冻结态（打包后 exe）端到端验证：一次跑完，避免进程被中途回收。
 
 用法：
-    # 用默认目录 dist4/知伴
+    # 用默认目录 dist4/啃书先生
     PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe dev/frozen_check.py
     # 验证其它构建目录
-    ZHIBAN_DIST=dist5 .venv/Scripts/python.exe dev/frozen_check.py
+    MRNIBBLE_DIST=dist5 .venv/Scripts/python.exe dev/frozen_check.py
     # 用独立数据目录验证（不污染绿色包里已迁移的真实数据）
-    ZHIBAN_DIST=dist5 ZHIBAN_DATA_DIR=.tmp/frozen-data .venv/Scripts/python.exe dev/frozen_check.py
+    MRNIBBLE_DIST=dist5 MRNIBBLE_DATA_DIR=.tmp/frozen-data .venv/Scripts/python.exe dev/frozen_check.py
 
 注意：本脚本会**写入**数据目录（上传测试文件、改模型配置、建会话）。若绿色包里
-已经带了用户的真实数据，务必用 ``ZHIBAN_DATA_DIR`` 指向一个临时目录再跑。
+已经带了用户的真实数据，务必用 ``MRNIBBLE_DATA_DIR`` 指向一个临时目录再跑。
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 # 构建目录可用环境变量覆盖，便于重新打包后验证新产物。
-DIST = Path(os.environ.get("ZHIBAN_DIST", "dist4"))
-EXE = (DIST if DIST.is_absolute() else ROOT / DIST) / "知伴" / "知伴.exe"
+DIST = Path(os.environ.get("MRNIBBLE_DIST", "dist4"))
+EXE = (DIST if DIST.is_absolute() else ROOT / DIST) / "啃书先生" / "啃书先生.exe"
 # 数据目录：与后端一致的优先级（环境变量覆盖 > exe 同级 data）。
 # 冻结版 exe 继承本进程环境变量，因此这里设置即可生效。
-DATA_DIR = Path(os.environ.get("ZHIBAN_DATA_DIR") or (EXE.parent / "data"))
+DATA_DIR = Path(os.environ.get("MRNIBBLE_DATA_DIR") or (EXE.parent / "data"))
 if not DATA_DIR.is_absolute():
     DATA_DIR = (ROOT / DATA_DIR).resolve()
 BACKEND = "http://127.0.0.1:8760"

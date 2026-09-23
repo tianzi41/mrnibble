@@ -1,4 +1,4 @@
-# Download ZhiBan offline models to the project directory (Q drive). ASCII only.
+# Download MrNibble offline models to the project directory (Q drive). ASCII only.
 # Usage:  powershell -ExecutionPolicy Bypass -File scripts\download_models.ps1 [-WhatIf]
 #
 # NOTE: This stage (T01-T05) does NOT include an embedding model -- the local
@@ -13,7 +13,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $models = Join-Path $root "models"
 $asrDir = Join-Path $models "asr\sense-voice-small"
 
-Write-Host "== ZhiBan model download =="
+Write-Host "== MrNibble model download =="
 Write-Host "Target dir: $asrDir"
 
 if ((Test-Path (Join-Path $asrDir "tokens.txt")) -and (Test-Path (Join-Path $asrDir "model.int8.onnx"))) {

@@ -15,7 +15,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent   # zhiban/
+ROOT = Path(__file__).resolve().parent.parent   # mrnibble/
 SRC = ROOT / ".tmp" / "e2e24-report.json"
 OUT = Path(r"Q:\xiaolongxia\xiaxia\hyperknow调研\课件生成质量评测报告.md")
 
@@ -102,7 +102,7 @@ def build(data: dict) -> str:
     out: list[str] = []
     A = out.append
 
-    A("# 知伴课件生成质量评测报告")
+    A("# 啃书先生课件生成质量评测报告")
     A("")
     A(f"- 评测时间：{__import__('time').strftime('%Y-%m-%d %H:%M')}")
     A(f"- 使用模型：`{data.get('model')}`")
@@ -567,7 +567,7 @@ def build(data: dict) -> str:
 
     A("---")
     A("")
-    A("> 本报告由端到端评测脚本自动生成：`zhiban/dev/course_quality_eval.py`（真实模型跑全流程）"
+    A("> 本报告由端到端评测脚本自动生成：`mrnibble/dev/course_quality_eval.py`（真实模型跑全流程）"
       "→ `.tmp/e2e24-report.json` → 本报告。多轮样本留存在 `.tmp/e2e-runs/`。")
     A(">")
     A("> 复现方式：")

@@ -20,11 +20,11 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
-# 构建目录可用 ZHIBAN_DIST 覆盖（默认 dist4）。
-_DIST = Path(os.environ.get("ZHIBAN_DIST", "dist4"))
-APP = (_DIST if _DIST.is_absolute() else ROOT / _DIST) / "知伴"
-EXE = APP / "知伴.exe"
-DB = APP / "data" / "zhiban.db"
+# 构建目录可用 MRNIBBLE_DIST 覆盖（默认 dist4）。
+_DIST = Path(os.environ.get("MRNIBBLE_DIST", "dist4"))
+APP = (_DIST if _DIST.is_absolute() else ROOT / _DIST) / "啃书先生"
+EXE = APP / "啃书先生.exe"
+DB = APP / "data" / "mrnibble.db"
 BASE = "http://127.0.0.1:8760"
 
 
@@ -40,8 +40,8 @@ def wait_health(timeout: float = 40.0) -> bool:
 
 
 def stop_exe() -> None:
-    """按映像名结束本机启动的知伴进程（仅限本机测试启动的实例）。"""
-    subprocess.run(["taskkill", "/IM", "知伴.exe", "/F"],
+    """按映像名结束本机启动的啃书先生进程（仅限本机测试启动的实例）。"""
+    subprocess.run(["taskkill", "/IM", "啃书先生.exe", "/F"],
                    capture_output=True, text=True)
     time.sleep(1.5)
 
@@ -102,7 +102,7 @@ def main() -> int:
     for k, v in left.items():
         print(f"  {k}: {v} 条")
     print(f"  data/files 剩余: {len(list((APP / 'data' / 'files').glob('*')))} 个文件")
-    print("\n✅ 已恢复出厂状态。现在打开 知伴.exe 会看到全新的空资料库与「未配置模型」。")
+    print("\n✅ 已恢复出厂状态。现在打开 啃书先生.exe 会看到全新的空资料库与「未配置模型」。")
     return 0
 
 

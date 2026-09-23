@@ -623,7 +623,7 @@
       const out = document.getElementById("tts-preview-result");
       const mode = document.getElementById("tts-mode").value;
       const eng = (document.getElementById("tts-engine") || {}).value || "system";
-      const SENT = "知伴朗读测试：中文路径本身没有问题，问题在于不要把中文写进批处理文件。";
+      const SENT = "啃书先生朗读测试：中文路径本身没有问题，问题在于不要把中文写进批处理文件。";
       if (mode === "off") { out.textContent = "请先把朗读模式选为「本地朗读」或「云端 API」"; return; }
       out.textContent = "试听中…";
 

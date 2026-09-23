@@ -1,4 +1,4 @@
-# ZhiBan dev server launcher (ASCII only).
+# MrNibble dev server launcher (ASCII only).
 # Usage:  powershell -ExecutionPolicy Bypass -File scripts\run_dev.ps1
 $ErrorActionPreference = "Stop"
 
@@ -14,5 +14,5 @@ if (-not (Test-Path $python)) {
     exit 1
 }
 
-Write-Host "Starting ZhiBan dev server ..."
+Write-Host "Starting MrNibble dev server ..."
 & $python -m backend.main

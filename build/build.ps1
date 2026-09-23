@@ -1,4 +1,4 @@
-# ZhiBan build script (PyInstaller --onedir, portable green package).
+# MrNibble build script (PyInstaller --onedir, portable green package).
 # Usage: powershell -ExecutionPolicy Bypass -File build\build.ps1
 # Requirements: .venv at project root with runtime + pyinstaller installed.
 
@@ -38,13 +38,13 @@ if ($needTts) {
 }
 
 Write-Host "[4/5] Running PyInstaller..." -ForegroundColor Cyan
-& $py -m PyInstaller build\zhiban.spec --noconfirm --distpath dist --workpath build\work
+& $py -m PyInstaller build\mrnibble.spec --noconfirm --distpath dist --workpath build\work
 if ($LASTEXITCODE -ne 0) { Write-Error "PyInstaller failed" }
 
 Write-Host "[5/5] Verifying output..." -ForegroundColor Cyan
-$out = Join-Path (Resolve-Path "dist").Path "知伴"
-if (-not (Test-Path (Join-Path $out "知伴.exe"))) { Write-Error "build output missing: $out" }
+$out = Join-Path (Resolve-Path "dist").Path "啃书先生"
+if (-not (Test-Path (Join-Path $out "啃书先生.exe"))) { Write-Error "build output missing: $out" }
 
 Write-Host ""
 Write-Host ("BUILD OK -> " + $out) -ForegroundColor Green
-Write-Host "Deploy: copy the whole folder to any Windows 10/11 x64 machine, then double-click 知伴.exe."
+Write-Host "Deploy: copy the whole folder to any Windows 10/11 x64 machine, then double-click 啃书先生.exe."

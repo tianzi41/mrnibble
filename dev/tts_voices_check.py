@@ -138,7 +138,7 @@ async def main() -> int:
     tts_port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
-    env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": "8766",
+    env = {**os.environ, "MRNIBBLE_DATA_DIR": str(DATA), "MRNIBBLE_PORT": "8766",
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
     be = subprocess.Popen([str(PY), "-m", "backend.main"], cwd=str(ROOT),
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)

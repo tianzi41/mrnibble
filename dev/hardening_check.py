@@ -10,7 +10,7 @@
 [T] 另把审查报告 **P2-7（FTS 特殊字符）的证伪**固化成断言 —— 它其实**不成立**
     （`_escape_phrase` 已把 `"` 转义并用引号包裹整段），但值得长期盯着。
 
-进程内跑：ASGI 直连（不开端口）+ 一个本地小 HTTP 服务，独立临时 ZHIBAN_DATA_DIR。
+进程内跑：ASGI 直连（不开端口）+ 一个本地小 HTTP 服务，独立临时 MRNIBBLE_DATA_DIR。
 
 用法::
 
@@ -111,7 +111,7 @@ class _StubFile:
 async def _run() -> int:
     TMP.mkdir(parents=True, exist_ok=True)
     (TMP / "logs").mkdir(parents=True, exist_ok=True)
-    os.environ["ZHIBAN_DATA_DIR"] = str(TMP)
+    os.environ["MRNIBBLE_DATA_DIR"] = str(TMP)
     for junk in TMP.glob("fts_probe.db*"):
         junk.unlink(missing_ok=True)
 
@@ -165,7 +165,7 @@ async def _run() -> int:
           r.json()["sizes"] == [3 * 1024 * 1024], str(r.json()))
 
     # 端到端：把上限压到 1MB，真传一个 3MB 文件
-    os.environ["ZHIBAN_MAX_UPLOAD_MB"] = "1"
+    os.environ["MRNIBBLE_MAX_UPLOAD_MB"] = "1"
     reload_config()
     app = create_app()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
@@ -179,7 +179,7 @@ async def _run() -> int:
     leftovers = [p.name for p in get_config().files_dir.glob("*.txt")
                  if p.stat().st_size > 1024 * 1024]
     check("U4b 磁盘没留下超限文件的残留", not leftovers, str(leftovers))
-    os.environ.pop("ZHIBAN_MAX_UPLOAD_MB")
+    os.environ.pop("MRNIBBLE_MAX_UPLOAD_MB")
     reload_config()
 
     # ══════════ [H] 安全响应头 ══════════
@@ -193,13 +193,13 @@ async def _run() -> int:
     # ══════════ [C] 监听地址回环校验 ══════════
     section("[C] P2-2 只允许绑回环地址")
     for bad in ("0.0.0.0", "192.168.1.5", "::"):
-        os.environ["ZHIBAN_HOST"] = bad
+        os.environ["MRNIBBLE_HOST"] = bad
         try:
             reload_config()
             check(f"C {bad} 被拒绝", False, "居然通过了")
         except ValueError as e:
             check(f"C {bad} 被拒绝并说明原因", "回环" in str(e), str(e)[:80])
-    os.environ.pop("ZHIBAN_HOST")
+    os.environ.pop("MRNIBBLE_HOST")
     check("C 回环地址仍可用", reload_config().host == "127.0.0.1")
 
     # ══════════ [F] 网页抓取限大小 ══════════

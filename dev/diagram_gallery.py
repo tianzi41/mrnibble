@@ -1,8 +1,8 @@
 """导出「Archify 图示样例画廊」—— 把历次运行里编译好的图示拼成一个可浏览的 HTML。
 
 为什么要这个工具：
-  图示是**后端确定性编译**出来的 SVG，存在各次评测的隔离库（`.tmp/e2e24-*/data/zhiban.db`）
-  与当前交付库（`dist*/知伴/data/zhiban.db`）里。想「实际看看长什么样」时，
+  图示是**后端确定性编译**出来的 SVG，存在各次评测的隔离库（`.tmp/e2e24-*/data/mrnibble.db`）
+  与当前交付库（`dist*/啃书先生/data/mrnibble.db`）里。想「实际看看长什么样」时，
   不用起后端、不用翻数据库，直接跑本脚本生成静态画廊即可（SVG 自包含，无外部依赖）。
 
 内容：
@@ -158,10 +158,10 @@ def collect_rejected() -> list[dict]:
 def build(out_path: Path, recompile: bool = False) -> int:
     items: list[dict] = []
     # 历次评测的隔离库（真实模型跑出来的产物）
-    for d in sorted((ROOT / ".tmp").glob("e2e24-*/data/zhiban.db")):
+    for d in sorted((ROOT / ".tmp").glob("e2e24-*/data/mrnibble.db")):
         items += collect(d, d.parent.parent.name, recompile=recompile)
     # 当前交付库（用户自己的课）
-    for d in sorted(ROOT.glob("dist*/知伴/data/zhiban.db")):
+    for d in sorted(ROOT.glob("dist*/啃书先生/data/mrnibble.db")):
         items += collect(d, d.parent.parent.name + "（你的库）", recompile=recompile)
 
     rejected = collect_rejected()

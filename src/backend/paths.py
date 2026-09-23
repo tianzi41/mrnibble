@@ -12,7 +12,7 @@
 
 开发态目录布局（项目根 = ``src/backend/paths.py`` 的上两级）::
 
-    zhiban/
+    mrnibble/
     ├─ models/                 # 根目录
     ├─ data/                   # 运行期数据（自动生成）
     └─ src/
@@ -21,8 +21,8 @@
 
 冻结态（PyInstaller ``--onedir``）目录布局::
 
-    dist/知伴/
-    ├─ 知伴.exe
+    dist/啃书先生/
+    ├─ 啃书先生.exe
     ├─ _internal/              # = sys._MEIPASS
     │  ├─ web/
     │  ├─ models/
@@ -115,14 +115,14 @@ def data_root() -> Path:
     """返回运行期数据根目录（可写）。
 
     优先级：
-        1. 环境变量 ``ZHIBAN_DATA_DIR``（绝对路径，覆盖一切）；
+        1. 环境变量 ``MRNIBBLE_DATA_DIR``（绝对路径，覆盖一切）；
         2. 冻结态：``可执行文件同级目录 / data``（绿色便携）；
         3. 开发态：``项目根目录 / data``。
 
     Returns:
         数据根目录绝对路径。
     """
-    override = os.environ.get("ZHIBAN_DATA_DIR")
+    override = os.environ.get("MRNIBBLE_DATA_DIR")
     if override:
         return Path(override).expanduser().resolve()
     if is_frozen():
@@ -134,7 +134,7 @@ def data_path(*parts: str) -> Path:
     """定位运行期可写文件。
 
     Args:
-        *parts: 相对数据根目录的路径片段，例如 ``("logs", "zhiban.log")``。
+        *parts: 相对数据根目录的路径片段，例如 ``("logs", "mrnibble.log")``。
 
     Returns:
         数据根目录下的绝对路径（不保证已存在）。

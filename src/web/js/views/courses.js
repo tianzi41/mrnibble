@@ -42,7 +42,7 @@
    * 不会越攒越多）；再进向导时自动填回，并在课程页给一条「未完成的创建」入口置顶。
    * 只有三件事会清掉草稿：点「取消」、点「清空草稿，重新开始」、建课成功。
    */
-  const DRAFT_KEY = "zhiban-create-draft";
+  const DRAFT_KEY = "mrnibble-create-draft";
   const DRAFT_VER = 2;
   let draftCollector = null;   // 向导渲染时把自己的「收集函数」挂进来
   let draftTimer = null;
@@ -113,7 +113,7 @@
    * 现在把改动按课程存成一份本地草稿：① 左栏点这门课直接回到结构编辑页；
    * ② 课程页给一条「正在编辑结构：《…》」入口（带 ✕ 可丢弃）；③ 保存成功后清掉。
    */
-  const CONFIRM_KEY = "zhiban-confirm-draft";
+  const CONFIRM_KEY = "mrnibble-confirm-draft";
   let confirmSaver = null;      // confirmOutline 渲染时把自己的「保存函数」挂上来
   let confirmTimer = null;
 

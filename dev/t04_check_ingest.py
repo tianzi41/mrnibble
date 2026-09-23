@@ -22,7 +22,7 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dev" / "_out"
-DB_PATH = ROOT / "data" / "zhiban.db"
+DB_PATH = ROOT / "data" / "mrnibble.db"
 BASE = "http://127.0.0.1:8760"
 PASSED = 0
 

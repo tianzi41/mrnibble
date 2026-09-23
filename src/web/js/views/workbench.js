@@ -207,7 +207,7 @@
 
   function msgNode(role, content, citations, guided) {
     const wrap = el("div", "msg " + (role === "user" ? "user" : "assistant"));
-    wrap.appendChild(el("div", "who", role === "user" ? "我" : "知伴"));
+    wrap.appendChild(el("div", "who", role === "user" ? "我" : "啃书先生"));
     const bubble = el("div", "bubble md");
     if (role === "user") bubble.textContent = content;
     else MD.mount(bubble, content || "");
@@ -432,7 +432,7 @@
     const sc = document.getElementById("chat-scroll");
     sc.appendChild(msgNode("user", text, [], null));
     const live = el("div", "msg assistant");
-    live.appendChild(el("div", "who", "知伴"));
+    live.appendChild(el("div", "who", "啃书先生"));
     const bubble = el("div", "bubble md");
     bubble.innerHTML = '<span class="hint">思考中…</span>';
     live.appendChild(bubble);
@@ -481,7 +481,7 @@
 // 为什么可调：窗口大小、材料类型（单栏 PDF / 双栏 PDF / md 文本）差异很大，
 // 一个固定宽度必然有人嫌窄 —— 用户实测「预览窗口太小、PDF 看不清」。
 const PREVIEW_W_DEFAULT = 440;
-const PREVIEW_W_KEY = "zhiban-preview-w";
+const PREVIEW_W_KEY = "mrnibble-preview-w";
 let previewW = null;                    // 懒读 localStorage
 
 function previewWidth() {

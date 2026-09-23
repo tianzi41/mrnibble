@@ -102,7 +102,7 @@ async def _probe(target: dict) -> None:
         print(f"    title={title!r} hash={hash_now!r}")
         print(f"    globals=[{globs}]  intro.img={img}  audio.play() → {audio_ok}")
         check("1.1 Chrome --app 带全套启动参数正常起窗并打开应用", True)
-        check("1.2 页面标题正确", "知伴" in str(title), str(title))
+        check("1.2 页面标题正确", "啃书先生" in str(title), str(title))
         check("1.3 无 JS 渲染错误（data-view-error）", not err)
         check("1.4 关键全局在位（Api/Voice/Profile/Views.welcome）",
               str(globs) == "object,object,object,object", str(globs))
@@ -116,7 +116,7 @@ async def _probe(target: dict) -> None:
 
 def main() -> int:
     DATA.mkdir(parents=True)
-    env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": str(PORT),
+    env = {**os.environ, "MRNIBBLE_DATA_DIR": str(DATA), "MRNIBBLE_PORT": str(PORT),
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
     be = subprocess.Popen([str(PY), "-m", "backend.main"], cwd=str(ROOT), env=env,
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

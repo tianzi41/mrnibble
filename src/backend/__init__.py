@@ -1,4 +1,4 @@
-"""知伴（ZhiBan）后端包。
+"""啃书先生（MrNibble）后端包。
 
 本包承载「本机侧车服务（FastAPI）」，与桌面外壳（launcher）同进程运行。
 所有路径经 :mod:`backend.paths` 获取，所有运行期配置经 :mod:`backend.config` 读取。

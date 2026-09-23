@@ -150,7 +150,7 @@ class CourseMediaService:
             "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, rowid",
             (conversation_id,),
         ):
-            who = "我" if m["role"] == "user" else "知伴"
+            who = "我" if m["role"] == "user" else "啃书先生"
             lines.append(f"**{who}**：{m['content']}")
             lines.append("")
         return "\n".join(lines)

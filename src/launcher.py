@@ -1,4 +1,4 @@
-"""知伴桌面启动器（架构文档 §1.2 / T14）。
+"""啃书先生桌面启动器（架构文档 §1.2 / T14）。
 
 职责：
 1. 选一个可用端口并启动本机 HTTP 服务（uvicorn，仅回环地址）；
@@ -7,7 +7,7 @@
 3. 等待用户关闭窗口，然后优雅停机（WAL checkpoint + 释放端口）。
 
 **不依赖任何开发者环境**：PyInstaller 冻结后本文件与后端一同打进
-``知伴.exe``，目标机器只需解压双击。
+``啃书先生.exe``，目标机器只需解压双击。
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import ProxyHandler, build_opener, urlopen
 
-APP_TITLE = "知伴 ZhiBan"
+APP_TITLE = "啃书先生 MrNibble"
 START_TIMEOUT = 30.0
 POLL_INTERVAL = 0.3
 
@@ -34,21 +34,21 @@ POLL_INTERVAL = 0.3
 # 为准（前端每 5 秒 POST /api/heartbeat）。
 #
 # ⚠️ 2026-09-20 二次修复（用户报「挂后台一会儿后台窗口自己没了」）：
-# 只靠心跳仍然太薄——实测日志（dist43/data/logs/zhiban.log）显示服务在
+# 只靠心跳仍然太薄——实测日志（dist43/data/logs/mrnibble.log）显示服务在
 # 用户最小化窗口后被**本启动器自己**优雅停掉，而同刻浏览器窗口还在（其
 # profile 在 27 秒后才落盘）。原因是：浏览器最小化/被遮挡时 Chromium 会
 # 节流甚至冻结隐藏页的 JS 定时器，5 秒心跳被拉长到 >15 秒，于是被判「已关窗」。
 # 另外 Popen 拿到的 msedge 进程常因「URL 转交已有实例」而秒退，那个句柄
 # 本来就已经失效——此时**只剩心跳这一道防线**。
 # 现在补一道**不依赖页面 JS 的硬信号**：枚举顶层窗口，只要能找到标题为
-# 「知伴 · 本地 AI 学习伴侣」的窗口，就无条件继续服务（最小化、被遮挡、
+# 「啃书先生 · 本地 AI 学习伴侣」的窗口，就无条件继续服务（最小化、被遮挡、
 # 渲染进程挂起、系统唤醒都不影响）。心跳降级为兜底。
 HEARTBEAT_GRACE = 15.0     # 窗口已消失时：心跳静默超过此值 → 退出
 HEARTBEAT_GRACE_UNKNOWN = 30.0  # 窗口探测不可用时的宽容值（探测异常才走这里）
 STARTUP_PATIENCE = 45.0    # 从未收到心跳：等页面上线的耐心（冷启动较慢）
 REOPEN_AFTER = 8.0         # 窗口进程「秒退」且无心跳：等这么久就补开一次
 MAX_REOPEN = 2             # 最多补开次数
-APP_TITLE_MARK = "知伴 · 本地 AI 学习伴侣"   # index.html 的 <title>，= --app 窗口标题
+APP_TITLE_MARK = "啃书先生 · 本地 AI 学习伴侣"   # index.html 的 <title>，= --app 窗口标题
 PROBE_INTERVAL = 1.0       # 窗口探测间隔（秒）
 BROWSER_PROCS = ("msedge.exe", "chrome.exe")
 
@@ -89,14 +89,14 @@ def _wait_ready(port: int, timeout: float) -> bool:
 def _browser_pref() -> str:
     """浏览器偏好：``auto``（默认，Edge 优先）｜``edge``｜``chrome``。
 
-    环境变量 ``ZHIBAN_BROWSER`` 可强制指定，两个用途：
+    环境变量 ``MRNIBBLE_BROWSER`` 可强制指定，两个用途：
     ① 给偏爱 Chrome（或想验证 Chrome）的用户一个 explicit 出口 ——
        装着 Edge 的机器上自动选择永远走 Edge；
     ② **验证回退路径**：2026-09-22 用户提出"没测过 Chrome 能否正常
-       运行"，在装着 Edge 的机器上 `ZHIBAN_BROWSER=chrome` 即可强制
+       运行"，在装着 Edge 的机器上 `MRNIBBLE_BROWSER=chrome` 即可强制
        走 Chrome 跑一遍。
     """
-    v = (os.environ.get("ZHIBAN_BROWSER") or "").strip().lower()
+    v = (os.environ.get("MRNIBBLE_BROWSER") or "").strip().lower()
     return v if v in ("edge", "chrome") else "auto"
 
 
@@ -185,10 +185,10 @@ def _open_window(port: int) -> subprocess.Popen | None:
 def _data_dir() -> Path:
     """数据目录（口径与 ``backend.paths`` 一致）。
 
-    优先级：``ZHIBAN_DATA_DIR`` 环境变量 > 冻结态 exe 同级的 ``data/`` >
+    优先级：``MRNIBBLE_DATA_DIR`` 环境变量 > 冻结态 exe 同级的 ``data/`` >
     开发态仓库的 ``data/``。
     """
-    env = os.environ.get("ZHIBAN_DATA_DIR")
+    env = os.environ.get("MRNIBBLE_DATA_DIR")
     if env:
         return Path(env)
     if getattr(sys, "frozen", False):
@@ -339,7 +339,7 @@ def _serve_until_close(port: int, window: subprocess.Popen | None) -> None:
                 lived = time.time() - opened_at
                 window = None
                 if lived < 5.0:
-                    print("[ZhiBan] 浏览器进程很快退出（可能转交给了已有实例），改用窗口/心跳判定")
+                    print("[MrNibble] 浏览器进程很快退出（可能转交给了已有实例），改用窗口/心跳判定")
                     _log_launcher("browser_process_exited_early", lived_s=round(lived, 2))
             except subprocess.TimeoutExpired:
                 time.sleep(0.5)
@@ -361,7 +361,7 @@ def _serve_until_close(port: int, window: subprocess.Popen | None) -> None:
         )
         if action == "reopen":
             retries += 1
-            print(f"[ZhiBan] 未检测到应用窗口与页面，尝试重新打开窗口（{retries}/{MAX_REOPEN}）")
+            print(f"[MrNibble] 未检测到应用窗口与页面，尝试重新打开窗口（{retries}/{MAX_REOPEN}）")
             _log_launcher("reopen_window", attempt=retries)
             window = _open_window(port)
             if window is not None:
@@ -369,12 +369,12 @@ def _serve_until_close(port: int, window: subprocess.Popen | None) -> None:
                 lived = None
                 continue
         elif action == "exit-heartbeat":
-            print("[ZhiBan] 应用窗口已消失且页面心跳停摆，准备退出")
+            print("[MrNibble] 应用窗口已消失且页面心跳停摆，准备退出")
             _log_launcher("exit", reason="window_gone_and_page_silent",
                           idle_s=round(idle, 1), probe=probe, bye=heartbeat.bye_seen())
             return
         elif action == "exit-startup":
-            print("[ZhiBan] 页面迟迟未上线，退出（可重新打开知伴）")
+            print("[MrNibble] 页面迟迟未上线，退出（可重新打开啃书先生）")
             _log_launcher("exit", reason="startup_timeout", idle_s=round(idle, 1), probe=probe)
             return
         time.sleep(0.5)
@@ -383,9 +383,9 @@ def _serve_until_close(port: int, window: subprocess.Popen | None) -> None:
 def main() -> int:
     port = _find_free_port()
     if not port:
-        print("[ZhiBan] 未找到可用端口", file=sys.stderr)
+        print("[MrNibble] 未找到可用端口", file=sys.stderr)
         return 1
-    os.environ["ZHIBAN_PORT"] = str(port)
+    os.environ["MRNIBBLE_PORT"] = str(port)
 
     from backend.config import get_config, write_runtime_json
     from backend.main import create_app
@@ -403,10 +403,10 @@ def main() -> int:
     t.start()
 
     if not _wait_ready(port, START_TIMEOUT):
-        print("[ZhiBan] 服务启动失败，请查看 data/logs/zhiban.log", file=sys.stderr)
+        print("[MrNibble] 服务启动失败，请查看 data/logs/mrnibble.log", file=sys.stderr)
         return 1
 
-    print(f"[ZhiBan] 已启动：http://127.0.0.1:{port}  （关闭窗口即退出）")
+    print(f"[MrNibble] 已启动：http://127.0.0.1:{port}  （关闭窗口即退出）")
     _log_launcher("started", port=port, version=cfg.version)
     window = _open_window(port)
     _log_launcher("window_opened", browser_pid=(window.pid if window is not None else None))
@@ -430,7 +430,7 @@ def main() -> int:
                 window.terminate()
         except Exception:
             pass
-    print("[ZhiBan] 已退出")
+    print("[MrNibble] 已退出")
     _log_launcher("stopped")
     return 0
 

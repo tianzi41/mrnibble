@@ -9,8 +9,8 @@
 
 用法::
 
-    python scripts/make_package.py                      # dist5 → 知伴-免安装绿色包-v2.0.zip
-    python scripts/make_package.py --dist dist5 --out 知伴.zip
+    python scripts/make_package.py                      # dist5 → 啃书先生-免安装绿色包-v2.0.zip
+    python scripts/make_package.py --dist dist5 --out 啃书先生.zip
     python scripts/make_package.py --dry-run            # 只统计，不写文件
 """
 
@@ -47,8 +47,8 @@ def iter_files(src: Path):
 def main() -> int:
     parser = argparse.ArgumentParser(description="打免安装绿色包 zip")
     parser.add_argument("--dist", default="dist5", help="构建目录（默认 dist5）")
-    parser.add_argument("--app", default="知伴", help="构建目录内的应用文件夹名")
-    parser.add_argument("--out", default="知伴-免安装绿色包-v2.0.zip", help="输出 zip 路径")
+    parser.add_argument("--app", default="啃书先生", help="构建目录内的应用文件夹名")
+    parser.add_argument("--out", default="啃书先生-免安装绿色包-v2.0.zip", help="输出 zip 路径")
     parser.add_argument("--compresslevel", type=int, default=6, help="压缩级别 0-9")
     parser.add_argument("--dry-run", action="store_true", help="只统计不写文件")
     args = parser.parse_args()

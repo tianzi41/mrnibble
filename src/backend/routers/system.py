@@ -144,8 +144,8 @@ def _delayed_exit(delay_s: float = 0.3) -> None:
     os._exit(0)
 
 
-@router.post("/system/shutdown", summary="优雅关闭知伴")
+@router.post("/system/shutdown", summary="优雅关闭啃书先生")
 def system_shutdown() -> dict[str, Any]:
-    """响应后退出进程（供界面「退出知伴」按钮调用）。"""
+    """响应后退出进程（供界面「退出啃书先生」按钮调用）。"""
     threading.Thread(target=_delayed_exit, daemon=True).start()
     return ok({"shutting_down": True})
