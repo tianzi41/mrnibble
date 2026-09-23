@@ -319,10 +319,11 @@ def main() -> int:
         # ── K. TTS 默认本地 MeloTTS ─────────────────────
         print("[K] TTS 状态")
         ts = httpx.get(f"{BACKEND}/api/tts/status", timeout=10).json()["data"]
-        # 2026-09-22 用户要求：默认本地引擎 MeloTTS（离线零外发）、朗读默认开启；
-        # PRD R-G03「朗读开关默认关闭」已追加变更备注。
-        check("K1 默认本地 MeloTTS 开启（用户 2026-09-22 要求，覆写 R-G03）",
-              ts["enabled"] is True and ts["mode"] == "local" and ts.get("local_engine") == "melo",
+          # 2026-09-23 用户实测：MeloTTS 效果不如系统语音（音量忽高忽低）且 CPU 合成
+          # 约 40s/段，默认引擎改 system（零依赖、即时出声）；melo 保留可随时切回。
+          # PRD R-G03「朗读开关默认关闭」已追加变更备注。
+        check("K1 默认系统语音开启（用户 2026-09-23 要求，覆写 R-G03）",
+              ts["enabled"] is True and ts["mode"] == "local" and ts.get("local_engine") == "system",
               str(ts))
         check("K2 本地朗读可用性标记", ts["local_available"] is True)
         check("K2a MeloTTS 状态字段存在", "local_engine" in ts and "local_model_available" in ts)

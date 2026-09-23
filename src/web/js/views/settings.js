@@ -145,8 +145,8 @@
             <div class="field" id="tts-local-wrap">
               <label>本地引擎</label>
               <select id="tts-engine" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px">
-                ${[["system", "系统语音（零依赖，音色较机械）"], ["melo", "神经语音 MeloTTS（更自然，中英混读）"]]
-                  .map(([v, n]) => `<option value="${v}" ${(cfg.tts.local_engine || "melo") === v ? "selected" : ""}>${n}</option>`).join("")}
+                  ${[["system", "系统语音（默认，零依赖、即时出声）"], ["melo", "神经语音 MeloTTS（更自然，但 CPU 合成约 40 秒/段）"]]
+                    .map(([v, n]) => `<option value="${v}" ${(cfg.tts.local_engine || "system") === v ? "selected" : ""}>${n}</option>`).join("")}
               </select>
               <span class="hint" id="tts-engine-hint"></span>
             </div>

@@ -81,8 +81,10 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("tts.model", "", False, "str"),
     SettingSpec("tts.voice", "alloy", False, "str"),
     SettingSpec("tts.api_key", "", True, "str"),
-    # 本地朗读引擎：melo=本地 MeloTTS 神经语音（默认，离线零外发）；system=浏览器系统语音（零依赖，音色较机械）。
-    SettingSpec("tts.local_engine", "melo", False, "str"),
+      # 本地朗读引擎：system=浏览器系统语音（默认，零依赖、即时出声）；
+      # melo=本地 MeloTTS 神经语音（更自然但 CPU 合成慢，约 40s/段，且音量不稳）。
+      # 2026-09-23 用户实测：MeloTTS 效果不如系统语音，默认改 system（可随时切回）。
+      SettingSpec("tts.local_engine", "system", False, "str"),
     # 本地 MeloTTS 模型目录（相对项目根 / exe 同级 / data 均可，见 TTSService.model_dir）。
     SettingSpec("tts.local_dir", "models/tts/melo-zh_en", False, "str"),
     # 自定义 HTTP 语音服务（本地部署的 TTS 项目，自定义协议）：
