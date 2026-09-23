@@ -33,7 +33,7 @@
 <div id="app">
   <!-- ── 顶栏 ─────────────────────────────── -->
   <header class="topbar">
-    <div class="brand"><span class="logo">知</span><span>知伴</span><small>本地 AI 学习伴侣</small></div>
+    <div class="brand"><span class="logo">知</span><span>知伴</span><small id="brand-sub">本地 AI 学习伴侣</small></div>
     <nav class="nav" id="nav"></nav>
     <div class="topbar-right">
       <select id="theme-sel" class="theme-sel" title="外观（浅色 / 护眼 / 暗色）"></select>
@@ -73,6 +73,10 @@
 <script src="/static/vendor/echarts/echarts.min.js"></script>
 <script src="/static/vendor/markmap/markmap-view.js"></script>
 <script src="/static/vendor/markmap/markmap-lib.js"></script>
+<!-- i18n / theme 必须在所有视图与工具模块之前：视图 IIFE 顶部就调用
+     window.I18n.merge(...)，晚于视图加载会让 merge 被跳过、t() 直接返回 key。 -->
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/theme.js"></script>
 <script src="/static/js/visual.js"></script>
 
 <script src="/static/js/api.js"></script>
@@ -93,8 +97,6 @@
 <script src="/static/js/views/settings.js"></script>
 <script src="/static/js/views/welcome.js"></script>
 <script src="/static/js/views/help.js"></script>
-<script src="/static/js/i18n.js"></script>
-<script src="/static/js/theme.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
 </html>

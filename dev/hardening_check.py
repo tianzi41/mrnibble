@@ -34,7 +34,7 @@ from fastapi import FastAPI, File, UploadFile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-TMP = ROOT / ".tmp" / "test-data-hardening"
+TMP = ROOT / ".tmp" / ("test-data-hardening-%d" % int(time.time()))
 PORT = 8796
 
 # 极小的探针应用：只用来证明「Starlette 解析 multipart 时会填 upload.size」。

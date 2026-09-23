@@ -11,7 +11,7 @@
   // 直接引用会抛 ReferenceError —— 2026-09-22 实测踩过）。
   const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const t = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
+  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
   const en = () => !!(window.I18n && I18n.get() === "en");
   const label = (f, o) => esc(en() ? (o[2] || o[1]) : o[1]);
   const qtext = (f) => esc(en() ? (f.qEn || f.q) : f.q);
@@ -131,13 +131,13 @@
               return `<button type="button" class="opt${on ? " on" : ""}" data-v="${v}">${label(f, o)}</button>`;
             }).join("")}
           </div>
-          ${f.text ? `<textarea id="quiz-note" rows="2" placeholder="${t("profile.quiz.note.ph")}">${esc(cur)}</textarea>` : ""}
+          ${f.text ? `<textarea id="quiz-note" rows="2" placeholder="${gt("profile.quiz.note.ph")}">${esc(cur)}</textarea>` : ""}
           <div class="quiz-foot">
-            <span class="hint">${t("profile.quiz.progress", { i: i + 1, n: list.length })}</span>
+            <span class="hint">${gt("profile.quiz.progress", { i: i + 1, n: list.length })}</span>
             <span style="flex:1"></span>
-            ${i > 0 ? `<button class="btn small" id="q-prev">${t("profile.quiz.prev")}</button>` : ""}
-            <button class="btn small" id="q-skip">${t("profile.quiz.skip")}</button>
-            <button class="btn small primary" id="q-next">${i === list.length - 1 ? t("profile.quiz.done") : t("profile.quiz.next")}</button>
+            ${i > 0 ? `<button class="btn small" id="q-prev">${gt("profile.quiz.prev")}</button>` : ""}
+            <button class="btn small" id="q-skip">${gt("profile.quiz.skip")}</button>
+            <button class="btn small primary" id="q-next">${i === list.length - 1 ? gt("profile.quiz.done") : gt("profile.quiz.next")}</button>
           </div>
         </div>`;
 
@@ -191,7 +191,7 @@
         const cur = answers[f.key] || "";
         const multiSel = cur ? cur.split(",").filter(Boolean) : [];
         const body = f.text
-          ? `<textarea id="pf-note" rows="2" placeholder="${t("profile.editor.note.ph")}">${esc(cur)}</textarea>`
+          ? `<textarea id="pf-note" rows="2" placeholder="${gt("profile.editor.note.ph")}">${esc(cur)}</textarea>`
           : `<div class="quiz-opts${f.opts.length > 8 ? " two-col" : ""}">${f.opts.map((o) => {
               const v = o[0];
               const on = f.multi ? multiSel.indexOf(v) >= 0 : cur === v;
@@ -200,11 +200,11 @@
         return `<div class="pf-row"><div class="quiz-q" style="font-size:13px">${qtext(f)}</div>${body}</div>`;
       }).join("") + `
         <div class="row" style="margin-top:10px">
-          <button class="btn small" id="pf-clear">${t("profile.editor.clear")}</button>
+          <button class="btn small" id="pf-clear">${gt("profile.editor.clear")}</button>
           <span style="flex:1"></span>
-          <button class="btn small primary" id="pf-save">${t("profile.editor.save")}</button>
+          <button class="btn small primary" id="pf-save">${gt("profile.editor.save")}</button>
         </div>
-        <p class="hint" style="margin-top:6px">${t("profile.editor.hint")}</p>`;
+        <p class="hint" style="margin-top:6px">${gt("profile.editor.hint")}</p>`;
 
       host.querySelectorAll(".opt").forEach((b) => {
         b.onclick = () => {

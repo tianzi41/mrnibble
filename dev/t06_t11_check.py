@@ -21,7 +21,7 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
-DATA = ROOT / ".tmp" / "test-data-t06"
+DATA = ROOT / ".tmp" / ("test-data-t06-%d" % int(time.time()))
 BACKEND = "http://127.0.0.1:8760"
 MOCK = "http://127.0.0.1:8761"
 FAKE_KEY = "sk-test-1234567890abcdef"
@@ -54,8 +54,6 @@ def put_model(model: str) -> None:
 def main() -> int:
     import shutil
 
-    if DATA.exists():
-        shutil.rmtree(DATA)
     DATA.mkdir(parents=True)
 
     env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "PYTHONPATH": str(ROOT / "src"),

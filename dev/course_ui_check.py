@@ -38,22 +38,13 @@ def ui_profile(kind: str) -> str:
     清理失败一律忽略 —— 沙箱有批量删除护栏，被拦下只是留着占地方，不影响测试。
     """
     UI_TMP.mkdir(parents=True, exist_ok=True)
-    cutoff = time.time() - 24 * 3600
-    for old in UI_TMP.glob("ui-%s-*" % kind):
-        # ⚠️ 删之前必须数文件数：沙箱护栏超阈值（120）时**直接终止进程**，不抛异常，
-        # try/except 兜不住 —— 症状是整套测试跑完却打印不出统计行（exit=1、无 traceback）。
-        # 一个 Chrome profile 轻松几百个文件，所以这里宁可留着也不删。
-        try:
-            if old.stat().st_mtime >= cutoff:
-                continue
-            if sum(1 for _ in old.rglob("*")) > 100:
-                continue
-            shutil.rmtree(old, ignore_errors=True)
-        except Exception:  # noqa: BLE001 - 清理失败绝不能影响测试
-            pass
-    return str(UI_TMP / ("ui-%s-%d" % (kind, int(time.time()))))
+    # ⚠️ 2026-09-22 起**不再自动清理**旧目录：沙箱删除护栏是 turn 级删除预算，
+    # 同一回合里删过目录之后，后续 rmtree 会被 SAFE_DELETE_BULK_CONFIRM_REQUIRED
+    # **直接终止进程**（try/except 兜不住、连 traceback 都没有）—— 症状是
+    # 「断言成片假红 / 测试中途消失」。旧 profile 留在 Q:/zhiban_tmp 由人工清理。
+    return str(UI_TMP / ("ui-%s-%d" % (kind, int(time.time() * 1000) % 10_000_000)))
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
-DATA = ROOT / ".tmp" / "test-data-courseui"
+DATA = ROOT / ".tmp" / ("test-data-courseui-%d" % int(time.time()))
 BASE = "http://127.0.0.1:8764"
 MOCK = "http://127.0.0.1:8765"
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
@@ -80,12 +71,119 @@ def wait_http(url: str, timeout: float = 40.0) -> bool:
 
 
 def dump(url: str) -> str:
-    """用无头 Chrome 渲染页面并返回 DOM（--no-proxy-server 规避系统代理）。"""
+    """用无头 Chrome 渲染页面并返回 DOM。
+
+    ``--no-proxy-server``：规避系统代理劫持 127.0.0.1。
+    ``--disable-http-cache``：**必须加**。默认 profile 会缓存 /api/settings
+    等响应（静态资源无 Cache-Control，启发式缓存）——2026-09-22 实测：
+    缓存里 guide.done=false 的旧响应让 route() 把所有非向导页面拦去
+    #/welcome，confirm/practice 等页拿到空壳，5+10 项断言成片假红
+    （与启动器加同一个参数是同一个坑：改了后端、浏览器给旧响应）。
+    """
     out = subprocess.run([
         CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
-        "--no-proxy-server", "--virtual-time-budget=6000", "--dump-dom", url,
+        "--no-proxy-server", "--disable-http-cache",
+        "--virtual-time-budget=6000", "--dump-dom", url,
     ], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
     return out.stdout or ""
+
+
+async def dump_wait(url: str, marker: str, timeout: float = 25.0) -> str:
+    """CDP 打开页面并**真实等待** marker 出现，返回 document.documentElement.outerHTML。
+
+    为什么不用 dump()：``--dump-dom`` 只认 ``--virtual-time-budget``（虚拟时间），
+    对「异步渲染较重」的页面会拍到中间态——2026-09-22 i18n 改造后确认页
+    （courses.js renderConfirm 的 t() 调用量大）在虚拟预算内渲染不完成，
+    tree-edit/unit-box 缺失，2.4–2.7b 五条断言成片假红。CDP 真实时间等待稳定。
+    """
+    import json as _json
+    import os as _os
+    import subprocess as _sp
+
+    import httpx as _hx
+    import websockets as _ws
+
+    chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    ud = str(Path(_os.environ.get("ZHIBAN_TEST_TMP", "Q:/zhiban_tmp"))
+             / ("dumpwait-%d" % (int(time.time() * 1000) % 1000000)))
+    try:
+        _os.makedirs(ud, exist_ok=True)
+    except Exception:
+        pass
+    port = 9331
+    proc = _sp.Popen([chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+                      "--no-proxy-server", "--disable-http-cache",
+                      f"--remote-debugging-port={port}",
+                      f"--user-data-dir={ud}", "--window-size=1280,900", "about:blank"],
+                     stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+    try:
+        ws_url = None
+        for _ in range(60):
+            try:
+                lst = _hx.get(f"http://127.0.0.1:{port}/json/list", timeout=2).json()
+                t = next((x for x in lst if x.get("type") == "page"), None)
+                if t:
+                    ws_url = t["webSocketDebuggerUrl"]
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        if not ws_url:
+            return ""
+        async with _ws.connect(ws_url, max_size=None, ping_interval=None) as ws:
+            _id = [0]
+            pending: dict = {}
+
+            def nid():
+                _id[0] += 1
+                return _id[0]
+
+            async def reader():
+                while True:
+                    try:
+                        raw = await ws.recv()
+                    except Exception:
+                        break
+                    try:
+                        msg = _json.loads(raw)
+                    except Exception:
+                        continue
+                    if "id" in msg and msg["id"] in pending:
+                        f = pending.pop(msg["id"])
+                        if not f.done():
+                            f.set_result(msg)
+
+            task = asyncio.ensure_future(reader())
+
+            async def ev(expr, t=30):
+                i = nid()
+                fut = asyncio.get_event_loop().create_future()
+                pending[i] = fut
+                await ws.send(_json.dumps({"id": i, "method": "Runtime.evaluate",
+                                           "params": {"expression": expr,
+                                                      "returnByValue": True,
+                                                      "awaitPromise": True}}))
+                try:
+                    res = await asyncio.wait_for(fut, t)
+                finally:
+                    pending.pop(i, None)
+                return res.get("result", {}).get("result", {}).get("value")
+
+            await ws.send(_json.dumps({"id": nid(), "method": "Runtime.enable"}))
+            await ws.send(_json.dumps({"id": nid(), "method": "Page.enable"}))
+            await ws.send(_json.dumps({"id": nid(), "method": "Page.navigate",
+                                       "params": {"url": url}}))
+            html = ""
+            t0 = asyncio.get_event_loop().time()
+            while asyncio.get_event_loop().time() - t0 < timeout:
+                await asyncio.sleep(0.4)
+                html = await ev("document.documentElement.outerHTML") or ""
+                if marker in html:
+                    break
+            task.cancel()
+            return html
+    finally:
+        proc.terminate()
 
 
 async def cdp_interactive(base: str, lesson_id: str, first_title: str) -> None:
@@ -1663,7 +1761,17 @@ async def cdp_welcome(base: str) -> None:
 
 def main() -> int:
     if DATA.exists():
-        shutil.rmtree(DATA)
+        # 沙箱删除护栏按「单次删除的文件数」判（阈值 300），超了是**直接终止进程**
+        # （连 traceback 都没有，表现为「断言没跑几行就 exit=1」）。测试数据目录
+        # 随套件膨胀已超 600 个文件 → 超阈值时改名避开（旧目录留在 .tmp 待清理），
+        # 不删除、不复用脏数据。
+        n = sum(1 for _ in DATA.rglob("*"))
+        if n > 250:
+            import time as _time
+            os.replace(DATA, DATA.with_name(f"{DATA.name}-old-{_time.strftime('%H%M%S')}"))
+            print(f"[跳过清理] {DATA} 超过护栏阈值（{n} 项），已改名留待人工清理")
+        else:
+            shutil.rmtree(DATA)
     DATA.mkdir(parents=True)
     env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": "8764",
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
@@ -1891,7 +1999,8 @@ def main() -> int:
         check("2.2 显示课程标题", "极限" in dom or "洛必达" in dom)
 
         # P1：结构编辑（思维导图 + 编辑器）
-        dom = dump(f"{BASE}/#/courses?confirm={cid}")
+        # 用 CDP 真实等待（dump-dom 的虚拟时间对 i18n 后的重页面会拍中间态）
+        dom = asyncio.run(dump_wait(f"{BASE}/#/courses?confirm={cid}", "tree-edit"))
         check("2.3 结构编辑页无渲染异常", 'data-view-error' not in dom, dom[:300])
         check("2.4 有结构编辑器", "tree-edit" in dom and "unit-box" in dom)
         check("2.5 有思维导图容器", "tree-map" in dom and 'id="map"' in dom)

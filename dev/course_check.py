@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
-DATA = ROOT / ".tmp" / "test-data-course"
+DATA = ROOT / ".tmp" / ("test-data-course-%d" % int(time.time()))
 BACKEND = "http://127.0.0.1:8762"
 MOCK = "http://127.0.0.1:8763"
 FAKE_KEY = "sk-test-course-abcdef123456"
@@ -86,15 +86,8 @@ def wait_job(job_id: str, tries: int = 120) -> dict:
 
 
 def main() -> int:
-    if DATA.exists():
-        # 沙箱批量删除护栏会拦 rmtree（turn 级删除预算有限，删过大目录后连
-        # 测试目录的清理也会被拦，整个脚本被拖死）：先改名腾位（瞬时、不走删除），
-        # 旧目录尽力清理，失败就留待手动/下次清理。
-        stale = DATA.with_name(DATA.name + ".old")
-        if stale.exists():
-            shutil.rmtree(stale, ignore_errors=True)
-        DATA.rename(stale)
-        shutil.rmtree(stale, ignore_errors=True)
+    # DATA 带时间戳每轮全新；不做任何清理（rmtree 会撞沙箱 turn 级删除护栏，
+    # 直接终止进程且无 traceback）。旧目录留 .tmp 由人工清理。
     DATA.mkdir(parents=True)
 
     env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": "8762",
@@ -690,7 +683,7 @@ def main() -> int:
               str(objs[:2]))
 
         # D25 大纲喂料走 overview 路径（prompt 里出现概览段）
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-outline")
         r = post("/api/courses", {"goal": "概览注入测试", "document_ids": [doc_id], "unit_count": 2})
         cid_v = r["data"]["course_id"]
@@ -705,7 +698,7 @@ def main() -> int:
         set_model("mock-spy-lecture")
         lessons_v = [l for u in (get(f"/api/courses/{cid_v}")["data"]["units"] or [])
                      for l in u["lessons"]]
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         r = post(f"/api/courses/lessons/{lessons_v[0]['id']}/lecture")
         wait_job(r["data"]["job_id"])
         spy = _read_spy()
@@ -726,7 +719,7 @@ def main() -> int:
             wait_job(r["data"]["job_id"])
             ls = [l for u in (get(f"/api/courses/{cxd}")["data"]["units"] or [])
                   for l in u["lessons"]]
-            SPY.unlink(missing_ok=True)
+            SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
             set_model("mock-spy-lecture")
             r = post(f"/api/courses/lessons/{ls[0]['id']}/lecture")
             wait_job(r["data"]["job_id"])
@@ -772,7 +765,7 @@ def main() -> int:
         # query「材料主题与核心内容」词汇零交集 → 0 命中 → 概览只取开头 3 片 →
         # 模型面对近乎空白的上下文幻觉出通用 AI 课目标。用户实测：勾文言文材料
         # 却推荐出「大模型/部署/量化」目标）。
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-goals")
         r = post("/api/courses/suggest-goals", {"document_ids": [doc_id]})
         spy = _read_spy()
@@ -872,7 +865,7 @@ def main() -> int:
               f"{ok_res.get('correct')} / {bad_res.get('correct')}")
 
         # H6 纯理论课：讲义 prompt 必须禁止布置真实操作任务
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-lecture")
         r = post(f"/api/courses/lessons/{les_off[0]['id']}/lecture")
         wait_job(r["data"]["job_id"])
@@ -1012,7 +1005,7 @@ def main() -> int:
 
         # Y1 大纲提示词实况：讲次数改由内容体量决定
         # （旧版写死「每个单元 2~4 个讲次」，模型为了凑数会把一讲的内容拆薄 → 每讲仅 7~10 页）
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-outline")
         r = post("/api/courses", {"goal": "提示词实况核对", "document_ids": [doc_vis],
                                   "unit_count": 2, "depth": "standard"})
@@ -1030,7 +1023,7 @@ def main() -> int:
         # Y2 讲义提示词实况：图示硬要求 + 页数下限
         lessons_y1 = [l for u in (get(f"/api/courses/{cid_y1}")["data"]["units"] or [])
                       for l in u["lessons"] if l.get("kind") == "lecture"]
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-lecture")
         r = post(f"/api/courses/lessons/{lessons_y1[0]['id']}/lecture")
         wait_job(r["data"]["job_id"])
@@ -1087,7 +1080,7 @@ def main() -> int:
         print("\n[Z] 讲次教学设计 desc")
 
         # Z1 讲义提示词实况：desc 注入【本讲教学设计】（cid_y1 的 mock 大纲带 desc）
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-lecture")
         r = post(f"/api/courses/lessons/{lessons_y1[0]['id']}/lecture")
         wait_job(r["data"]["job_id"])
@@ -1104,7 +1097,7 @@ def main() -> int:
         # Z2 练习提示词实况：练习讲专用 desc 字段（考察点/易错点/题型安排）
         prac_y1 = next(l for u in (get(f"/api/courses/{cid_y1}")["data"]["units"] or [])
                        for l in u["lessons"] if l.get("kind") == "practice")
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-lecture")   # 回讲义桩：练习校验不过走兜底，但提示词已落盘
         r = post(f"/api/courses/lessons/{prac_y1['id']}/practice")
         wait_job(r["data"]["job_id"])
@@ -1129,7 +1122,7 @@ def main() -> int:
 
         # Z3 大纲对齐校验真的发起了：同一次出纲里 spy 应同时落盘
         # 大纲调用与「课程审校」对齐校验调用（JSONL 两行）
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-outline")
         r = post("/api/courses", {"goal": "对齐校验提示词实况", "document_ids": [doc_id],
                                   "unit_count": 2, "depth": "standard"})
@@ -1152,7 +1145,7 @@ def main() -> int:
         wait_job(r["data"]["job_id"])
         lec_z4 = [l for u in (get(f"/api/courses/{cid_z4}")["data"]["units"] or [])
                   for l in u["lessons"] if l.get("kind") == "lecture"]
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-lecture")
         r = post(f"/api/courses/lessons/{lec_z4[0]['id']}/lecture")
         wait_job(r["data"]["job_id"])
@@ -1343,7 +1336,7 @@ def main() -> int:
               bool(g8) and g8.count("能") <= 1, f"goal={g8[:60]}")
 
         # Z8d 建课带课型、goal 故意留空 → 后端按课型兜底；详情回带课型名
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-outline")
         r = post("/api/courses", {
             "goal": "", "document_ids": [doc_id], "unit_count": 5, "depth": "standard",
@@ -1367,7 +1360,7 @@ def main() -> int:
         _cleanup_courses(cid_z8)
 
         # Z8g 兼容：不传 intent（旧客户端）→ 提示词里没有课型块，行为与旧版一致
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         r = post("/api/courses", {"goal": "无课型兼容检查", "document_ids": [doc_id],
                                   "unit_count": 5, "depth": "standard"})
         cid_z8b = r["data"]["course_id"]
@@ -1399,7 +1392,7 @@ def main() -> int:
                                       "fields": "code,math",
                                       "note": "想先听懂再刷题"}},
                     timeout=10)
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-outline")
         r = post("/api/courses", {"goal": "画像注入测试", "document_ids": [doc_id],
                                   "unit_count": 2})
@@ -1420,7 +1413,7 @@ def main() -> int:
                                       "purpose": "", "style": "", "daily": "",
                                       "fields": "", "note": ""}},
                     timeout=10)
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         r = post("/api/courses", {"goal": "无画像测试", "document_ids": [doc_id],
                                   "unit_count": 2})
         cid_w2 = r["data"]["course_id"]
@@ -1747,7 +1740,7 @@ def main() -> int:
         # lec3 = u1[2] 第 3 讲（练习，后续）—— 用于让讲次地图列出「第 3 讲」
 
         # DD-P1/P2：第 1 讲 prompt 必须含讲次地图 + 首讲禁导览。
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-lecture")
         r = post(f"/api/courses/lessons/{lec1['id']}/lecture")
         wait_job(r["data"]["job_id"])
@@ -1759,7 +1752,7 @@ def main() -> int:
 
         # DD-P4/P5/P6：第 2 讲 prompt 必须标出本讲、列出后续第 3 讲、
         # 且 transition 的「引向」被约束为「严禁展开」。
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-spy-lecture")
         r = post(f"/api/courses/lessons/{lec2['id']}/lecture")
         wait_job(r["data"]["job_id"])
@@ -1774,7 +1767,7 @@ def main() -> int:
 
         # DD-D1：服务端去重护栏真正拦截并改写重复页。
         # 第 1 讲（mock-spy-lecture）已落库，标题 ["极限的直觉","材料中的关键表述","使用前检查"]。
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-lecture-dup")   # 第 2 讲故意产出与第 1 讲同标题的「极限的直觉」
         r = post(f"/api/courses/lessons/{lec2['id']}/lecture")
         wait_job(r["data"]["job_id"])
@@ -1848,7 +1841,7 @@ def main() -> int:
         set_model("mock-lecture")            # 较晚讲次先落库（含「极限的直觉」）
         r = post(f"/api/courses/lessons/{lec_late['id']}/lecture")
         wait_job(r["data"]["job_id"])
-        SPY.unlink(missing_ok=True)
+        SPY.write_text('', encoding='utf-8')  # 清空不删除：unlink 也撞沙箱删除护栏
         set_model("mock-lecture-dup")        # 较早讲次的 slide-3 与较晚讲次同标题
         r = post(f"/api/courses/lessons/{lec_early['id']}/lecture")
         wait_job(r["data"]["job_id"])

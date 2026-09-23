@@ -35,7 +35,7 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
-DATA = ROOT / ".tmp" / "test-data-voices"
+DATA = ROOT / ".tmp" / ("test-data-voices-%d" % int(time.time()))
 APPPORT = 8766
 
 PASS: list[str] = []
@@ -114,8 +114,6 @@ def wait_http(url: str, timeout: float = 90.0) -> bool:
 
 
 async def main() -> int:
-    if DATA.exists():
-        shutil.rmtree(DATA, ignore_errors=True)
     DATA.mkdir(parents=True)
 
     # 用户覆盖文件：把 127.0.0.1 映射到一个测试 provider（验证主机识别 / 内置清单 / caps）
@@ -230,7 +228,6 @@ async def main() -> int:
             except Exception:
                 pass
         srv.shutdown()
-        shutil.rmtree(DATA, ignore_errors=True)
 
     print("\n" + "=" * 56)
     print(f"通过 {len(PASS)} 项，失败 {len(FAIL)} 项")

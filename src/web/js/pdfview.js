@@ -4,6 +4,11 @@
  * PyMuPDF（AGPL 许可），本项目刻意只用宽松许可依赖。前端渲染同时天然支持缩放。
  */
 (function () {
+  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
+
+  window.I18n && window.I18n.merge({ en: {
+    "pdf.js 未加载": "pdf.js not loaded",
+  } });
   "use strict";
 
   // docId -> Promise<PDFDocumentProxy>（同一份材料只加载一次）
@@ -39,7 +44,7 @@
 
   /** 加载材料原始 PDF（同一 docId 复用）。 */
   function load(docId) {
-    if (!available()) return Promise.reject(new Error("pdf.js 未加载"));
+    if (!available()) return Promise.reject(new Error(gt("pdf.js 未加载")));
     if (cache.has(docId)) return cache.get(docId);
     const url = "/api/courses/documents/" + encodeURIComponent(docId) + "/raw";
     const task = window.PdfJS.getDocument({ url, withCredentials: false });

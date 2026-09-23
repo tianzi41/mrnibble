@@ -19,12 +19,13 @@ import os
 import shutil
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-TMP = ROOT / ".tmp" / "test-data-ttscustom"
+TMP = ROOT / ".tmp" / ("test-data-ttscustom-%d" % int(time.time()))
 
 # 假音频：只验「字节是否原样透传」，不需要是合法 WAV
 WAV = b"RIFF\x00\x00\x00\x00WAVEfmt " + bytes(range(48))
@@ -53,8 +54,6 @@ class FakeTTS(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    if TMP.exists():
-        shutil.rmtree(TMP, ignore_errors=True)
     TMP.mkdir(parents=True, exist_ok=True)
     os.environ["ZHIBAN_DATA_DIR"] = str(TMP)
 

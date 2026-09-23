@@ -34,7 +34,7 @@ from course_ui_check import dump, ui_profile  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
-DATA = ROOT / ".tmp" / "test-data-uifix"
+DATA = ROOT / ".tmp" / ("test-data-uifix-%d" % int(time.time()))
 BASE = "http://127.0.0.1:8770"
 MOCK = "http://127.0.0.1:8771"
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
@@ -67,8 +67,6 @@ def payload(resp):
 
 # ── 服务 ────────────────────────────────────────────────────────
 def start_services():
-    if DATA.exists():
-        shutil.rmtree(DATA, ignore_errors=True)
     DATA.mkdir(parents=True, exist_ok=True)
     env = {
         **os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": "8770",

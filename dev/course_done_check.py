@@ -37,7 +37,7 @@ from ui_fixes_check import (  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
-DATA = ROOT / ".tmp" / "test-data-coursedone"
+DATA = ROOT / ".tmp" / ("test-data-coursedone-%d" % int(time.time()))
 BASE = "http://127.0.0.1:8770"
 MOCK = "http://127.0.0.1:8771"
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
@@ -53,8 +53,6 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def start_services() -> list[subprocess.Popen]:
-    if DATA.exists():
-        shutil.rmtree(DATA, ignore_errors=True)
     DATA.mkdir(parents=True, exist_ok=True)
     env = {
         **os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": "8770",

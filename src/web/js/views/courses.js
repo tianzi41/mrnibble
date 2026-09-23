@@ -1,6 +1,134 @@
 /* 课程：列表 + 创建向导（目标/基础/体量 → 大纲生成 → 结构确认）。 */
 (function () {
   "use strict";
+  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
+
+  window.I18n && window.I18n.merge({ en: {
+    "从左侧选择一门课程，或新建一门。<br><br>课程会把你的材料拆成「单元 → 讲次」，": "Pick a course on the left, or create one.<br><br>A course splits your materials into \"units → lessons\",",
+    "删掉这条「正在生成大纲」记录？\n\n课程本身已经建好了，左侧课程列表里还能找到它；": "Delete this \"generating outline\" record?\\n\\nThe course itself is built; you can still find it in the course list on the left;",
+    "例如：单元再少一点，只保留 3 个；多放一些例题与易错点；先讲定义再讲计算": "e.g. fewer units, keep only 3; add more worked examples and common mistakes; definitions before calculations",
+    "还没有课程。<br>点「＋ 新建课程」，选材料、写下学习目标即可生成。": "No courses yet.<br>Click \"+ New course\", pick materials and write a learning goal to generate.",
+    "上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。": "The last material generation was interrupted: written chapters stay in the task; edit the topic and restart.",
+    "删掉这条未完成的创建？\n\n你已经填的内容会一起清掉，无法恢复。": "Delete this unfinished creation?\\n\\nEverything you filled in will be cleared and cannot be recovered.",
+    "只是去掉这条未收尾的记录；已经建好的课程与它用的材料不受影响。": "just removes this unfinished record; the built course and its materials are unaffected.",
+    "例如：把单元拆得更细，每个单元只讲一个概念；多放一些典型例题": "e.g. split units finer, one concept per unit; add more typical worked examples",
+    "请先点「① 生成目录」把材料写出来，或切回「用我上传的材料」": "Click \"① Generate outline\" to write the material first, or switch back to \"Use my uploaded materials\"",
+    "选好课型后会自动写一句；也可以自己改，或清空让系统按课型决定": "A sentence is written automatically after picking a course type; you can edit it, or clear it to let the system decide by type",
+    "丢弃这份未保存的结构改动？\\n\\n课程本身不受影响，": "Discard unsaved structure changes?\\\\n\\\\nThe course itself is unaffected,",
+    "删掉这条记录（课程已建好，左侧课程列表里还能找到它）": "Delete this record (the course is built; you can still find it in the list on the left)",
+    "例如：学生初三 / 2 课时 / 必须包含背诵默写": "e.g. 9th grader / 2 class hours / must include dictation",
+    "删掉这条材料任务记录（已建课程引用的材料不受影响）": "Delete this material task record (materials referenced by built courses are unaffected)",
+    "请先点「① 生成目录」把材料写出来，再分析推荐课型": "Click \"① Generate outline\" to write the material first, then analyze for a recommended type",
+    "删掉这条未完成的创建（已填的表单内容会一起清掉）": "Delete this unfinished creation (the filled-in form will be cleared too)",
+    "目录已就绪，点「② 确认目录，开始写正文」继续。": "Outline ready — click \"② Confirm outline, start writing\" to continue.",
+    "例如：Python 装饰器 / 宏观经济学入门": "e.g. Python decorators / intro to macroeconomics",
+    "已清空 —— 留空时系统按课型决定这门课怎么讲": "Cleared — when empty, the system decides how to teach by course type",
+    "点一张卡选课型；拿不准就点「分析材料并预选」。": "Pick a card to choose a course type; if unsure, click \"Analyze materials and pre-select\".",
+    "生成失败，可自己写一句，或留空让系统按课型决定": "Generation failed — write a sentence yourself, or leave empty to let the system decide by type",
+    "还没有已解析的材料，请先到「工作台」上传文件。": "No parsed materials yet; upload files in the Workbench first.",
+    "点击回到结构编辑页，继续改（改动已本地保留）": "Back to the structure editor to keep editing (changes kept locally)",
+    "下次进结构编辑页会显示服务端已保存的版本。": "next time the editor shows the server-saved version.",
+    "与服务的连接不稳定，请稍后在课程页查看结果": "Unstable connection to the service; check results on the course page later",
+    "正在规划材料结构…（上次的任务还在后台跑）": "Planning the material structure… (the last task is still running in the background)",
+    "上次写正文的任务还在后台继续，正在接回…": "The last writing task continues in the background; reconnecting…",
+    "正在看材料的体裁与内容，判断适合什么课…": "Reading the material's genre and content to decide a suitable course type…",
+    "每节讲次有白板讲义，学完可以做随堂练习。": "each lesson has a whiteboard handout, with practice after finishing.",
+    "<span>未完成的创建</span>": "<span>Unfinished creation</span>",
+    "<span>正在编辑结构</span>": "<span>Editing structure</span>",
+    "点击回到新建向导，继续上次未完成的创建": "Back to the new-course wizard to continue the unfinished creation",
+    "，部分章节生成失败，可稍后重新生成材料": ", some chapters failed; regenerate the material later",
+    "已恢复上次选的课型；要换就点别的卡。": "Restored the last picked course type; click another card to switch.",
+    "教学设计已补写完成，展开各讲即可查看": "Instructional design backfill complete; expand any lesson to view",
+    "这个单元还没落库，先保存结构再预生成": "This unit isn't saved yet — save the structure before prefetching",
+    "上次的任务还在后台继续，正在接回…": "The last task continues in the background; reconnecting…",
+    "上次的任务还在规划目录，正在接回…": "The last task is still planning the outline; reconnecting…",
+    "材料写好后，会按所选课型自动写目标": "Once the material is written, a goal is written automatically per the chosen course type",
+    "已收起这次创建，课程在左侧列表里": "Creation collapsed; the course is in the list on the left",
+    "生成超时，请稍后在课程页查看结果": "Generation timed out; check results on the course page later",
+    "课型库加载失败，请刷新页面重试。": "Failed to load the course-type library; refresh and retry.",
+    "正在按你的要求重新组织大纲…": "Re-organizing the outline per your request…",
+    "目录生成失败，可改主题后重试": "Outline generation failed; edit the topic and retry",
+    "请先在「设置」里配置对话模型": "Configure the chat model in Settings first",
+    "② 确认目录，开始写正文": "② Confirm outline, start writing",
+    "正在为每讲补写教学设计…": "Backfilling instructional design for each lesson…",
+    "只是不再显示这条提示。": "just hides this notice.",
+    "已删掉这条未完成的创建": "Deleted this unfinished creation",
+    "深入（含推导与易错点）": "In-depth (with derivations and pitfalls)",
+    "点击继续 / 用它建课": "Click to continue / build a course with it",
+    "课程已就绪，开始学习吧": "Course ready — start learning",
+    "先写一句「想学什么」": "Write a sentence about what you want to learn",
+    "已清空草稿，从头开始": "Draft cleared; starting over",
+    "点击回到生成进度界面": "Back to the generation progress screen",
+    "生成超时，请稍后重试": "Generation timed out; retry later",
+    "补写失败，请稍后重试": "Backfill failed; retry later",
+    "✨ 分析材料并预选": "✨ Analyze materials and pre-select",
+    "回到我未完成的创建": "Back to my unfinished creation",
+    "已删掉这条材料任务": "Deleted this material task",
+    "打开结构编辑失败：": "Failed to open the structure editor: ",
+    "概览（快速过一遍）": "Overview (quick pass)",
+    "正在按课型写目标…": "Writing the goal per the course type…",
+    "正在规划材料结构…": "Planning the material structure…",
+    "正在重新生成大纲…": "Re-generating the outline…",
+    "清空草稿，重新开始": "Clear draft and start over",
+    "这个单元还没有讲次": "This unit has no lessons yet",
+    "本章内容都已就绪": "All content in this chapter is ready",
+    "至少保留一个讲次": "Keep at least one lesson",
+    "大纲已重新生成": "Outline regenerated",
+    "材料生成失败：": "Material generation failed: ",
+    "目录生成失败：": "Outline generation failed: ",
+    "确认，开始学习": "Confirm and start learning",
+    "请先选一个课型": "Pick a course type first",
+    "① 生成目录": "① Generate outline",
+    "查看单元总结": "View unit summary",
+    "生成单元总结": "Generate unit summary",
+    "生成目录中…": "Generating outline…",
+    "请先生成目录": "Generate the outline first",
+    "重新生成中…": "Regenerating…",
+    "重新生成大纲": "Regenerate outline",
+    "预生成失败：": "Prefetch failed: ",
+    "AI 材料": "AI materials",
+    "分析失败：": "Analysis failed: ",
+    "删除失败：": "Delete failed: ",
+    "总结已生成": "Summary generated",
+    "知识点边界": "Knowledge-point boundaries",
+    "结构已保存": "Structure saved",
+    "预生成完成": "Prefetch complete",
+    "预生成整章": "Prefetch whole chapter",
+    "保存中…": "Saving…",
+    "保存结构": "Save structure",
+    "删除课程": "Delete course",
+    "学习目标": "Learning goal",
+    "展开 ▾": "Expand ▾",
+    "排队中…": "Queuing…",
+    "收起 ▴": "Collapse ▴",
+    "新的讲次": "New lesson",
+    "术语口径": "Terminology",
+    "涉及操作": "Operations involved",
+    "生成中…": "Generating…",
+    "生成大纲": "Generate outline",
+    "生成失败": "Failed",
+    "生成超时": "Timed out",
+    "讲间衔接": "Between-lesson transitions",
+    "重新生成": "Regenerate",
+    "题型安排": "Question types",
+    "（练习）": "(practice)",
+    "（辅助）": "(assist)",
+    "＋ 讲次": "+ Lesson",
+    "可视化": "Visualization",
+    "已中断": "Interrupted",
+    "已学完": "Finished",
+    "已生成": "Generated",
+    "待建课": "To be built",
+    "新课程": "New course",
+    "易错点": "Common mistakes",
+    "有基础": "Some basics",
+    "生成中": "Generating",
+    "考察点": "What is assessed",
+    "零基础": "From scratch",
+    "删除": "Delete",
+    "标准": "Standard",
+    "进阶": "Advanced",
+  } });
 
   const S = {
     courses: [],
@@ -16,11 +144,11 @@
     mindmap: null,      // 结构预览的 markmap 实例
   };
 
-  const LEVELS = [["beginner", "零基础"], ["intermediate", "有基础"], ["advanced", "进阶"]];
-  const DEPTHS = [["brief", "概览（快速过一遍）"], ["standard", "标准"], ["detailed", "深入（含推导与易错点）"]];
+  const LEVELS = [["beginner", gt("零基础")], ["intermediate", gt("有基础")], ["advanced", gt("进阶")]];
+  const DEPTHS = [["brief", gt("概览（快速过一遍）")], ["standard", gt("标准")], ["detailed", gt("深入（含推导与易错点）")]];
   // 学习目标框占位文案（单一来源：HTML 模板与「正在生成」临时占位共用，避免多处字面量）
-  const GOAL_PLACEHOLDER = "选好课型后会自动写一句；也可以自己改，或清空让系统按课型决定";
-  const GOAL_WRITING = "正在按课型写目标…";
+  const GOAL_PLACEHOLDER = gt("选好课型后会自动写一句；也可以自己改，或清空让系统按课型决定");
+  const GOAL_WRITING = gt("正在按课型写目标…");
 
   const el = (tag, cls, html) => {
     const n = document.createElement(tag);
@@ -179,7 +307,7 @@
       `<span>课程（${S.courses.length}）</span><button class="btn small primary" id="btn-new">＋ 新建课程</button>`));
     const body = el("div", "panel-body");
     if (!S.courses.length) {
-      body.appendChild(el("div", "empty", "还没有课程。<br>点「＋ 新建课程」，选材料、写下学习目标即可生成。"));
+      body.appendChild(el("div", "empty", gt("还没有课程。<br>点「＋ 新建课程」，选材料、写下学习目标即可生成。")));
     }
     S.courses.forEach((c) => {
       const p = c.progress || {};
@@ -187,10 +315,10 @@
         item.appendChild(el("span", "t", esc(c.title)));
         item.appendChild(el("small", null, `${p.done_lessons || 0}/${p.total_lessons || 0}`));
         if ((p.total_lessons || 0) > 0 && (p.done_lessons || 0) >= p.total_lessons) {
-          item.appendChild(el("span", "pill ok", "已学完"));
+          item.appendChild(el("span", "pill ok", gt("已学完")));
         }
       const del = el("button", "x", "✕");
-      del.title = "删除课程";
+      del.title = gt("删除课程");
       del.onclick = async (ev) => {
         ev.stopPropagation();
         if (!confirm(`删除课程《${c.title}》？单元、讲次与练习记录会一并删除。`)) return;
@@ -231,34 +359,34 @@
     if (draftMeaningful(d)) {
       const panel = el("div");
       panel.style.marginTop = "10px";
-      panel.appendChild(el("div", "panel-head", "<span>未完成的创建</span>"));
+      panel.appendChild(el("div", "panel-head", gt("<span>未完成的创建</span>")));
       const pbody = el("div", "panel-body");
       const it = el("div", "item");
-      it.title = d.job ? "点击回到生成进度界面" : "点击回到新建向导，继续上次未完成的创建";
+      it.title = d.job ? gt("点击回到生成进度界面") : gt("点击回到新建向导，继续上次未完成的创建");
       it.appendChild(el("span", "t", esc(draftEntryTitle(d))));
       // 「生成中」必须跟随**真实状态**：草稿里的 job 标记在任务失败后不会自己消失，
       // 只认它会让列表永远写着「生成中」（用户实测「一直显示创建中、也不说原因」）。
       const jc = d.job ? (S.courses || []).find((c) => c.id === d.job.courseId) : null;
       const state = !d.job ? draftTimeText(d.at)
-        : (jc && jc.status === "ready") ? "已生成"
-          : (jc && jc.status === "failed") ? "生成失败"
-            : "生成中";
+        : (jc && jc.status === "ready") ? gt("已生成")
+          : (jc && jc.status === "failed") ? gt("生成失败")
+            : gt("生成中");
       it.appendChild(el("small", null, state));
       // ✕：用户要求这条也能自己删掉（不自动删——删什么由用户决定）
       const dx = el("button", "x", "✕");
       dx.title = d.job
-        ? "删掉这条记录（课程已建好，左侧课程列表里还能找到它）"
-        : "删掉这条未完成的创建（已填的表单内容会一起清掉）";
+        ? gt("删掉这条记录（课程已建好，左侧课程列表里还能找到它）")
+        : gt("删掉这条未完成的创建（已填的表单内容会一起清掉）");
       dx.onclick = (ev) => {
         ev.stopPropagation();
         const msg = d.job
-          ? "删掉这条「正在生成大纲」记录？\n\n课程本身已经建好了，左侧课程列表里还能找到它；"
-            + "只是不再显示这条提示。"
-          : "删掉这条未完成的创建？\n\n你已经填的内容会一起清掉，无法恢复。";
+          ? gt("删掉这条「正在生成大纲」记录？\n\n课程本身已经建好了，左侧课程列表里还能找到它；")
+            + gt("只是不再显示这条提示。")
+          : gt("删掉这条未完成的创建？\n\n你已经填的内容会一起清掉，无法恢复。");
         if (!confirm(msg)) return;
         clearDraft();
         renderList();
-        Toast("已删掉这条未完成的创建", false);
+        Toast(gt("已删掉这条未完成的创建"), false);
       };
       it.appendChild(dx);
       it.onclick = () => openCreate();
@@ -272,18 +400,18 @@
     if (cd && cd.courseId) {
       const panel = el("div");
       panel.style.marginTop = "10px";
-      panel.appendChild(el("div", "panel-head", "<span>正在编辑结构</span>"));
+      panel.appendChild(el("div", "panel-head", gt("<span>正在编辑结构</span>")));
       const pbody = el("div", "panel-body");
       const it = el("div", "item");
-      it.title = "点击回到结构编辑页，继续改（改动已本地保留）";
+      it.title = gt("点击回到结构编辑页，继续改（改动已本地保留）");
       it.appendChild(el("span", "t", esc(`《${cd.title || "课程"}》`)));
       it.appendChild(el("small", null, draftTimeText(cd.at)));
       const x = el("button", "x", "✕");
       x.title = "丢弃这份未保存的结构改动";
       x.onclick = (ev) => {
         ev.stopPropagation();
-        if (!confirm("丢弃这份未保存的结构改动？\\n\\n课程本身不受影响，"
-          + "下次进结构编辑页会显示服务端已保存的版本。")) return;
+        if (!confirm(gt("丢弃这份未保存的结构改动？\\n\\n课程本身不受影响，")
+          + gt("下次进结构编辑页会显示服务端已保存的版本。"))) return;
         clearConfirmDraft();
         renderList();
         Toast("已丢弃未保存的结构改动", false);
@@ -333,21 +461,21 @@
     /** 一行材料任务：点它=继续/用它建课；右侧 ✕=删掉这条记录（用户自己点，不自动删）。 */
     const row = (j) => {
       const it = el("div", "item");
-      it.title = "点击继续 / 用它建课";
+      it.title = gt("点击继续 / 用它建课");
       it.appendChild(el("span", "t", esc(materialJobTitle(j))));
       it.appendChild(el("small", null, materialJobBadge(j)));
       const del = el("button", "x", "✕");
-      del.title = "删掉这条材料任务记录（已建课程引用的材料不受影响）";
+      del.title = gt("删掉这条材料任务记录（已建课程引用的材料不受影响）");
       del.onclick = async (ev) => {
         ev.stopPropagation();
         if (!confirm(`删掉「${materialJobTitle(j)}」这条材料任务记录？\\n\\n`
-          + "只是去掉这条未收尾的记录；已经建好的课程与它用的材料不受影响。")) return;
+          + gt("只是去掉这条未收尾的记录；已经建好的课程与它用的材料不受影响。"))) return;
         try {
           await Api.del("/api/generations/" + j.id);
-        } catch (e) { Toast("删除失败：" + e.message, true); return; }
+        } catch (e) { Toast(gt("删除失败：") + e.message, true); return; }
         await loadMaterialJobs();
         renderList();
-        Toast("已删掉这条材料任务", false);
+        Toast(gt("已删掉这条材料任务"), false);
       };
       it.appendChild(del);
       it.onclick = () => { S.pendingMaterial = j; openCreate(); };
@@ -358,7 +486,7 @@
     let showOlder = false;
     const paint = () => {
       body.innerHTML = "";
-      foldBtn.textContent = collapsed ? "展开 ▾" : "收起 ▴";
+      foldBtn.textContent = collapsed ? gt("展开 ▾") : gt("收起 ▴");
       if (collapsed) return;
       // 只默认展开**最新一条**：更早的多半是早已不再收尾的旧任务，全摊开会把最新的埋掉
       body.appendChild(row(jobs[0]));
@@ -389,16 +517,16 @@
     return !(S.courses || []).some((c) => (c.document_ids || []).includes(did));
   }
   function materialJobTitle(j) {
-    return (((j.content_json || {}).outline) || {}).title || j.title || "AI 材料";
+    return (((j.content_json || {}).outline) || {}).title || j.title || gt("AI 材料");
   }
   function materialJobBadge(j) {
     if (j.status === "running") {
       const n = ((j.content_md || "").match(/^## /gm) || []).length;
       const total = (((((j.content_json || {}).outline) || {}).chapters) || []).length;
-      return total ? `生成中 ${n}/${total}` : "生成中";
+      return total ? `生成中 ${n}/${total}` : gt("生成中");
     }
-    if (j.status === "failed") return "已中断";
-    return "待建课";
+    if (j.status === "failed") return gt("已中断");
+    return gt("待建课");
   }
   /** 拉一次材料任务列表（课程页渲染时调用）。 */
   async function loadMaterialJobs() {
@@ -456,8 +584,8 @@
     if (S.creating) return renderCreate(host);
     if (!S.course) {
       host.appendChild(el("div", "empty",
-        "从左侧选择一门课程，或新建一门。<br><br>课程会把你的材料拆成「单元 → 讲次」，" +
-        "每节讲次有白板讲义，学完可以做随堂练习。"));
+        gt("从左侧选择一门课程，或新建一门。<br><br>课程会把你的材料拆成「单元 → 讲次」，") +
+        gt("每节讲次有白板讲义，学完可以做随堂练习。")));
       return;
     }
     renderDetail(host);
@@ -500,7 +628,7 @@
           <div class="row" style="gap:8px;align-items:flex-end">
             <div class="field" style="margin:0">
               <label>想学什么？（一句话主题）</label>
-              <input type="text" id="f-topic" placeholder="例如：Python 装饰器 / 宏观经济学入门">
+              <input type="text" id="f-topic" placeholder="${gt("例如：Python 装饰器 / 宏观经济学入门")}">
             </div>
             <div class="field" style="margin:0;max-width:170px">
               <label>材料篇幅</label>
@@ -510,7 +638,7 @@
                 <option value="detailed">详细（8 章）</option>
               </select>
             </div>
-            <button class="btn small" id="t-outline" type="button">① 生成目录</button>
+            <button class="btn small" id="t-outline" type="button">${gt("① 生成目录")}</button>
           </div>
           <div class="hint" id="t-hint">AI 会先写出一份教学材料并入库，再基于它备课 —— 这样讲义的引用页码仍然真实可查。</div>
           <div id="t-outline-wrap" style="display:none;margin-top:8px">
@@ -518,7 +646,7 @@
             <div id="t-chapters"></div>
             <div class="row" style="margin-top:6px;align-items:center">
               <button class="btn small" id="t-add" type="button">＋ 加一章</button>
-              <button class="btn small primary" id="t-write" type="button">② 确认目录，开始写正文</button>
+              <button class="btn small primary" id="t-write" type="button">${gt("② 确认目录，开始写正文")}</button>
               <span id="t-status" class="run-status"></span>
             </div>
           </div>
@@ -526,7 +654,7 @@
       </div>
       <div class="field">
         <label>你想要什么课？<span class="hint" style="margin-left:6px">（决定单元怎么分、按什么顺序讲）</span>
-          <button class="btn small" id="f-analyze" style="margin-left:8px">✨ 分析材料并预选</button>
+          <button class="btn small" id="f-analyze" style="margin-left:8px">${gt("✨ 分析材料并预选")}</button>
         </label>
         <div id="intent-cards" class="intent-cards"></div>
         <div id="intent-hint" class="hint" style="margin-top:6px"></div>
@@ -577,19 +705,19 @@
         </div>
         <div class="field">
           <label>补充要求（可选，一句话）</label>
-          <input type="text" id="f-note" placeholder="例如：学生初三 / 2 课时 / 必须包含背诵默写">
+          <input type="text" id="f-note" placeholder="${gt("例如：学生初三 / 2 课时 / 必须包含背诵默写")}">
         </div>
       </details>
       <div class="row" style="justify-content:flex-end">
         <button class="btn" id="f-cancel">取消</button>
-        <button class="btn primary" id="f-go">生成大纲</button>
+        <button class="btn primary" id="f-go">${gt("生成大纲")}</button>
       </div>
       <div class="hint">生成过程会分阶段显示进度；生成完成后你可以先修改结构，再确认。</div>`;
     host.appendChild(card);
 
     const pick = document.getElementById("pick-docs");
     if (!S.documents.length) {
-      pick.appendChild(el("div", "hint", "还没有已解析的材料，请先到「工作台」上传文件。"));
+      pick.appendChild(el("div", "hint", gt("还没有已解析的材料，请先到「工作台」上传文件。")));
     }
     S.documents.forEach((d) => {
       // 标题包一层 span：多列网格下超长文件名用省略号，完整名放 title 里
@@ -681,12 +809,12 @@
         try { d = await Api.get("/api/generations/" + gid); } catch (e) { /* 抖动就重试 */ }
         if (d) {
           if (d.status === "ready") return done(d);
-          if (d.status === "failed") return fail(new Error(d.error || "生成失败"));
+          if (d.status === "failed") return fail(new Error(d.error || gt("生成失败")));
           tick(d);
         }
         await new Promise((r) => setTimeout(r, 700));
       }
-      fail(new Error("生成超时，请稍后重试"));
+      fail(new Error(gt("生成超时，请稍后重试")));
     };
 
     document.getElementById("src-docs").onclick = () => { T.on = false; paintSrc(); scheduleDraftSave(); };
@@ -695,28 +823,28 @@
     const tOutlineBtn = document.getElementById("t-outline");
     tOutlineBtn.onclick = async () => {
       const topic = document.getElementById("f-topic").value.trim();
-      if (!topic) return Toast("先写一句「想学什么」", true);
+      if (!topic) return Toast(gt("先写一句「想学什么」"), true);
       T.topic = topic;
       T.depth = document.getElementById("f-topic-depth").value;
       T.outline = []; T.docId = ""; paintChapters();
       setStatus("");   // 重开一轮：清掉上一轮残留的「材料已就绪」，免得新目录出来时顶着旧状态
       scheduleDraftSave();
-      tOutlineBtn.disabled = true; tOutlineBtn.textContent = "生成目录中…";
+      tOutlineBtn.disabled = true; tOutlineBtn.textContent = gt("生成目录中…");
       try {
         const r = await Api.post("/api/materials/outline", { topic, depth: T.depth });
         T.gid = r.generation_id;
         scheduleDraftSave();          // 记下 gid：切页后靠它接回这条任务
         await pollGen(T.gid,
-          () => { tHint.textContent = "正在规划材料结构…"; },
+          () => { tHint.textContent = gt("正在规划材料结构…"); },
           applyOutline,
-          (e) => { tHint.textContent = "目录生成失败，可改主题后重试"; Toast("目录生成失败：" + e.message, true); });
+          (e) => { tHint.textContent = gt("目录生成失败，可改主题后重试"); Toast(gt("目录生成失败：") + e.message, true); });
       } catch (e) { Toast(e.message, true); }
-      finally { tOutlineBtn.disabled = false; tOutlineBtn.textContent = "① 生成目录"; }
+      finally { tOutlineBtn.disabled = false; tOutlineBtn.textContent = gt("① 生成目录"); }
     };
 
     const tWriteBtn = document.getElementById("t-write");
     tWriteBtn.onclick = async () => {
-      if (!T.gid || !T.outline.length) return Toast("请先生成目录", true);
+      if (!T.gid || !T.outline.length) return Toast(gt("请先生成目录"), true);
       if (T.outline.some((c) => !String(c.title || "").trim())) return Toast("章节标题不能为空", true);
       tWriteBtn.disabled = true;
       try {
@@ -724,7 +852,7 @@
         scheduleDraftSave();          // 记下「正在写正文」，切页回来能接回这条轮询
         await pollGen(T.gid, paintWriting, finishWriting, failWriting);
       } catch (e) { Toast(e.message, true); }
-      finally { tWriteBtn.disabled = false; tWriteBtn.textContent = "② 确认目录，开始写正文"; }
+      finally { tWriteBtn.disabled = false; tWriteBtn.textContent = gt("② 确认目录，开始写正文"); }
     };
     document.getElementById("t-add").onclick = () => {
       T.outline.push({ title: "", brief: "" });
@@ -757,7 +885,7 @@
       setStatus(cj.skip_reason
         ? "ℹ️ " + cj.skip_reason
         : `✅ 材料已就绪：《${T.title}》（${dn || T.outline.length}/${tt || T.outline.length} 章）`
-          + (part ? "，部分章节生成失败，可稍后重新生成材料" : ""), "done");
+          + (part ? gt("，部分章节生成失败，可稍后重新生成材料") : ""), "done");
       if (T.docId) { loadDocuments(); loadMaterialJobs(); }
       scheduleDraftSave();     // 材料写完 → 把 docId 记进草稿（切页回来直接能建课）
       // 材料就绪后补一次目标：用户可能先选了课型、那时材料还没写好
@@ -765,7 +893,7 @@
       // chosen / goalEl 在下方定义，但这里只在轮询回调里运行（IIFE 早已求值完），无 TDZ 问题。
       if (chosen.primary && !goalEl.value.trim()) autoGoal();
     };
-    const failWriting = (e) => Toast("材料生成失败：" + e.message, true);
+    const failWriting = (e) => Toast(gt("材料生成失败：") + e.message, true);
 
     paintSrc(); paintChapters();
 
@@ -792,20 +920,20 @@
       paintSrc(); paintChapters();
       if (pend.status === "running" && T.gid) {
         if (T.outline.length) {
-          setStatus("上次的任务还在后台继续，正在接回…", "writing");
+          setStatus(gt("上次的任务还在后台继续，正在接回…"), "writing");
           pollGen(T.gid, paintWriting, finishWriting, failWriting);
         } else {
           // 目录还没出来时 #t-outline-wrap 是隐藏的（状态节点在它里面）→ 这条退回 tHint 才看得见
-          tHint.textContent = "正在规划材料结构…（上次的任务还在后台跑）";
-          pollGen(T.gid, () => { tHint.textContent = "正在规划材料结构…"; },
+          tHint.textContent = gt("正在规划材料结构…（上次的任务还在后台跑）");
+          pollGen(T.gid, () => { tHint.textContent = gt("正在规划材料结构…"); },
                   applyOutline, failWriting);
         }
       } else if (pend.status === "failed") {
-        setStatus("上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。", "warn");
+        setStatus(gt("上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。"), "warn");
       } else if (T.docId) {
         setStatus(`✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`, "done");
       } else if (T.outline.length) {
-        tHint.textContent = "目录已就绪，点「② 确认目录，开始写正文」继续。";
+        tHint.textContent = gt("目录已就绪，点「② 确认目录，开始写正文」继续。");
         setStatus("");
       }
     }
@@ -834,7 +962,7 @@
     const paintIntents = () => {
       intentBox.innerHTML = "";
       if (!intents.length) {
-        intentBox.textContent = "课型库加载失败，请刷新页面重试。";
+        intentBox.textContent = gt("课型库加载失败，请刷新页面重试。");
         return;
       }
       intents.forEach((t) => {
@@ -882,7 +1010,7 @@
       const noteEl = document.getElementById("f-note");
       chosen.note = (noteEl && noteEl.value || "").trim();
       const seq = ++goalSeq;
-      setGoalHint("正在按课型写目标…");
+      setGoalHint(gt("正在按课型写目标…"));
       // 进入「正在生成」可视态：输入框主色描边 + 呼吸；空框时占位也提示「正在写」
       goalEl.classList.add("loading");
       if (!goalEl.value.trim()) goalEl.placeholder = GOAL_WRITING;
@@ -892,7 +1020,7 @@
         // 材料写好后由 finishWriting 补触发一次。return 放在 try 里，finally
         // 照常负责退 loading 态。
         if (T.on && !T.docId) {
-          setGoalHint("材料写好后，会按所选课型自动写目标");
+          setGoalHint(gt("材料写好后，会按所选课型自动写目标"));
           return;
         }
         const ids = materialIds();
@@ -906,7 +1034,7 @@
         scheduleDraftSave();
       } catch (e) {
         if (seq !== goalSeq) return;
-        setGoalHint("生成失败，可自己写一句，或留空让系统按课型决定");
+        setGoalHint(gt("生成失败，可自己写一句，或留空让系统按课型决定"));
       } finally {
         // 本次请求仍是「当前有效」的那一条才退 loading；被作废的由胜出方负责退
         if (seq === goalSeq) {
@@ -928,9 +1056,9 @@
       if (!S.documents.length) return Toast("还没有已解析的材料", true);
       // 主题模式下同样必须基于 AI 刚生成的那份材料：没写好就分析，只会拿到
       // 库里的旧材料（与 autoGoal 同一个坑）。
-      if (T.on && !T.docId) return Toast("请先点「① 生成目录」把材料写出来，再分析推荐课型", true);
+      if (T.on && !T.docId) return Toast(gt("请先点「① 生成目录」把材料写出来，再分析推荐课型"), true);
       btn.disabled = true; btn.textContent = "分析中…";
-      hint.textContent = "正在看材料的体裁与内容，判断适合什么课…";
+      hint.textContent = gt("正在看材料的体裁与内容，判断适合什么课…");
       try {
         const ids = materialIds();
         const r = await Api.post("/api/courses/suggest-intents", { document_ids: ids });
@@ -948,12 +1076,12 @@
         await autoGoal();
       } catch (e) {
         hint.textContent = "";
-        Toast("分析失败：" + e.message, true);
-      } finally { btn.disabled = false; btn.textContent = "✨ 分析材料并预选"; }
+        Toast(gt("分析失败：") + e.message, true);
+      } finally { btn.disabled = false; btn.textContent = gt("✨ 分析材料并预选"); }
     };
 
     document.getElementById("f-gen-goal").onclick = () => {
-      if (!chosen.primary) return Toast("请先选一个课型", true);
+      if (!chosen.primary) return Toast(gt("请先选一个课型"), true);
       autoGoal();
     };
     document.getElementById("f-clear-goal").onclick = () => {
@@ -961,7 +1089,7 @@
       goalEl.value = "";
       goalEl.classList.remove("loading");
       goalEl.placeholder = GOAL_PLACEHOLDER;
-      setGoalHint("已清空 —— 留空时系统按课型决定这门课怎么讲");
+      setGoalHint(gt("已清空 —— 留空时系统按课型决定这门课怎么讲"));
       scheduleDraftSave();
     };
 
@@ -978,23 +1106,23 @@
       }
       paintIntents(); paintAssist();
       document.getElementById("intent-hint").textContent = chosen.primary
-        ? "已恢复上次选的课型；要换就点别的卡。"
-        : "点一张卡选课型；拿不准就点「分析材料并预选」。";
+        ? gt("已恢复上次选的课型；要换就点别的卡。")
+        : gt("点一张卡选课型；拿不准就点「分析材料并预选」。");
     })();
 
     document.getElementById("f-go").onclick = async () => {
-      if (!chosen.primary) return Toast("请先选一个课型", true);
+      if (!chosen.primary) return Toast(gt("请先选一个课型"), true);
       // 目标允许留空（用户可一键清空）：后端会按所选课型兜底出一句「目的」。
       const goal = goalEl.value.trim();
       const badge = document.getElementById("model-badge");
-      if (!badge.dataset.ok) return Toast("请先在「设置」里配置对话模型", true);
+      if (!badge.dataset.ok) return Toast(gt("请先在「设置」里配置对话模型"), true);
       // 材料来源：主题模式下用 AI 刚生成并入库的那份材料
-      if (T.on && !T.docId) return Toast("请先点「① 生成目录」把材料写出来，或切回「用我上传的材料」", true);
+      if (T.on && !T.docId) return Toast(gt("请先点「① 生成目录」把材料写出来，或切回「用我上传的材料」"), true);
       const ids = T.on
         ? [T.docId]
         : [...pick.querySelectorAll("input:checked")].map((i) => i.value);
       const btn = document.getElementById("f-go");
-      btn.disabled = true; btn.textContent = "生成中…";
+      btn.disabled = true; btn.textContent = gt("生成中…");
       try {
         const rawUnit = document.getElementById("f-units").value;
         const customUnit = parseInt((document.getElementById("f-units-custom") || {}).value || "", 10);
@@ -1020,14 +1148,14 @@
         // 切到别的页、甚至关掉软件重开，都能回到进度界面继续等（用户实测：以前一
         // 切走就再也找不回来，只能在课程列表里看到一条「生成中」）。
         const d = collectDraft();
-        d.job = { courseId: r.course_id, jobId: r.job_id, at: Date.now(), title: goal || "新课程" };
+        d.job = { courseId: r.course_id, jobId: r.job_id, at: Date.now(), title: goal || gt("新课程") };
         saveDraft(d);
         await pollOutline(r.course_id, r.job_id, host, null,
           () => afterOutlineReady(host, r.course_id),
           () => dropDraftJob());
       } catch (e) {
         Toast(e.message, true);
-        btn.disabled = false; btn.textContent = "生成大纲";
+        btn.disabled = false; btn.textContent = gt("生成大纲");
       }
     };
 
@@ -1043,7 +1171,7 @@
       bar.style.marginTop = "8px";
       bar.innerHTML = `↩ 正在继续 AI 材料《${esc(T.title || "材料")}》——它会作为这门课的学习材料。`;
       if (draftMeaningful(draft)) {
-        const back = el("button", "btn small", "回到我未完成的创建");
+        const back = el("button", "btn small", gt("回到我未完成的创建"));
         back.type = "button";
         back.style.marginLeft = "8px";
         back.onclick = () => { S.topicMode = null; renderMain(); };
@@ -1096,19 +1224,19 @@
       paintSrc(); paintChapters();
       if (d.status === "running") {
         if (T.outline.length) {
-          setStatus("上次写正文的任务还在后台继续，正在接回…", "writing");
+          setStatus(gt("上次写正文的任务还在后台继续，正在接回…"), "writing");
           pollGen(gid, paintWriting, finishWriting, failWriting);
         } else {
           // 同上：目录未出时 wrap 隐藏，状态写 #t-status 看不见
-          tHint.textContent = "上次的任务还在规划目录，正在接回…";
-          pollGen(gid, () => { tHint.textContent = "正在规划材料结构…"; }, applyOutline, failWriting);
+          tHint.textContent = gt("上次的任务还在规划目录，正在接回…");
+          pollGen(gid, () => { tHint.textContent = gt("正在规划材料结构…"); }, applyOutline, failWriting);
         }
       } else if (d.status === "failed") {
-        setStatus("上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。", "warn");
+        setStatus(gt("上次的材料生成中断了：已写好的章节仍留在任务里，可改主题后重新开始。"), "warn");
       } else if (T.docId) {
         setStatus(`✅ 材料已就绪：《${T.title}》，将作为本课的学习材料`, "done");
       } else if (T.outline.length) {
-        tHint.textContent = "目录已就绪，点「② 确认目录，开始写正文」继续。";
+        tHint.textContent = gt("目录已就绪，点「② 确认目录，开始写正文」继续。");
         setStatus("");
       }
     };
@@ -1152,14 +1280,14 @@
       const bar = el("div", "hint");
       bar.style.marginTop = "8px";
       bar.innerHTML = `↩ 已恢复上次未完成的创建（保存于 ${draftTimeText(draft.at)}）。`;
-      const clr = el("button", "btn small", "清空草稿，重新开始");
+      const clr = el("button", "btn small", gt("清空草稿，重新开始"));
       clr.type = "button";
       clr.style.marginLeft = "8px";
       clr.onclick = () => {
         clearDraft();
         S.topicMode = null;
         renderMain();
-        Toast("已清空草稿，从头开始", false);
+        Toast(gt("已清空草稿，从头开始"), false);
       };
       bar.appendChild(clr);
       card.insertBefore(bar, card.firstChild);
@@ -1193,7 +1321,7 @@
         misses = 0;
       } catch (e) {
         if (++misses > 20) {
-          Toast("与服务的连接不稳定，请稍后在课程页查看结果", true);
+          Toast(gt("与服务的连接不稳定，请稍后在课程页查看结果"), true);
           if (onFail) { onFail(e); return; }
           return;
         }
@@ -1213,12 +1341,12 @@
         return confirmOutline(host, courseId);
       }
       if (job.status === "failed") {
-        if (onFail) { onFail(new Error(job.error || "生成失败")); return; }
+        if (onFail) { onFail(new Error(job.error || gt("生成失败"))); return; }
         if (!host || !host.isConnected) return;   // 已切走：别往卸载的视图里写
         host.innerHTML = `<div class="card"><b>大纲生成失败</b><div class="hint">${esc(job.error || "")}</div>
           <div class="hint">多数是模型配置问题：没填 API、Key 无效、或端点连不上。</div>
           <div class="row" style="margin-top:12px">
-            <button class="btn primary" id="retry">重新生成</button>
+            <button class="btn primary" id="retry">${gt("重新生成")}</button>
             <button class="btn" id="to-settings">去设置检查模型</button>
           </div></div>`;
         document.getElementById("retry").onclick = openCreate;
@@ -1228,8 +1356,8 @@
       }
       await new Promise((r) => setTimeout(r, 700));
     }
-    Toast("生成超时，请稍后在课程页查看结果", true);
-    if (onFail) onFail(new Error("生成超时"));
+    Toast(gt("生成超时，请稍后在课程页查看结果"), true);
+    if (onFail) onFail(new Error(gt("生成超时")));
   }
 
   function showStage(host, stage) {
@@ -1249,20 +1377,20 @@
     if (!d || typeof d !== "object") return "";
     const rows = [];
     const push = (k, v, cls) => { if (v) rows.push({ k, v, cls: cls || "" }); };
-    push("学习目标", d.outcomes && d.outcomes.join("；"), "goal");
-    push("知识点边界", d.knowledge_points && d.knowledge_points.join("；"), "kp");
-    push("术语口径", d.concepts && d.concepts.join("、"), "");
-    push("涉及操作", d.operations && d.operations.join("；"), "");
+    push(gt("学习目标"), d.outcomes && d.outcomes.join("；"), "goal");
+    push(gt("知识点边界"), d.knowledge_points && d.knowledge_points.join("；"), "kp");
+    push(gt("术语口径"), d.concepts && d.concepts.join("、"), "");
+    push(gt("涉及操作"), d.operations && d.operations.join("；"), "");
     const tr = d.transition || {};
     const seg = [];
     if (tr.prev) seg.push(`承接 ${tr.prev}`);
     if (tr.next) seg.push(`引向 ${tr.next}`);
     if (tr.avoid) seg.push(`避免展开 ${tr.avoid}`);
-    push("讲间衔接", seg.join("；"), "tr");
-    push("可视化", d.visual && d.visual !== "无" ? d.visual : "", "vis");
-    push("考察点", d.exercise_focus && d.exercise_focus.join("；"), "goal");
-    push("易错点", d.expected_mistakes && d.expected_mistakes.join("；"), "tr");
-    push("题型安排", d.exercise_flow, "");
+    push(gt("讲间衔接"), seg.join("；"), "tr");
+    push(gt("可视化"), d.visual && d.visual !== "无" ? d.visual : "", "vis");
+    push(gt("考察点"), d.exercise_focus && d.exercise_focus.join("；"), "goal");
+    push(gt("易错点"), d.expected_mistakes && d.expected_mistakes.join("；"), "tr");
+    push(gt("题型安排"), d.exercise_flow, "");
     if (!rows.length) return "";
     // 内容统一在这里 esc（不要在拼串阶段转义，否则会双重转义）
     return `<details class="lesson-desc"><summary>教学设计 · AI 按此备课</summary>
@@ -1322,7 +1450,7 @@
       <div class="field" style="margin-top:12px">
         <label>重新生成前，写下你的要求（可选）</label>
         <textarea id="o-regen-note" rows="2"
-          placeholder="例如：单元再少一点，只保留 3 个；多放一些例题与易错点；先讲定义再讲计算"></textarea>
+          placeholder="${gt("例如：单元再少一点，只保留 3 个；多放一些例题与易错点；先讲定义再讲计算")}"></textarea>
         <div class="hint">点「重新生成」时会把这段要求交给模型，新大纲会尽量按你的描述调整；留空则按当前目标重新生成。</div>
       </div>
       <div class="field" style="margin-top:12px">
@@ -1338,7 +1466,7 @@
         <div class="hint">现在这门课是 ${curUnits} 个单元。改这里，或在上面的要求里写「生成 5 章」，点「重新生成」就会按新数量出纲。</div>
       </div>
       <div class="row" style="justify-content:flex-end">
-        <button class="btn" id="o-regen">重新生成</button>
+        <button class="btn" id="o-regen">${gt("重新生成")}</button>
         <button class="btn primary" id="o-ok">${editing ? "保存结构" : "确认，开始学习"}</button>
       </div>`;
     host.appendChild(card);
@@ -1372,22 +1500,22 @@
           const head = el("div", "row");
           head.innerHTML = `<input type="text" value="${esc(u.title)}" data-u="${ui}" style="flex:1">
             <span class="hint" data-upstage="${ui}"></span>
-            <button class="btn small" data-upre="${ui}">预生成整章</button>`;
+            <button class="btn small" data-upre="${ui}">${gt("预生成整章")}</button>`;
           box.appendChild(head);
           // 「预生成整章」：拿单元 id 调接口，后台串行补齐该单元缺失的讲义与练习（幂等）。
           const upBtn = head.querySelector(`[data-upre="${ui}"]`);
           if (upBtn) upBtn.onclick = async () => {
             const st = head.querySelector(`[data-upstage="${ui}"]`);
             const uid = ((c.units || [])[ui] || {}).id;
-            if (!uid) return Toast("这个单元还没落库，先保存结构再预生成", true);
-            upBtn.disabled = true; upBtn.textContent = "排队中…";
+            if (!uid) return Toast(gt("这个单元还没落库，先保存结构再预生成"), true);
+            upBtn.disabled = true; upBtn.textContent = gt("排队中…");
             try {
               const r = await Api.post(`/api/courses/units/${uid}/prefetch`, {});
               const q = r.queued || 0, sk = r.skipped || 0;
               if (st) st.textContent = q ? `已排队 ${q} 项（跳过 ${sk}）` : `都已就绪（跳过 ${sk}）`;
-              Toast(q ? `已排队 ${q} 项，后台生成中` : "本章内容都已就绪");
-            } catch (e) { Toast("预生成失败：" + e.message, true); }
-            finally { upBtn.disabled = false; upBtn.textContent = "预生成整章"; }
+              Toast(q ? `已排队 ${q} 项，后台生成中` : gt("本章内容都已就绪"));
+            } catch (e) { Toast(gt("预生成失败：") + e.message, true); }
+            finally { upBtn.disabled = false; upBtn.textContent = gt("预生成整章"); }
           };
         u.lessons.forEach((l, li) => {
           const row = el("div", "lesson-row");
@@ -1395,18 +1523,18 @@
           const t = el("input", null); t.type = "text"; t.value = l.title; t.style.flex = "1";
           t.oninput = () => { l.title = t.value; drawMap(); scheduleConfirmSave(); };
           const o = el("input", null); o.type = "text"; o.value = l.objective; o.style.flex = "1";
-          o.placeholder = "学习目标";
+          o.placeholder = gt("学习目标");
           o.oninput = () => { l.objective = o.value; drawMap(); scheduleConfirmSave(); };
-          const x = el("button", "btn small", "删除");
+          const x = el("button", "btn small", gt("删除"));
           x.onclick = () => { u.lessons.splice(li, 1); paint(); scheduleConfirmSave(); };
           row.appendChild(t); row.appendChild(o); row.appendChild(x);
           box.appendChild(row);
           const dd = descHtml(l.desc);
           if (dd) box.insertAdjacentHTML("beforeend", dd);
         });
-        const add = el("button", "btn small", "＋ 讲次");
+        const add = el("button", "btn small", gt("＋ 讲次"));
         add.onclick = () => {
-          u.lessons.push({ title: "新的讲次", objective: "", kind: "lecture" });
+          u.lessons.push({ title: gt("新的讲次"), objective: "", kind: "lecture" });
           paint();
           scheduleConfirmSave();
         };
@@ -1427,7 +1555,7 @@
       draft.units.forEach((u) => {
         lines.push(`- ${u.title || "未命名单元"}`);
         u.lessons.forEach((l) => {
-          const mark = l.kind === "practice" ? "（练习）" : "";
+          const mark = l.kind === "practice" ? gt("（练习）") : "";
           lines.push(`  - ${l.title || "未命名讲次"}${mark}`);
         });
       });
@@ -1455,9 +1583,9 @@
             desc: l.desc || null,
           })),
         }));
-      if (!units.length) return Toast("至少保留一个讲次", true);
+      if (!units.length) return Toast(gt("至少保留一个讲次"), true);
       const btn = document.getElementById("o-ok");
-      btn.disabled = true; btn.textContent = "保存中…";
+      btn.disabled = true; btn.textContent = gt("保存中…");
       try {
           await Api.post(`/api/courses/${courseId}/outline:confirm`, { title: c.title, units });
           clearConfirmDraft();      // 已写回服务端 → 这份「未保存改动」的使命结束
@@ -1469,16 +1597,16 @@
           // 清掉 ?confirm=，避免刷新后又跳回编辑器
           location.hash = "#/courses";
           renderMain();
-          Toast("结构已保存");
+          Toast(gt("结构已保存"));
         } else {
           // 同样要清掉 ?new=1：否则刷新页面会又跳进新建向导（用户反馈过的「残留」）
           goHash("#/courses");
           renderMain();
-          Toast("课程已就绪，开始学习吧");
+          Toast(gt("课程已就绪，开始学习吧"));
         }
       } catch (e) {
         Toast(e.message, true);
-        btn.disabled = false; btn.textContent = editing ? "保存结构" : "确认，开始学习";
+        btn.disabled = false; btn.textContent = editing ? gt("保存结构") : gt("确认，开始学习");
       }
     };
     document.getElementById("o-regen").onclick = async () => {
@@ -1503,15 +1631,15 @@
         }
         body.unit_count = unitCount;
       }
-      btn.disabled = true; btn.textContent = "重新生成中…";
+      btn.disabled = true; btn.textContent = gt("重新生成中…");
       // 立刻给出反馈，避免「点了没反应」的错觉。
-      showStage(host, note ? "正在按你的要求重新组织大纲…" : "正在重新生成大纲…");
+      showStage(host, note ? gt("正在按你的要求重新组织大纲…") : gt("正在重新生成大纲…"));
       try {
         const r = await Api.post(`/api/courses/${courseId}/outline:regenerate`, body);
         await pollOutline(courseId, r.job_id, host);
       } catch (e) {
         Toast(e.message, true);
-        btn.disabled = false; btn.textContent = "重新生成";
+        btn.disabled = false; btn.textContent = gt("重新生成");
         renderMain();
       }
     };
@@ -1532,7 +1660,7 @@
         stageEl.textContent = `生成中：${running[0].stage || "处理中"}…`;
         setTimeout(tick, 2000);
       } else {
-        stageEl.textContent = "预生成完成";
+        stageEl.textContent = gt("预生成完成");
       }
     };
     setTimeout(tick, 800);
@@ -1573,7 +1701,7 @@
       </div>
       <div class="hint">目标：${esc(c.goal)}</div>
       <div class="hint">基础 ${esc(c.level_name)} · 深度 ${esc(c.depth_name)} · 共 ${c.units.length} 个单元</div>
-      ${c.intent ? `<div class="hint">课型：${esc(c.intent.primary_name)}${c.intent.assist_name ? " ＋ " + esc(c.intent.assist_name) + "（辅助）" : ""}${c.intent.note ? " ｜ " + esc(c.intent.note) : ""}</div>` : ""}
+      ${c.intent ? `<div class="hint">课型：${esc(c.intent.primary_name)}${c.intent.assist_name ? " ＋ " + esc(c.intent.assist_name) + gt("（辅助）") : ""}${c.intent.note ? " ｜ " + esc(c.intent.note) : ""}</div>` : ""}
       ${srcHint}
       ${c.summary ? `<div class="hint" style="margin-top:6px">${esc(c.summary)}</div>` : ""}
       <div class="bar" style="margin-top:10px"><i style="width:${p.percent || 0}%"></i></div>
@@ -1583,7 +1711,7 @@
       ${c.error ? `<div class="hint" style="color:var(--bad)">${esc(c.error)}</div>` : ""}
       <div class="row" style="margin-top:10px">
         <button class="btn small" id="c-edit">编辑结构</button>
-        <button class="btn small" id="c-regen">重新生成大纲</button>
+        <button class="btn small" id="c-regen">${gt("重新生成大纲")}</button>
         ${needDesc ? '<button class="btn small" id="c-desc">补写教学设计</button>' : ""}
         <span class="hint" id="c-stage"></span>
       </div>
@@ -1592,7 +1720,7 @@
       <div class="field" style="margin-top:10px">
         <label>重新生成前，写下你的要求（可选）</label>
         <textarea id="c-regen-note" rows="2"
-          placeholder="例如：把单元拆得更细，每个单元只讲一个概念；多放一些典型例题"></textarea>
+          placeholder="${gt("例如：把单元拆得更细，每个单元只讲一个概念；多放一些典型例题")}"></textarea>
         <div class="hint">填写后点「重新生成大纲」，新大纲会按你的描述调整；留空则按当前目标重新生成。</div>
       </div>
       <div class="field" style="margin-top:10px">
@@ -1647,11 +1775,11 @@
         }
         body.unit_count = unitCount;
       }
-      btn.disabled = true; btn.textContent = "重新生成中…";
-      if (stage) stage.textContent = note ? "正在按你的要求重新组织大纲…" : "正在重新生成大纲…";
+      btn.disabled = true; btn.textContent = gt("重新生成中…");
+      if (stage) stage.textContent = note ? gt("正在按你的要求重新组织大纲…") : gt("正在重新生成大纲…");
       const resetBtn = () => {
         const b = document.getElementById("c-regen");
-        if (b) { b.disabled = false; b.textContent = "重新生成大纲"; }
+        if (b) { b.disabled = false; b.textContent = gt("重新生成大纲"); }
         const st = document.getElementById("c-stage");
         if (st) st.textContent = "";
       };
@@ -1665,12 +1793,12 @@
             await loadCourses();
             await loadCourse(c.id);
             renderDetail(host);
-            Toast("大纲已重新生成", false);
+            Toast(gt("大纲已重新生成"), false);
           },
           () => resetBtn());
       } catch (e) {
         Toast(e.message, true);
-        btn.disabled = false; btn.textContent = "重新生成大纲";
+        btn.disabled = false; btn.textContent = gt("重新生成大纲");
         if (stage) stage.textContent = "";
       }
     };
@@ -1681,7 +1809,7 @@
       descBtn.onclick = async () => {
         const stage = document.getElementById("c-stage");
         descBtn.disabled = true; descBtn.textContent = "补写中…";
-        if (stage) stage.textContent = "正在为每讲补写教学设计…";
+        if (stage) stage.textContent = gt("正在为每讲补写教学设计…");
         const reset = () => {
           const b = document.getElementById("c-desc");
           if (b) { b.disabled = false; b.textContent = "补写教学设计"; }
@@ -1694,9 +1822,9 @@
             async () => {
               await loadCourse(c.id);
               renderDetail(host);
-              Toast("教学设计已补写完成，展开各讲即可查看", false);
+              Toast(gt("教学设计已补写完成，展开各讲即可查看"), false);
             },
-            (err) => { Toast((err && err.message) || "补写失败，请稍后重试", true); reset(); });
+            (err) => { Toast((err && err.message) || gt("补写失败，请稍后重试"), true); reset(); });
         } catch (e) {
           Toast(e.message, true);
           reset();
@@ -1722,7 +1850,7 @@
           <b>第 ${u.ordinal} 单元 · ${esc(u.title)}</b>
           <span class="row" style="gap:6px;align-items:center">
             <span class="hint" data-upstage="${u.id}"></span>
-            <button class="btn small" data-upre="${u.id}">预生成整章</button>${tag}
+            <button class="btn small" data-upre="${u.id}">${gt("预生成整章")}</button>${tag}
           </span></div>
         ${u.summary ? `<div class="hint">${esc(u.summary)}</div>` : ""}
         ${st.questions
@@ -1733,15 +1861,15 @@
       const upBtn = box.querySelector(`[data-upre="${u.id}"]`);
       if (upBtn) upBtn.onclick = async () => {
         const st = box.querySelector(`[data-upstage="${u.id}"]`);
-        upBtn.disabled = true; upBtn.textContent = "排队中…";
+        upBtn.disabled = true; upBtn.textContent = gt("排队中…");
         try {
           const r = await Api.post(`/api/courses/units/${u.id}/prefetch`, {});
           const q = r.queued || 0, sk = r.skipped || 0;
           if (st) st.textContent = q ? `已排队 ${q} 项（跳过 ${sk}）` : `都已就绪（跳过 ${sk}）`;
-          Toast(q ? `已排队 ${q} 项，后台生成中` : "本章内容都已就绪");
+          Toast(q ? `已排队 ${q} 项，后台生成中` : gt("本章内容都已就绪"));
           if (q) pollUnitJobs(c.id, st);
-        } catch (e) { Toast("预生成失败：" + e.message, true); }
-        finally { upBtn.disabled = false; upBtn.textContent = "预生成整章"; }
+        } catch (e) { Toast(gt("预生成失败：") + e.message, true); }
+        finally { upBtn.disabled = false; upBtn.textContent = gt("预生成整章"); }
       };
       const list = el("div");
       (u.lessons || []).forEach((l) => {
@@ -1772,14 +1900,14 @@
       const foot = el("div", "row");
       foot.style.marginTop = "8px";
       const sum = el("button", "btn small",
-        u.summary_status === "ready" ? "查看单元总结" : "生成单元总结");
+        u.summary_status === "ready" ? gt("查看单元总结") : gt("生成单元总结"));
       sum.onclick = () => {
-        if (!lastLesson) return Toast("这个单元还没有讲次", true);
+        if (!lastLesson) return Toast(gt("这个单元还没有讲次"), true);
         location.hash = "#/lessons/" + lastLesson.id + "?tab=summary";
       };
       foot.appendChild(sum);
       if (u.summary_status === "ready") {
-        foot.appendChild(el("span", "pill ok", "总结已生成"));
+        foot.appendChild(el("span", "pill ok", gt("总结已生成")));
       }
       box.appendChild(foot);
       host.appendChild(box);
@@ -1821,7 +1949,7 @@
     const drop = document.getElementById("rs-drop");
     if (drop) {
       // 「不再等」只清掉这条草稿记录：课程本身已经建好了，不会因为这条丢东西
-      drop.onclick = () => { clearDraft(); Toast("已收起这次创建，课程在左侧列表里", false); openCourse(job.courseId); };
+      drop.onclick = () => { clearDraft(); Toast(gt("已收起这次创建，课程在左侧列表里"), false); openCourse(job.courseId); };
     }
     const stage = document.getElementById("rs-stage");
     await pollOutline(job.courseId, job.jobId, host, stage,
@@ -1861,7 +1989,7 @@
         renderList();
         return confirmOutline(document.getElementById("course-main"), target);
       } catch (e) {
-        Toast("打开结构编辑失败：" + e.message, true);
+        Toast(gt("打开结构编辑失败：") + e.message, true);
       }
     }
     renderMain();

@@ -5,6 +5,16 @@
  * 再经 canvas 转 PNG，产物清晰、可控，也不受页面滚动位置影响。
  */
 (function () {
+  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
+
+  window.I18n && window.I18n.merge({ en: {
+    "（代码块）": "(code block)",
+    "材料原文": "Material original",
+    "例子": "Example",
+    "公式": "Formula",
+    "概念": "Concept",
+    "补充": "Supplement",
+  } });
   "use strict";
 
   const PAD = 36;
@@ -16,8 +26,8 @@
     bg: "#ffffff", text: "#1f2430", muted: "#6b7280", line: "#e3e6ee",
     accent: "#4f46e5", soft: "#eef0ff",
     kind: {
-      concept: ["概念", "#eef2ff"], example: ["例子", "#ecfdf5"],
-      formula: ["公式", "#fff7ed"], quote: ["材料原文", "#fdf4ff"], note: ["补充", "#f8fafc"],
+      concept: [gt("概念"), "#eef2ff"], example: [gt("例子"), "#ecfdf5"],
+      formula: [gt("公式"), "#fff7ed"], quote: [gt("材料原文"), "#fdf4ff"], note: [gt("补充"), "#f8fafc"],
     },
   };
 
@@ -30,7 +40,7 @@
     return String(md || "")
       .replace(/\[\[\s*c\s*:\s*\d+\s*\]\]/g, "")
       .replace(/\[\d+\]/g, "")
-      .replace(/```[\s\S]*?```/g, "（代码块）")
+      .replace(/```[\s\S]*?```/g, gt("（代码块）"))
       .replace(/`([^`]*)`/g, "$1")
       .replace(/^#{1,6}\s*/gm, "")
       .replace(/\*\*([^*]*)\*\*/g, "$1")

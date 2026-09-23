@@ -7,7 +7,7 @@
  * - DICT 是唯一语言真相源，单一文件。本期只收 main.js + 切换器自身用到的 key；
  *   后续视图改造按同一规范「只追加 key」，不与本期冲突。
  * - t(key, vars)：查字典；缺失时回退 key 本身（并在 console.warn 一次，方便抓漏翻）；
- *   支持 {name} 插值：t("x", {name:"a"})。
+ *   支持 {name} 插值：gt("x", {name:"a"})。
  * - get()：读 localStorage，非 "en" 一律视作 zh（容错隐私模式 / 损坏值）。
  * - switch(lang)：写 localStorage；设 document.documentElement.lang；
  *   触发 window.dispatchEvent(new Event("zhiban-langchange")) 供调用方重渲染。
@@ -22,6 +22,10 @@ window.I18n = (function () {
      后续任务按需追加，不与本期冲突。 */
   var DICT = {
     zh: {
+      // 应用标识（index.html 首屏静态 + main.js 运行期按语言刷新）
+      "app.title": "知伴 · 本地 AI 学习伴侣",
+      "app.tagline": "本地 AI 学习伴侣",
+
       // 顶栏导航（main.js ROUTES）
       "nav.courses": "课程",
       "nav.workbench": "工作台",
@@ -56,6 +60,10 @@ window.I18n = (function () {
       "view.error": "加载失败：",
     },
     en: {
+      // App identity (static first paint in index.html; refreshed per language by main.js)
+      "app.title": "ZhiBan · Local AI Learning Companion",
+      "app.tagline": "Local AI Learning Companion",
+
       "nav.courses": "Courses",
       "nav.workbench": "Workbench",
       "nav.generate": "Materials",
@@ -84,12 +92,18 @@ window.I18n = (function () {
     },
   };
 
+  // 语言缓存：t() 每次调用都读 localStorage 是同步 IO，一页几百次会把
+  // --dump-dom 的虚拟时间预算耗光（拍到异步渲染未完成的中间态）。
+  var _lang = null;
+
   function get() {
+    if (_lang) return _lang;
     try {
-      return localStorage.getItem(KEY) === "en" ? "en" : "zh";
+      _lang = localStorage.getItem(KEY) === "en" ? "en" : "zh";
     } catch (e) {
-      return "zh";
+      _lang = "zh";
     }
+    return _lang;
   }
 
   // 只 warn 一次的漏翻 key（避免刷屏）
@@ -117,7 +131,9 @@ window.I18n = (function () {
 
   /* merge(partial)：视图级语言包并入 DICT。partial = {zh:{...}, en:{...}}。
      已存在的 key 不覆盖（先到先得：核心字典优先，视图包只补新增）。
-     并行改造时各视图包随自己的文件走，避免多路抢写同一文件。 */
+     并行改造时各视图包随自己的文件走，避免多路抢写同一文件。
+     只有 en 的视图包（中文即 key 模式）：把 key 自身补进 DICT.zh，
+     中文环境直接命中，不走「查不到 → warn」的慢路径。 */
   function merge(partial) {
     if (!partial || typeof partial !== "object") return;
     ["zh", "en"].forEach(function (lang) {
@@ -128,10 +144,17 @@ window.I18n = (function () {
         if (dict[k] === undefined) dict[k] = add[k];
       });
     });
+    if (partial.en && !partial.zh) {
+      var zhDict = DICT.zh;
+      Object.keys(partial.en).forEach(function (k) {
+        if (zhDict[k] === undefined) zhDict[k] = k;
+      });
+    }
   }
 
   function switchTo(lang) {
     lang = (lang === "en") ? "en" : "zh";
+    _lang = lang;
     try {
       localStorage.setItem(KEY, lang);
     } catch (e) { /* 隐私模式等，忽略 */ }

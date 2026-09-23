@@ -44,11 +44,12 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-TMP = ROOT / ".tmp" / "test-data-launcher"
+TMP = ROOT / ".tmp" / ("test-data-launcher-%d" % int(time.time()))
 
 # ⚠️ 这里**故意写死字面量**，不用 launcher.APP_TITLE_MARK：
 # 两者是同一条不变量（启动器认的窗口标题 == index.html 的 <title>）。

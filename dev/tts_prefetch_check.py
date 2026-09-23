@@ -41,12 +41,12 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
-DATA = ROOT / ".tmp" / "test-data-prefetch"
+DATA = ROOT / ".tmp" / ("test-data-prefetch-%d" % int(time.time()))
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 # 用户数据目录放 Q 盘**纯 ASCII** 路径（中文路径下 Chrome 行为不稳定）；
 # 详见 course_ui_check.py 里 UI_TMP / ui_profile() 的说明。本脚本用固定目录 + 主动清理。
 UI_TMP = Path(os.environ.get("ZHIBAN_TEST_TMP") or "Q:/zhiban_tmp")
-UD = str(UI_TMP / "ui-prefetch")
+UD = str(UI_TMP / ("ui-prefetch-%d" % int(time.time())))
 APPPORT = 8769
 CDP_PORT = 9229
 SYNTH_DELAY = 0.8          # 假端点单次合成耗时
@@ -203,10 +203,8 @@ def main() -> int:
     print(f"[0] 假语音端点 127.0.0.1:{tts_port}/audio/speech"
           f"（每次合成 sleep {SYNTH_DELAY}s，音频 {AUDIO_SECONDS}s）")
 
-    if DATA.exists():
-        _safe_wipe(DATA)
+    # DATA 带时间戳每轮全新；不做清理（rmtree 撞沙箱 turn 级删除护栏会终止进程）。
     DATA.mkdir(parents=True)
-    _safe_wipe(UD)
 
     env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": str(APPPORT),
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
@@ -463,8 +461,6 @@ def main() -> int:
                 except Exception:
                     pass
         srv.shutdown()
-        _safe_wipe(DATA)
-        _safe_wipe(UD)
 
     print("\n" + "=" * 56)
     print(f"通过 {len(PASS)} 项，失败 {len(FAIL)} 项")

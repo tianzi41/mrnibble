@@ -50,7 +50,7 @@
     });
   }
 
-  // 语言切换器（顶栏，主题切换旁边）：选项固定「中 / EN」，title 用 t() 取自身文案。
+  // 语言切换器（顶栏，主题切换旁边）：选项固定「中 / EN」，title 用 gt() 取自身文案。
   function buildLangSel() {
     const sel = document.getElementById("lang-sel");
     if (!sel) return;
@@ -147,13 +147,23 @@
   window.addEventListener("hashchange", route);
   // 语言切换：I18n.switch 会派发此事件 → 全量重渲染（导航 / 徽标 / 当前视图），
   // 供切换器与其他调用方共用同一套刷新逻辑。
+  // 品牌副标题与文档标题（静态 HTML 只给首屏与爬虫，运行期按语言刷新）。
+  function paintChrome() {
+    const sub = document.getElementById("brand-sub");
+    if (sub) sub.textContent = window.I18n.t("app.tagline");
+    document.title = window.I18n.t("app.title");
+  }
+
   window.addEventListener("zhiban-langchange", function () {
     const sel = document.getElementById("lang-sel");
     if (sel) { sel.value = window.I18n.get(); sel.title = window.I18n.t("lang.label"); }
     buildNav();
+    if (window.Theme && window.Theme.refresh) window.Theme.refresh();
+    paintChrome();
     refreshModelBadge();
     route();
   });
+  paintChrome();
   refreshModelBadge().then(route);
 
   // 页面心跳：桌面启动器据此判断应用窗口是否仍然打开。

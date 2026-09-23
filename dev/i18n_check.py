@@ -203,8 +203,6 @@ def main() -> int:
     UD = TMPROOT / f"i18n-probe-{ts}"
     DATA = TMPROOT / f"i18n-data-{ts}"
     log(f"=== i18n_check 启动 ts={ts} ===")
-    _safe_wipe(UD)
-    _safe_wipe(DATA)
     UD.mkdir(parents=True, exist_ok=True)
     DATA.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": str(PORT),
@@ -268,8 +266,6 @@ def main() -> int:
                 p.kill()
             except Exception:
                 pass
-        _safe_wipe(UD)
-        _safe_wipe(DATA)
 
     log(f"\n通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     for f in FAIL:

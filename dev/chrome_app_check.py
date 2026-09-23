@@ -30,8 +30,8 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / ".venv" / "Scripts" / "python.exe"
-DATA = ROOT / ".tmp" / "test-data-chromeapp"
-UD = ROOT / ".tmp" / "test-ud-chromeapp"
+DATA = ROOT / ".tmp" / ("test-data-chromeapp-%d" % int(time.time()))
+UD = ROOT / ".tmp" / ("test-ud-chromeapp-%d" % int(time.time()))
 PORT = 8766
 CDP = 9227
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
@@ -115,8 +115,6 @@ async def _probe(target: dict) -> None:
 
 
 def main() -> int:
-    _safe_wipe(DATA)
-    _safe_wipe(UD)
     DATA.mkdir(parents=True)
     env = {**os.environ, "ZHIBAN_DATA_DIR": str(DATA), "ZHIBAN_PORT": str(PORT),
            "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"}
@@ -167,8 +165,6 @@ def main() -> int:
                 p.kill()
             except Exception:
                 pass
-        _safe_wipe(DATA)
-        _safe_wipe(UD)
 
     print(f"\n通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
     for f in FAIL:

@@ -1,16 +1,40 @@
 /* 资料生成页：速查表 / 笔记 / 思维导图 / Quiz / 闪卡 + 导出。 */
 (function () {
+  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
+
+  window.I18n && window.I18n.merge({ en: {
+    "核心概念 / 简记口诀 / 易错点 / 章节框架": "Core concepts / mnemonics / pitfalls / chapter framework",
+    "把整学期课件压缩成一页可翻阅的重点": "Compress a whole term's slides into one flippable page of key points",
+    "问答式主动回忆，可导出 Anki": "Q&A active recall, exportable to Anki",
+    "请先选择至少 1 份来源材料": "Select at least 1 source material first",
+    "当场做题当场纠错（含解析）": "Practice and correct on the spot (with explanations)",
+    "建立知识框架与逻辑关系": "Build a knowledge framework and logical relationships",
+    "已导出图片": "Image exported",
+    "生成失败：": "Generation failed: ",
+    "学习笔记": "Study notes",
+    "导出 ▾": "Export ▾",
+    "导出图片": "Export image",
+    "已导出 ": "Exported ",
+    "思维导图": "Mind map",
+    "生成中…": "Generating…",
+    "生成完成": "Done",
+    "生成超时": "Timed out",
+    "练习题": "Practice",
+    "速查表": "Cheat sheet",
+    "标准": "Standard",
+    "闪卡": "Flashcards",
+  } });
   "use strict";
 
   const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   const TYPES = [
-    ["cheatsheet", "速查表", "把整学期课件压缩成一页可翻阅的重点"],
-    ["notes", "学习笔记", "核心概念 / 简记口诀 / 易错点 / 章节框架"],
-    ["mindmap", "思维导图", "建立知识框架与逻辑关系"],
-    ["quiz", "练习题", "当场做题当场纠错（含解析）"],
-    ["flashcard", "闪卡", "问答式主动回忆，可导出 Anki"],
+    ["cheatsheet", gt("速查表"), gt("把整学期课件压缩成一页可翻阅的重点")],
+    ["notes", gt("学习笔记"), gt("核心概念 / 简记口诀 / 易错点 / 章节框架")],
+    ["mindmap", gt("思维导图"), gt("建立知识框架与逻辑关系")],
+    ["quiz", gt("练习题"), gt("当场做题当场纠错（含解析）")],
+    ["flashcard", gt("闪卡"), gt("问答式主动回忆，可导出 Anki")],
   ];
   const S = { type: "cheatsheet", docs: [], selected: [], lengths: "standard", count: 10, current: null, polls: {} };
 
@@ -31,7 +55,7 @@
         <div class="row" style="align-items:flex-end">
           <div class="field"><label>篇幅</label>
             <select id="gen-length">
-              <option value="brief">精简</option><option value="standard" selected>标准</option><option value="detailed">详尽</option>
+              <option value="brief">精简</option><option value="standard" selected>${gt("标准")}</option><option value="detailed">详尽</option>
             </select></div>
           <div class="field" id="gen-count-wrap"><label>数量</label><input type="text" id="gen-count" value="10"></div>
           <div style="flex:1"></div>
@@ -89,13 +113,13 @@
   }
 
   async function start() {
-    if (!S.selected.length) return Toast("请先选择至少 1 份来源材料", true);
+    if (!S.selected.length) return Toast(gt("请先选择至少 1 份来源材料"), true);
     try {
       const d = await Api.post("/api/generations", {
         type: S.type, document_ids: S.selected,
         params: { length: S.lengths, count: S.count, language: "zh-CN" },
       });
-      Toast("生成中…");
+      Toast(gt("生成中…"));
       showPreview({ id: d.generation_id, status: "running" });
       poll(d.generation_id);
     } catch (e) { Toast(e.message, true); }
@@ -104,11 +128,11 @@
   async function poll(id) {
     for (let i = 0; i < 300; i++) {
       const g = await Api.get("/api/generations/" + id);
-      if (g.status === "ready") { S.current = g; showPreview(g); Toast("生成完成"); return; }
-      if (g.status === "failed") { showPreview(g); Toast("生成失败：" + g.error, true); return; }
+      if (g.status === "ready") { S.current = g; showPreview(g); Toast(gt("生成完成")); return; }
+      if (g.status === "failed") { showPreview(g); Toast(gt("生成失败：") + g.error, true); return; }
       await new Promise((r) => setTimeout(r, 700));
     }
-    Toast("生成超时", true);
+    Toast(gt("生成超时"), true);
   }
 
   function showPreview(g) {
@@ -132,7 +156,7 @@
     head.innerHTML = `<b>${g.title || ""}</b><span style="flex:1"></span>`;
     const dl = document.createElement("button");
     dl.className = "btn small";
-    dl.textContent = "导出 ▾";
+    dl.textContent = gt("导出 ▾");
     dl.onclick = () => exportMenu(g, dl);
     head.appendChild(dl);
     card.appendChild(head);
@@ -146,7 +170,7 @@
       const svg = MD.mindmap(mm, g.content_md || "");
       if (svg) {
         const png = document.createElement("button");
-        png.className = "btn small"; png.textContent = "导出图片";
+        png.className = "btn small"; png.textContent = gt("导出图片");
         png.style.marginLeft = "8px";
         png.onclick = () => exportImage(g, svg);
         head.appendChild(png);
@@ -201,7 +225,7 @@
         try {
           const r = await Api.post("/api/exports", { generation_id: g.id, format: fmt });
           Api.download(r.download_url);
-          Toast("已导出 " + r.file_name);
+          Toast(gt("已导出 ") + r.file_name);
         } catch (e) { Toast(e.message, true); }
       };
       pop.appendChild(b);
@@ -231,7 +255,7 @@
           fd.append("image", b, "mindmap.png");
           const r = await Api.upload(`/api/exports/image?generation_id=${g.id}`, fd);
           Api.download(r.download_url);
-          Toast("已导出图片");
+          Toast(gt("已导出图片"));
         } catch (e) { Toast(e.message, true); }
       }, "image/png");
     };

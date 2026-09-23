@@ -16,7 +16,7 @@
   // 仅用于把状态提示里的 model 名做 HTML 转义，避免渲染进 innerHTML 时出问题。
   const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const t = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
+  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
 
   window.I18n && window.I18n.merge({
     zh: {
@@ -159,20 +159,20 @@
     host.innerHTML = `
 <div class="welcome">
   <div class="welcome-head">
-    <b>${t("welcome.intro.title")}</b>
-    <span class="welcome-step">${t("welcome.intro.step", { n: 1 })}</span>
+    <b>${gt("welcome.intro.title")}</b>
+    <span class="welcome-step">${gt("welcome.intro.step", { n: 1 })}</span>
   </div>
   <p class="hint" style="margin:0">
-    ${t("welcome.intro.desc")}
+    ${gt("welcome.intro.desc")}
   </p>
-  <img class="welcome-img" src="/static/assets/intro.png" alt="${t("welcome.intro.img_alt")}">
+  <img class="welcome-img" src="/static/assets/intro.png" alt="${gt("welcome.intro.img_alt")}">
   <div class="welcome-audio">
-    <button class="btn small" id="w-play">${t("welcome.intro.play")}</button>
-    <span class="hint" id="w-audio-hint">${t("welcome.intro.hint")}</span>
+    <button class="btn small" id="w-play">${gt("welcome.intro.play")}</button>
+    <span class="hint" id="w-audio-hint">${gt("welcome.intro.hint")}</span>
   </div>
   <div class="welcome-foot">
-    <button class="btn" id="w-skip">${t("welcome.intro.skip")}</button>
-    <button class="btn primary" id="w-next">${t("welcome.intro.next")}</button>
+    <button class="btn" id="w-skip">${gt("welcome.intro.skip")}</button>
+    <button class="btn primary" id="w-next">${gt("welcome.intro.next")}</button>
   </div>
 </div>`;
 
@@ -194,7 +194,7 @@
         const p = a.play();
         if (p && p.catch) p.catch(() => {
           armNarrGestureFallback();
-          if (hint) hint.textContent = t("welcome.intro.hint.blocked");
+          if (hint) hint.textContent = gt("welcome.intro.hint.blocked");
         });
       } catch (e) { /* 老浏览器忽略 */ }
     };
@@ -209,16 +209,16 @@
     host.innerHTML = `
 <div class="welcome">
   <div class="welcome-head">
-    <b>${t("welcome.profile.title")}</b>
-    <span class="welcome-step">${t("welcome.profile.step", { n: 2 })}</span>
+    <b>${gt("welcome.profile.title")}</b>
+    <span class="welcome-step">${gt("welcome.profile.step", { n: 2 })}</span>
   </div>
   <p class="hint" style="margin:0">
-    ${t("welcome.profile.desc")}
+    ${gt("welcome.profile.desc")}
   </p>
   <div id="w-quiz" class="welcome-quiz"></div>
   <div class="welcome-foot">
-    <button class="btn" id="w-skip-all">${t("welcome.profile.skip_all")}</button>
-    <button class="btn" id="w-back">${t("welcome.profile.back")}</button>
+    <button class="btn" id="w-skip-all">${gt("welcome.profile.skip_all")}</button>
+    <button class="btn" id="w-back">${gt("welcome.profile.back")}</button>
   </div>
 </div>`;
 
@@ -248,32 +248,32 @@
     const llm = (_cfg && _cfg.llm) || {};
     const ok = !!((llm.base_url || "").trim() && (llm.model || "").trim());
     const apiNote = ok
-      ? `<p class="hint" style="margin-top:10px">${t("welcome.api.detected", { model: esc(llm.model) })}</p>`
+      ? `<p class="hint" style="margin-top:10px">${gt("welcome.api.detected", { model: esc(llm.model) })}</p>`
       : "";
     host.innerHTML = `
 <div class="welcome">
   <div class="welcome-head">
-    <b>${t("welcome.api.title")}</b>
-    <span class="welcome-step">${t("welcome.api.step", { n: 3 })}</span>
+    <b>${gt("welcome.api.title")}</b>
+    <span class="welcome-step">${gt("welcome.api.step", { n: 3 })}</span>
   </div>
   <div class="card">
-    <b>${t("welcome.api.lead")}</b>
+    <b>${gt("welcome.api.lead")}</b>
     <p class="hint" style="margin:8px 0 0">
-      ${t("welcome.api.desc")}
+      ${gt("welcome.api.desc")}
     </p>
     <ol style="margin:10px 0 0;padding-left:22px;line-height:2">
-      <li>${t("welcome.api.step1")}</li>
-      <li>${t("welcome.api.step2")}</li>
-      <li>${t("welcome.api.step3")}</li>
+      <li>${gt("welcome.api.step1")}</li>
+      <li>${gt("welcome.api.step2")}</li>
+      <li>${gt("welcome.api.step3")}</li>
     </ol>
     <p class="hint" style="margin-top:10px">
-      ${t("welcome.api.note")}
+      ${gt("welcome.api.note")}
     </p>
     ${apiNote}
   </div>
   <div class="welcome-foot">
-    <button class="btn" id="w-later">${ok ? t("welcome.api.edit_settings") : t("welcome.api.skip")}</button>
-    <button class="btn primary" id="w-go">${ok ? t("welcome.api.finish") : t("welcome.api.go_settings")}</button>
+    <button class="btn" id="w-later">${ok ? gt("welcome.api.edit_settings") : gt("welcome.api.skip")}</button>
+    <button class="btn primary" id="w-go">${ok ? gt("welcome.api.finish") : gt("welcome.api.go_settings")}</button>
   </div>
 </div>`;
 

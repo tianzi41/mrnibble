@@ -4,7 +4,7 @@
 
   const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const t = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
+  const gt = (k, v) => window.I18n ? window.I18n.t(k, v) : k;
 
   window.I18n && window.I18n.merge({
     zh: {
@@ -364,130 +364,130 @@
     page.className = "page";
     page.innerHTML = `
       <div class="card" id="llm-card">
-        <h3 style="margin:0 0 4px">${t("settings.llm.title")}</h3>
-        <p class="hint" style="margin-top:0">${t("settings.llm.hint")}</p>
-        <div class="field"><label>${t("settings.llm.preset")}</label>
-          <select id="st-preset"><option value="">${t("settings.llm.preset.pick")}</option>
+        <h3 style="margin:0 0 4px">${gt("settings.llm.title")}</h3>
+        <p class="hint" style="margin-top:0">${gt("settings.llm.hint")}</p>
+        <div class="field"><label>${gt("settings.llm.preset")}</label>
+          <select id="st-preset"><option value="">${gt("settings.llm.preset.pick")}</option>
             ${PRESETS.map((p, i) => `<option value="${i}">${esc(pName(i))}</option>`).join("")}
-            <option value="custom">${t("settings.llm.preset.custom")}</option>
+            <option value="custom">${gt("settings.llm.preset.custom")}</option>
           </select></div>
         <div class="row">
-          <div class="field"><label>${t("settings.llm.base")}</label><input type="text" id="st-base" value="${esc(cfg.llm.base_url)}" placeholder="https://api.deepseek.com"></div>
-          <div class="field" style="max-width:280px"><label>${t("settings.llm.model")}</label>
+          <div class="field"><label>${gt("settings.llm.base")}</label><input type="text" id="st-base" value="${esc(cfg.llm.base_url)}" placeholder="https://api.deepseek.com"></div>
+          <div class="field" style="max-width:280px"><label>${gt("settings.llm.model")}</label>
             <input type="text" id="st-model" value="${esc(cfg.llm.model)}" placeholder="deepseek-flash">
-            <button class="btn small" id="st-models" style="margin-top:6px">${t("settings.llm.fetch_models")}</button>
+            <button class="btn small" id="st-models" style="margin-top:6px">${gt("settings.llm.fetch_models")}</button>
             <div id="st-model-list" class="hint" style="margin-top:6px"></div>
           </div>
         </div>
         <div class="row">
-          <div class="field"><label>${t("settings.llm.key")}</label>
-            <input type="password" id="st-key" placeholder="${cfg.llm.api_key_set ? t("settings.llm.key.keep", { mask: esc(cfg.llm.api_key_masked) }) : t("settings.llm.key.ph")}"></div>
-          <div class="field" style="max-width:120px"><label>${t("settings.llm.temp")}</label><input type="text" id="st-temp" value="${esc(cfg.llm.temperature)}"></div>
-          <div class="field" style="max-width:140px"><label>${t("settings.llm.maxtok")}</label><input type="text" id="st-maxtok" value="${esc(cfg.llm.max_tokens)}"></div>
+          <div class="field"><label>${gt("settings.llm.key")}</label>
+            <input type="password" id="st-key" placeholder="${cfg.llm.api_key_set ? gt("settings.llm.key.keep", { mask: esc(cfg.llm.api_key_masked) }) : gt("settings.llm.key.ph")}"></div>
+          <div class="field" style="max-width:120px"><label>${gt("settings.llm.temp")}</label><input type="text" id="st-temp" value="${esc(cfg.llm.temperature)}"></div>
+          <div class="field" style="max-width:140px"><label>${gt("settings.llm.maxtok")}</label><input type="text" id="st-maxtok" value="${esc(cfg.llm.max_tokens)}"></div>
         </div>
         <div class="field">
-          <label>${t("settings.llm.think")}</label>
-          <label class="switch"><input type="checkbox" id="st-think"${cfg.llm.enable_thinking ? " checked" : ""}> ${t("settings.llm.think.on")}</label>
-          <div class="hint" style="margin-top:6px">${t("settings.llm.think.hint")}</div>
+          <label>${gt("settings.llm.think")}</label>
+          <label class="switch"><input type="checkbox" id="st-think"${cfg.llm.enable_thinking ? " checked" : ""}> ${gt("settings.llm.think.on")}</label>
+          <div class="hint" style="margin-top:6px">${gt("settings.llm.think.hint")}</div>
         </div>
         <div class="field">
-          <label>${t("settings.llm.prefetch")}</label>
-          <label class="switch"><input type="checkbox" id="st-prefetch"${(cfg.prefetch && cfg.prefetch.enabled) ? " checked" : ""}> ${t("settings.llm.prefetch.on")}</label>
-          <div class="hint" style="margin-top:6px">${t("settings.llm.prefetch.hint")}</div>
+          <label>${gt("settings.llm.prefetch")}</label>
+          <label class="switch"><input type="checkbox" id="st-prefetch"${(cfg.prefetch && cfg.prefetch.enabled) ? " checked" : ""}> ${gt("settings.llm.prefetch.on")}</label>
+          <div class="hint" style="margin-top:6px">${gt("settings.llm.prefetch.hint")}</div>
         </div>
         <div class="row">
-          <button class="btn primary" id="st-save">${t("settings.llm.save")}</button>
-          <button class="btn" id="st-test">${t("settings.llm.test")}</button>
+          <button class="btn primary" id="st-save">${gt("settings.llm.save")}</button>
+          <button class="btn" id="st-test">${gt("settings.llm.test")}</button>
           <span class="hint" id="st-test-result"></span>
         </div>
-        <p class="hint">${t("settings.llm.offline")}</p>
+        <p class="hint">${gt("settings.llm.offline")}</p>
       </div>
 
       <div class="card" id="pf-card">
-        <h3 style="margin:0 0 4px">${t("settings.pf.title")}</h3>
+        <h3 style="margin:0 0 4px">${gt("settings.pf.title")}</h3>
         <p class="hint" style="margin-top:0">
-          ${t("settings.pf.hint")}
+          ${gt("settings.pf.hint")}
         </p>
         <div id="pf-editor"></div>
         <div class="row" style="margin-top:10px">
-          <button class="btn small" id="pf-replay">${t("settings.pf.replay")}</button>
+          <button class="btn small" id="pf-replay">${gt("settings.pf.replay")}</button>
           <span class="hint" id="pf-result"></span>
         </div>
       </div>
 
       <div class="card">
-        <h3 style="margin:0 0 4px">${t("settings.em.title")}</h3>
+        <h3 style="margin:0 0 4px">${gt("settings.em.title")}</h3>
         <p class="hint" style="margin-top:0">
-          ${t("settings.em.hint")}
+          ${gt("settings.em.hint")}
         </p>
         <div class="row">
-          <div class="field" style="max-width:260px"><label>${t("settings.em.provider")}</label>
+          <div class="field" style="max-width:260px"><label>${gt("settings.em.provider")}</label>
             <select id="em-provider">
-              ${[["auto", t("settings.em.provider.auto")],
-                 ["cloud", t("settings.em.provider.cloud")],
-                 ["local", t("settings.em.provider.local")]]
+              ${[["auto", gt("settings.em.provider.auto")],
+                 ["cloud", gt("settings.em.provider.cloud")],
+                 ["local", gt("settings.em.provider.local")]]
                 .map(([v, n]) => `<option value="${v}" ${cfg.embed.provider === v ? "selected" : ""}>${n}</option>`).join("")}
             </select></div>
-          <div class="field"><label>${t("settings.em.base")}</label><input type="text" id="em-base" value="${esc(cfg.embed.base_url)}"></div>
-          <div class="field"><label>${t("settings.em.model")}</label><input type="text" id="em-model" value="${esc(cfg.embed.model)}" placeholder="text-embedding-3-small"></div>
+          <div class="field"><label>${gt("settings.em.base")}</label><input type="text" id="em-base" value="${esc(cfg.embed.base_url)}"></div>
+          <div class="field"><label>${gt("settings.em.model")}</label><input type="text" id="em-model" value="${esc(cfg.embed.model)}" placeholder="text-embedding-3-small"></div>
         </div>
         <div class="row">
-          <div class="field" style="max-width:220px"><label>${t("settings.em.local_engine")}</label>
+          <div class="field" style="max-width:220px"><label>${gt("settings.em.local_engine")}</label>
             <select id="em-local-engine">
-              <option value="hash" ${cfg.embed.local_engine !== "bge" ? "selected" : ""}>${t("settings.em.engine.hash")}</option>
-              <option value="bge" ${cfg.embed.local_engine === "bge" ? "selected" : ""}>${t("settings.em.engine.bge")}</option>
+              <option value="hash" ${cfg.embed.local_engine !== "bge" ? "selected" : ""}>${gt("settings.em.engine.hash")}</option>
+              <option value="bge" ${cfg.embed.local_engine === "bge" ? "selected" : ""}>${gt("settings.em.engine.bge")}</option>
             </select>
             <div class="hint" id="em-bge-status" style="margin-top:4px"></div>
           </div>
-          <div class="field"><label>${t("settings.em.local_dir")}</label><input type="text" id="em-local-dir" value="${esc(cfg.embed.local_dir || "models/embed/bge-small-zh-v1.5")}"></div>
+          <div class="field"><label>${gt("settings.em.local_dir")}</label><input type="text" id="em-local-dir" value="${esc(cfg.embed.local_dir || "models/embed/bge-small-zh-v1.5")}"></div>
         </div>
         <div class="row">
-          <button class="btn small" id="em-models">${t("settings.em.fetch_models")}</button>
+          <button class="btn small" id="em-models">${gt("settings.em.fetch_models")}</button>
           <div id="em-model-list" class="hint"></div>
         </div>
         <div class="row">
-          <div class="field"><label>${t("settings.em.key")}</label><input type="password" id="em-key" placeholder="${esc(cfg.embed.api_key_set ? t("settings.em.key.keep") : "")}"></div>
-          <button class="btn primary" id="em-save">${t("settings.em.save")}</button>
+          <div class="field"><label>${gt("settings.em.key")}</label><input type="password" id="em-key" placeholder="${esc(cfg.embed.api_key_set ? gt("settings.em.key.keep") : "")}"></div>
+          <button class="btn primary" id="em-save">${gt("settings.em.save")}</button>
         </div>
       </div>
 
       <div class="card">
-        <h3 style="margin:0 0 4px">${t("settings.voice.title")}</h3>
+        <h3 style="margin:0 0 4px">${gt("settings.voice.title")}</h3>
         <div class="field">
-          <label>${t("settings.asr.title")}</label>
+          <label>${gt("settings.asr.title")}</label>
           <div class="row">
-            <span class="pill ${asr.available ? "ok" : "bad"}">${t("settings.asr.pill", { state: asr.available ? t("settings.asr.ready") : t("settings.asr.missing") })}</span>
-            <span class="pill">${asr.loaded ? t("settings.asr.loaded") : t("settings.asr.lazy")}</span>
-            <span class="hint">${t("settings.asr.hint")}</span>
-            ${asr.available ? "" : `<button class="btn small" id="asr-dl">${t("settings.asr.download")}</button>`}
+            <span class="pill ${asr.available ? "ok" : "bad"}">${gt("settings.asr.pill", { state: asr.available ? gt("settings.asr.ready") : gt("settings.asr.missing") })}</span>
+            <span class="pill">${asr.loaded ? gt("settings.asr.loaded") : gt("settings.asr.lazy")}</span>
+            <span class="hint">${gt("settings.asr.hint")}</span>
+            ${asr.available ? "" : `<button class="btn small" id="asr-dl">${gt("settings.asr.download")}</button>`}
           </div>
         </div>
         <div class="field">
-          <label>${t("settings.tts.title")}</label>
+          <label>${gt("settings.tts.title")}</label>
           <div class="row">
             <select id="tts-mode" class="tts-mode-sel" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px">
-              ${[["off", t("settings.tts.mode.off")], ["local", t("settings.tts.mode.local")], ["cloud", t("settings.tts.mode.cloud")],
-                 ["custom", t("settings.tts.mode.custom")]]
+              ${[["off", gt("settings.tts.mode.off")], ["local", gt("settings.tts.mode.local")], ["cloud", gt("settings.tts.mode.cloud")],
+                 ["custom", gt("settings.tts.mode.custom")]]
                 .map(([v, n]) => `<option value="${v}" ${tts.mode === v ? "selected" : ""}>${n}</option>`).join("")}
             </select>
             <div class="field" id="tts-local-wrap">
-              <label>${t("settings.tts.local_engine")}</label>
+              <label>${gt("settings.tts.local_engine")}</label>
               <select id="tts-engine" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px">
-                ${[["system", t("settings.tts.engine.system")], ["melo", t("settings.tts.engine.melo")]]
+                ${[["system", gt("settings.tts.engine.system")], ["melo", gt("settings.tts.engine.melo")]]
                   .map(([v, n]) => `<option value="${v}" ${(cfg.tts.local_engine || "melo") === v ? "selected" : ""}>${n}</option>`).join("")}
               </select>
               <span class="hint" id="tts-engine-hint"></span>
             </div>
           </div>
           <div class="row" id="tts-cloud-row">
-            <div class="field" id="tts-cloud-wrap"><label>${t("settings.tts.cloud.base")}</label><input type="text" id="tts-base" value="${esc(cfg.tts.base_url)}" placeholder="${t("settings.tts.cloud.base.ph")}"></div>
-            <div class="field" id="tts-cloud-model"><label>${t("settings.tts.cloud.model")}</label><input type="text" id="tts-model" value="${esc(cfg.tts.model)}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
-            <div class="field" id="tts-voice-wrap"><label>${t("settings.tts.voice")}</label><input type="text" id="tts-voice" value="${esc(cfg.tts.voice || "")}" placeholder="${t("settings.tts.voice.ph")}"><span class="hint" id="tts-voice-meta"></span></div>
+            <div class="field" id="tts-cloud-wrap"><label>${gt("settings.tts.cloud.base")}</label><input type="text" id="tts-base" value="${esc(cfg.tts.base_url)}" placeholder="${gt("settings.tts.cloud.base.ph")}"></div>
+            <div class="field" id="tts-cloud-model"><label>${gt("settings.tts.cloud.model")}</label><input type="text" id="tts-model" value="${esc(cfg.tts.model)}" placeholder="FunAudioLLM/SpeechT5/TTS"></div>
+            <div class="field" id="tts-voice-wrap"><label>${gt("settings.tts.voice")}</label><input type="text" id="tts-voice" value="${esc(cfg.tts.voice || "")}" placeholder="${gt("settings.tts.voice.ph")}"><span class="hint" id="tts-voice-meta"></span></div>
           </div>
           <div class="row" id="tts-discover-row">
-            <button class="btn small" id="tts-models">${t("settings.tts.fetch_models")}</button>
-            <button class="btn small" id="tts-voices-fetch">${t("settings.tts.fetch_voices")}</button>
-            <button class="btn small" id="tts-voices-probe">${t("settings.tts.probe_voices")}</button>
+            <button class="btn small" id="tts-models">${gt("settings.tts.fetch_models")}</button>
+            <button class="btn small" id="tts-voices-fetch">${gt("settings.tts.fetch_voices")}</button>
+            <button class="btn small" id="tts-voices-probe">${gt("settings.tts.probe_voices")}</button>
           </div>
           <p class="hint" id="tts-discover-result"></p>
           <!-- 列表用「点击填入」按钮（与对话模型选择器同一模式）。
@@ -498,49 +498,49 @@
           <div id="tts-voice-list" class="hint"></div>
           <div id="tts-custom-wrap" style="display:none">
             <div class="field">
-              <label>${t("settings.tts.custom.url")}</label>
+              <label>${gt("settings.tts.custom.url")}</label>
               <input type="text" id="tts-custom-url" value="${esc(cfg.tts.custom_url || "")}"
                      placeholder="http://127.0.0.1:9880/tts?text={text}&text_lang=zh&media_type=wav">
-              <div class="hint">${t("settings.tts.custom.url.hint")}</div>
+              <div class="hint">${gt("settings.tts.custom.url.hint")}</div>
             </div>
             <div class="row">
               <div class="field" style="max-width:150px">
-                <label>${t("settings.tts.custom.method")}</label>
+                <label>${gt("settings.tts.custom.method")}</label>
                 <select id="tts-custom-method">
-                  ${[["GET", t("settings.tts.custom.method.get")], ["POST", t("settings.tts.custom.method.post")]]
+                  ${[["GET", gt("settings.tts.custom.method.get")], ["POST", gt("settings.tts.custom.method.post")]]
                     .map(([v, n]) => `<option value="${v}" ${(cfg.tts.custom_method || "GET") === v ? "selected" : ""}>${n}</option>`).join("")}
                 </select>
               </div>
               <div class="field" style="max-width:150px">
-                <label>${t("settings.tts.custom.format")}</label>
+                <label>${gt("settings.tts.custom.format")}</label>
                 <select id="tts-custom-format">
                   ${[["wav", "wav"], ["mp3", "mp3"], ["ogg", "ogg"]]
                     .map(([v, n]) => `<option value="${v}" ${(cfg.tts.custom_format || "wav") === v ? "selected" : ""}>${n}</option>`).join("")}
                 </select>
               </div>
               <div class="field" style="max-width:130px">
-                <label>${t("settings.tts.custom.timeout")}</label>
+                <label>${gt("settings.tts.custom.timeout")}</label>
                 <input type="text" id="tts-custom-timeout" value="${esc(String(cfg.tts.custom_timeout || 60))}">
               </div>
             </div>
             <div class="field">
-              <label>${t("settings.tts.custom.body")}</label>
+              <label>${gt("settings.tts.custom.body")}</label>
               <input type="text" id="tts-custom-body" value="${esc(cfg.tts.custom_body || '{"text":"{text}"}')}">
-              <div class="hint">${t("settings.tts.custom.body.example")}</div>
+              <div class="hint">${gt("settings.tts.custom.body.example")}</div>
             </div>
             <div class="row">
-              <button class="btn small" id="tts-custom-test">${t("settings.tts.custom.test")}</button>
+              <button class="btn small" id="tts-custom-test">${gt("settings.tts.custom.test")}</button>
               <span class="hint" id="tts-custom-test-result"></span>
             </div>
           </div>
           <div class="row" id="tts-key-row">
-            <div class="field"><label>${t("settings.tts.key")}</label><input type="password" id="tts-key" placeholder="${esc(cfg.tts.api_key_set ? t("settings.tts.key.keep") : t("settings.tts.key.same_site"))}"></div>
+            <div class="field"><label>${gt("settings.tts.key")}</label><input type="password" id="tts-key" placeholder="${esc(cfg.tts.api_key_set ? gt("settings.tts.key.keep") : gt("settings.tts.key.same_site"))}"></div>
           </div>
           <p class="hint" id="tts-live"></p>
           <div class="row">
-            <button class="btn" id="tts-test">${t("settings.tts.test")}</button>
-            <button class="btn primary" id="tts-save">${t("settings.tts.save")}</button>
-            <button class="btn" id="tts-preview">${t("settings.tts.preview")}</button>
+            <button class="btn" id="tts-test">${gt("settings.tts.test")}</button>
+            <button class="btn primary" id="tts-save">${gt("settings.tts.save")}</button>
+            <button class="btn" id="tts-preview">${gt("settings.tts.preview")}</button>
           </div>
           <!-- 结果单独成行：文案很长（含 HTTP 状态与实际请求 URL），
                塞在按钮同一行会把按钮挤到换行，导致「保存语音设/置」这种断词。 -->
@@ -560,12 +560,12 @@
       answers: window.Profile.fromSettings(cfg),
       onSave: (a) => {
         Api.put("/api/settings", { profile: window.Profile.toPayload(a) })
-          .then(() => { Toast(t("settings.pf.saved")); })
+          .then(() => { Toast(gt("settings.pf.saved")); })
           .catch((e) => Toast(e.message, true));
       },
       onClear: () => {
         Api.put("/api/settings", { profile: window.Profile.toPayload({}) })
-          .then(() => { Toast(t("settings.pf.cleared")); })
+          .then(() => { Toast(gt("settings.pf.cleared")); })
           .catch((e) => Toast(e.message, true));
       },
     });
@@ -612,8 +612,8 @@
       const base = val("st-base");
       const model = val("st-model");
       // 只填地址不填模型名 = 无法提问；必须在保存时就说清楚，不能静默通过。
-      if (!base) { document.getElementById("st-base").focus(); return Toast(t("settings.err.no_base"), true); }
-      if (!model) { document.getElementById("st-model").focus(); return Toast(t("settings.err.no_model"), true); }
+      if (!base) { document.getElementById("st-base").focus(); return Toast(gt("settings.err.no_base"), true); }
+      if (!model) { document.getElementById("st-model").focus(); return Toast(gt("settings.err.no_model"), true); }
       const patch = {
         llm: {
           base_url: base, model: model,
@@ -629,15 +629,15 @@
       try {
         await Api.put("/api/settings", patch);
       } catch (e) {
-        return Toast(t("settings.err.save_failed", { msg: e.detail || e.message }), true);
+        return Toast(gt("settings.err.save_failed", { msg: e.detail || e.message }), true);
       }
-      let msg = t("settings.saved");
+      let msg = gt("settings.saved");
       // 引导正卡在 api 步且未完成 → 用户在此页配好了 API，保存即视为完成引导。
       if (_guide && _guide.step === "api" && !_guide.done) {
         try {
           await Api.put("/api/settings", { guide: { step: "", done: true } });
           _guide = { step: "", done: true };
-          msg = t("settings.saved.guide_done");
+          msg = gt("settings.saved.guide_done");
         } catch (e) { /* 引导收尾失败不覆盖「已保存」提示 */ }
       }
       Toast(msg); Main.refreshModelBadge();
@@ -645,13 +645,13 @@
     document.getElementById("st-test").onclick = async () => {
       const out = document.getElementById("st-test-result");
       const base = val("st-base"), model = val("st-model");
-      if (!base) { document.getElementById("st-base").focus(); return Toast(t("settings.err.no_base"), true); }
-      if (!model) { document.getElementById("st-model").focus(); return Toast(t("settings.err.no_model"), true); }
-      out.textContent = t("settings.common.testing");
+      if (!base) { document.getElementById("st-base").focus(); return Toast(gt("settings.err.no_base"), true); }
+      if (!model) { document.getElementById("st-model").focus(); return Toast(gt("settings.err.no_model"), true); }
+      out.textContent = gt("settings.common.testing");
       await saveIfChanged();
       try {
         const r = await Api.post("/api/settings/test", { target: "llm" });
-        out.textContent = t("settings.test.ok", { ms: r.latency_ms }) + (r.warning ? t("settings.test.warn") + r.warning : "");
+        out.textContent = gt("settings.test.ok", { ms: r.latency_ms }) + (r.warning ? gt("settings.test.warn") + r.warning : "");
         if (r.warning) Toast(r.warning, true);
         Main.refreshModelBadge();
       } catch (e) { out.textContent = "❌ " + e.message; }
@@ -661,11 +661,11 @@
       const provider = val("em-provider");
       const base = val("em-base"), model = val("em-model");
       if (provider !== "local" && !base && !cfg.llm.base_url) {
-        return Toast(t("settings.em.err.no_base"), true);
+        return Toast(gt("settings.em.err.no_base"), true);
       }
       if (provider === "cloud" && !model) {
         document.getElementById("em-model").focus();
-        return Toast(t("settings.em.err.cloud_model"), true);
+        return Toast(gt("settings.em.err.cloud_model"), true);
       }
       const patch = {
         embed: {
@@ -678,9 +678,9 @@
       if (key) patch.embed.api_key = key;
       await Api.put("/api/settings", patch);
       if (provider !== "local" && !model) {
-        Toast(t("settings.em.saved.degraded"), true);
+        Toast(gt("settings.em.saved.degraded"), true);
       } else {
-        Toast(t("settings.em.saved"));
+        Toast(gt("settings.em.saved"));
       }
     };
 
@@ -689,8 +689,8 @@
       const el2 = document.getElementById("em-bge-status");
       if (el2 && st) {
         el2.textContent = st.bge_available
-          ? t("settings.em.bge.ready", { dir: st.bge_dir || "" })
-          : t("settings.em.bge.missing");
+          ? gt("settings.em.bge.ready", { dir: st.bge_dir || "" })
+          : gt("settings.em.bge.missing");
       }
     }).catch(() => { /* 状态拿不到就不显示 */ });
 
@@ -703,9 +703,9 @@
     if (cusTest) cusTest.onclick = async () => {
       const out = document.getElementById("tts-custom-test-result");
       const url = val("tts-custom-url");
-      if (!url) return Toast(t("settings.tts.custom.err.no_url"), true);
+      if (!url) return Toast(gt("settings.tts.custom.err.no_url"), true);
       cusTest.disabled = true;
-      if (out) out.textContent = t("settings.tts.custom.testing");
+      if (out) out.textContent = gt("settings.tts.custom.testing");
       try {
         await Api.put("/api/settings", { tts: {
           enabled: true, mode: "custom", custom_url: url,
@@ -728,10 +728,10 @@
         }
         const blob = await resp.blob();
         await new Audio(URL.createObjectURL(blob)).play();
-        if (out) out.textContent = t("settings.tts.custom.ok");
+        if (out) out.textContent = gt("settings.tts.custom.ok");
       } catch (e) {
         if (out) out.textContent = "";
-        Toast(t("settings.tts.custom.failed", { msg: e.message }), true);
+        Toast(gt("settings.tts.custom.failed", { msg: e.message }), true);
       } finally { cusTest.disabled = false; }
     };
     const engSel = document.getElementById("tts-engine");
@@ -773,7 +773,7 @@
         key = ((tts.local_engine || "system") === "melo" && tts.local_model_available)
           ? "settings.tts.live.melo" : "settings.tts.live.system";
       }
-      live.textContent = t(key);
+      live.textContent = gt(key);
     }
     refreshTtsLive();
 
@@ -787,10 +787,10 @@
       if (!box) return;
       box.innerHTML = "";
       if (!(items || []).length) {
-        box.textContent = t("settings.tts.voices.empty");
+        box.textContent = gt("settings.tts.voices.empty");
         return;
       }
-      box.textContent = t("settings.tts.voices.fill");
+      box.textContent = gt("settings.tts.voices.fill");
       (items || []).forEach((v) => {
         const b = document.createElement("button");
         b.className = "btn small";
@@ -801,16 +801,16 @@
         b.onclick = () => {
           const inp = document.getElementById("tts-voice");
           if (inp) inp.value = v.id;
-          Toast(t("settings.tts.voices.filled", { id: v.id }));
+          Toast(gt("settings.tts.voices.filled", { id: v.id }));
         };
         box.appendChild(b);
       });
       const meta = document.getElementById("tts-voice-meta");
       if (meta) {
         const c = counts || {};
-        meta.textContent = t("settings.tts.voices.meta", {
+        meta.textContent = gt("settings.tts.voices.meta", {
           n: items.length, api: c.api || 0, builtin: c.builtin || 0, probe: c.probe || 0,
-          def: defaultVoice || t("settings.tts.voices.default"),
+          def: defaultVoice || gt("settings.tts.voices.default"),
         }) + (note ? `（${note}）` : "");
       }
     }
@@ -821,15 +821,15 @@
       const meta = document.getElementById("tts-voice-meta");
       if (!opts.quiet) {
         try { await pushTtsForm(); }
-        catch (e) { Toast(t("settings.tts.err.save", { msg: e.message }), true); return false; }
-        if (meta) meta.textContent = t("settings.tts.fetching.voices");
+        catch (e) { Toast(gt("settings.tts.err.save", { msg: e.message }), true); return false; }
+        if (meta) meta.textContent = gt("settings.tts.fetching.voices");
       }
       try {
         const r = await Api.get("/api/tts/voices" + (opts.refresh ? "?refresh=1" : ""));
         fillVoiceList(r.items, r.default_voice, r.source_counts, r.official_error || "");
         return true;
       } catch (e) {
-        if (!opts.quiet) Toast(t("settings.tts.err.voices", { msg: e.message }), true);
+        if (!opts.quiet) Toast(gt("settings.tts.err.voices", { msg: e.message }), true);
         return false;
       }
     }
@@ -838,16 +838,16 @@
       const out = document.getElementById("tts-discover-result");
       const list = document.getElementById("tts-model-list");
       try { await pushTtsForm(); }
-      catch (e) { out.textContent = "❌ " + t("settings.tts.err.save", { msg: e.message }); return; }
-      out.textContent = t("settings.tts.fetching.models");
+      catch (e) { out.textContent = "❌ " + gt("settings.tts.err.save", { msg: e.message }); return; }
+      out.textContent = gt("settings.tts.fetching.models");
       try {
         const r = await Api.get("/api/settings/models?target=tts");
         const models = (r.models || []).filter(Boolean);
         if (list) {
           list.innerHTML = "";
-          if (!models.length) { list.textContent = t("settings.tts.no_models"); }
+          if (!models.length) { list.textContent = gt("settings.tts.no_models"); }
           else {
-            list.textContent = t("settings.tts.voices.fill");
+            list.textContent = gt("settings.tts.voices.fill");
             models.slice(0, 30).forEach((m) => {
               const b = document.createElement("button");
               b.className = "btn small";
@@ -856,44 +856,44 @@
               b.onclick = () => {
                 const inp = document.getElementById("tts-model");
                 if (inp) inp.value = m;
-                Toast(t("settings.tts.models.filled", { m: m }));
+                Toast(gt("settings.tts.models.filled", { m: m }));
               };
               list.appendChild(b);
             });
           }
         }
         out.textContent = models.length
-          ? t("settings.tts.models.count", { n: models.length })
-          : t("settings.tts.no_models");
-      } catch (e) { out.textContent = "❌ " + t("settings.tts.err.models", { msg: e.message }); }
+          ? gt("settings.tts.models.count", { n: models.length })
+          : gt("settings.tts.no_models");
+      } catch (e) { out.textContent = "❌ " + gt("settings.tts.err.models", { msg: e.message }); }
     };
 
     document.getElementById("tts-voices-fetch").onclick = async () => {
       const out = document.getElementById("tts-discover-result");
-      out.textContent = t("settings.tts.fetching.voices");
+      out.textContent = gt("settings.tts.fetching.voices");
       const okr = await fetchVoices({});
       out.textContent = okr
-        ? t("settings.tts.voices.done")
-        : t("settings.tts.voices.failed");
+        ? gt("settings.tts.voices.done")
+        : gt("settings.tts.voices.failed");
     };
 
     document.getElementById("tts-voices-probe").onclick = async () => {
       const btn = document.getElementById("tts-voices-probe");
       const out = document.getElementById("tts-discover-result");
       const old = btn.textContent;
-      btn.disabled = true; btn.textContent = t("settings.tts.probe.running");
-      out.textContent = t("settings.tts.probe.hint");
+      btn.disabled = true; btn.textContent = gt("settings.tts.probe.running");
+      out.textContent = gt("settings.tts.probe.hint");
       try {
         await pushTtsForm();
         const r = await Api.post("/api/tts/voices/probe", { limit: 12 });
         const bad = (r.items || []).filter((x) => !x.ok);
-        out.textContent = t("settings.tts.probe.done", { ok: r.ok, n: r.items.length })
-          + (r.already ? t("settings.tts.probe.already", { n: r.already }) : "")
-          + (r.skipped ? t("settings.tts.probe.skipped", { n: r.skipped }) : "")
-          + (bad.length ? t("settings.tts.probe.bad", { id: bad[0].id, err: bad[0].error || "HTTP " + bad[0].http }) : "");
+        out.textContent = gt("settings.tts.probe.done", { ok: r.ok, n: r.items.length })
+          + (r.already ? gt("settings.tts.probe.already", { n: r.already }) : "")
+          + (r.skipped ? gt("settings.tts.probe.skipped", { n: r.skipped }) : "")
+          + (bad.length ? gt("settings.tts.probe.bad", { id: bad[0].id, err: bad[0].error || "HTTP " + bad[0].http }) : "");
         await fetchVoices({ quiet: true });   // 成功者已进缓存，刷新列表
       } catch (e) {
-        out.textContent = "❌ " + t("settings.tts.probe.err", { msg: e.message });
+        out.textContent = "❌ " + gt("settings.tts.probe.err", { msg: e.message });
       } finally {
         btn.disabled = false; btn.textContent = old;
       }
@@ -906,20 +906,20 @@
     document.getElementById("tts-test").onclick = async () => {
       const out = document.getElementById("tts-test-result");
       if (document.getElementById("tts-mode").value !== "cloud") {
-        out.textContent = t("settings.tts.test.cloud_only");
+        out.textContent = gt("settings.tts.test.cloud_only");
         return;
       }
-      out.textContent = t("settings.common.testing");
+      out.textContent = gt("settings.common.testing");
       try {
         // 先把表单里的端点/模型名/Key 提交，否则测的是旧配置
         await pushTtsForm();
         const r = await Api.post("/api/settings/test", { target: "tts" });
-        out.textContent = "✅ " + (r.message || t("settings.tts.test.ok"));
+        out.textContent = "✅ " + (r.message || gt("settings.tts.test.ok"));
       } catch (e) {
         // ApiError 已把封套里的 error.detail 取到 e.detail —— 那是唯一能说明
         // 「到底哪里不对」的信息（端点未配置 / 连不上 / 401 / 404），必须显示。
         const extra = [e.message, e.detail].filter(Boolean).join(" —— ");
-        out.textContent = t("settings.tts.test.err", { msg: extra, url: await effectiveTtsUrl() });
+        out.textContent = gt("settings.tts.test.err", { msg: extra, url: await effectiveTtsUrl() });
       }
     };
 
@@ -927,16 +927,16 @@
       try {
         await pushTtsForm();
       } catch (e) {
-        return Toast(t("settings.err.save_failed", { msg: e.message }), true);
+        return Toast(gt("settings.err.save_failed", { msg: e.message }), true);
       }
-      Toast(t("settings.tts.saved"));
+      Toast(gt("settings.tts.saved"));
       try { tts = await Api.get("/api/tts/status"); } catch (e) { /* 刷新失败不影响保存 */ }
       if (window.Voice && Voice.syncFromServer) await Voice.syncFromServer();
       refreshTtsLive();   // 刷新「当前生效引擎」
     };
 
     const dl = document.getElementById("asr-dl");
-    if (dl) dl.onclick = () => Toast(t("settings.asr.dl_hint"), true);
+    if (dl) dl.onclick = () => Toast(gt("settings.asr.dl_hint"), true);
 
     // 试听真正会请求到的端点（脱敏：只拼 base+path，绝不打印 Key）。供用户排查用。
     async function effectiveTtsUrl() {
@@ -944,7 +944,7 @@
       let base = (cfg.tts && cfg.tts.base_url) || "";
       if (!base) base = (cfg.llm && cfg.llm.base_url) || "";
       base = (base || "").trim().replace(/\/+$/, "");
-      return base ? t("settings.tts.url.effective", { base: base }) : t("settings.tts.url.none");
+      return base ? gt("settings.tts.url.effective", { base: base }) : gt("settings.tts.url.none");
     }
 
     // 试听：三种模式都能在设置页直接听效果，并暴露「实际请求的 URL」让用户自查。
@@ -953,11 +953,11 @@
       const mode = document.getElementById("tts-mode").value;
       const eng = (document.getElementById("tts-engine") || {}).value || "system";
       const SENT = "知伴朗读测试：中文路径本身没有问题，问题在于不要把中文写进批处理文件。";
-      if (mode === "off") { out.textContent = t("settings.tts.preview.pick_mode"); return; }
-      out.textContent = t("settings.tts.preview.testing");
+      if (mode === "off") { out.textContent = gt("settings.tts.preview.pick_mode"); return; }
+      out.textContent = gt("settings.tts.preview.testing");
 
       if (mode === "cloud") {
-        try { await pushTtsForm(); } catch (e) { out.textContent = "❌ " + t("settings.tts.err.save", { msg: e.message }); return; }
+        try { await pushTtsForm(); } catch (e) { out.textContent = "❌ " + gt("settings.tts.err.save", { msg: e.message }); return; }
         const t0 = performance.now();
         try {
           const resp = await fetch("/api/tts/speech", {
@@ -974,7 +974,7 @@
               d = (j.error && j.error.detail) || j.detail || "";
             } catch (e) { /* 非 JSON 响应 */ }
             const extra = [s, d].filter(Boolean).join(" —— ");
-            out.textContent = t("settings.tts.preview.cloud.failed", { code: resp.status, extra: extra ? "：" + extra : "" });
+            out.textContent = gt("settings.tts.preview.cloud.failed", { code: resp.status, extra: extra ? "：" + extra : "" });
             out.textContent += "（" + (await effectiveTtsUrl()) + "）";
             return;
           }
@@ -982,10 +982,10 @@
           const blob = await resp.blob();
           const ms = Math.round(performance.now() - t0);
           try { await new Audio(URL.createObjectURL(blob)).play(); } catch (e) { /* 自动播放被拦也照样报元数据 */ }
-          out.textContent = `✅ ${t("settings.tts.mode.cloud")} OK：HTTP 200，${mime}，${blob.size} ${en ? "bytes" : "字节"}，${ms} ms`;
+          out.textContent = `✅ ${gt("settings.tts.mode.cloud")} OK：HTTP 200，${mime}，${blob.size} ${en ? "bytes" : "字节"}，${ms} ms`;
           out.textContent += "（" + (await effectiveTtsUrl()) + "）";
         } catch (e) {
-          out.textContent = t("settings.tts.preview.cloud.failed2", { msg: e.message });
+          out.textContent = gt("settings.tts.preview.cloud.failed2", { msg: e.message });
           out.textContent += "（" + (await effectiveTtsUrl()) + "）";
         }
         return;   // 无论成功失败都不再往下走本地分支
@@ -999,27 +999,27 @@
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: SENT }),
           });
-          if (!resp.ok) { out.textContent = t("settings.tts.preview.melo.failed", { code: resp.status }); return; }
+          if (!resp.ok) { out.textContent = gt("settings.tts.preview.melo.failed", { code: resp.status }); return; }
           const blob = await resp.blob();
           try { await new Audio(URL.createObjectURL(blob)).play(); } catch (e) {}
-          out.textContent = t("settings.tts.preview.melo.ok", { n: blob.size });
-        } catch (e) { out.textContent = t("settings.tts.preview.melo.err", { msg: e.message }); }
+          out.textContent = gt("settings.tts.preview.melo.ok", { n: blob.size });
+        } catch (e) { out.textContent = gt("settings.tts.preview.melo.err", { msg: e.message }); }
         return;
       }
       // system：浏览器系统语音试听（原逻辑）
-      if (!window.speechSynthesis) { out.textContent = t("settings.tts.preview.no_synth"); return; }
+      if (!window.speechSynthesis) { out.textContent = gt("settings.tts.preview.no_synth"); return; }
       const vs = speechSynthesis.getVoices() || [];
       const zh = vs.find((v) => /zh[-_]?CN|cmn|Huihui|Yaoyao|Xiaoxiao|Kangkang|晓晓|慧慧/i.test(v.name + " " + v.lang))
               || vs.find((v) => /^zh/i.test(v.lang));
       const u = new SpeechSynthesisUtterance(SENT);
       u.lang = "zh-CN";
       if (zh) u.voice = zh;
-      u.onerror = (e) => { out.textContent = t("settings.tts.preview.play_failed", { reason: (e && e.error) || t("settings.tts.preview.unknown") }); };
+      u.onerror = (e) => { out.textContent = gt("settings.tts.preview.play_failed", { reason: (e && e.error) || gt("settings.tts.preview.unknown") }); };
       try { speechSynthesis.cancel(); speechSynthesis.speak(u); }
       catch (e) { out.textContent = "❌ " + e.message; return; }
       out.textContent = vs.length
-        ? t("settings.tts.preview.system.ok", { n: vs.length, name: zh ? zh.name + "（" + zh.lang + "）" : t("settings.tts.preview.system.no_zh") })
-        : t("settings.tts.preview.system.none");
+        ? gt("settings.tts.preview.system.ok", { n: vs.length, name: zh ? zh.name + "（" + zh.lang + "）" : gt("settings.tts.preview.system.no_zh") })
+        : gt("settings.tts.preview.system.none");
     };
 
     // 从端点拉取可用模型名：模型名写错/留空是「连得上却问不出话」的头号原因。
@@ -1027,9 +1027,9 @@
       const btn = document.getElementById(btnId);
       const list = document.getElementById(listId);
       const base = val(target === "llm" ? "st-base" : "em-base");
-      if (!base && !cfg.llm.base_url) { Toast(t("settings.err.no_base"), true); return; }
+      if (!base && !cfg.llm.base_url) { Toast(gt("settings.err.no_base"), true); return; }
       const old = btn.textContent;
-      btn.disabled = true; btn.textContent = t("settings.common.testing_short");
+      btn.disabled = true; btn.textContent = gt("settings.common.testing_short");
       try {
         const patch = target === "llm" ? { llm: { base_url: base } }
           : { embed: { base_url: base, provider: val("em-provider") } };
@@ -1039,19 +1039,19 @@
         const r = await Api.get("/api/settings/models?target=" + target);
         const models = r.models || [];
         list.innerHTML = "";
-        if (!models.length) { list.textContent = t("settings.models.empty"); return; }
-        list.textContent = t("settings.models.fill");
+        if (!models.length) { list.textContent = gt("settings.models.empty"); return; }
+        list.textContent = gt("settings.models.fill");
         models.slice(0, 20).forEach((m) => {
           const b = document.createElement("button");
           b.className = "btn small";
           b.textContent = m;
           b.style.margin = "4px 4px 0 0";
-          b.onclick = () => { applyFn(m); Toast(t("settings.models.filled", { m: m })); };
+          b.onclick = () => { applyFn(m); Toast(gt("settings.models.filled", { m: m })); };
           list.appendChild(b);
         });
       } catch (e) {
         list.innerHTML = "";
-        Toast(t("settings.models.err", { msg: e.message }), true);
+        Toast(gt("settings.models.err", { msg: e.message }), true);
       } finally { btn.disabled = false; btn.textContent = old; }
     }
     document.getElementById("st-models").onclick = () =>
@@ -1087,14 +1087,14 @@
     if (!sel) return;
     if (sel.value === "melo") {
       if (TtsModelReady) {
-        hint.textContent = t("settings.tts.hint.melo.ready");
+        hint.textContent = gt("settings.tts.hint.melo.ready");
         hint.style.color = "";
       } else {
-        hint.textContent = t("settings.tts.hint.melo.missing");
+        hint.textContent = gt("settings.tts.hint.melo.missing");
         hint.style.color = "var(--bad)";
       }
     } else {
-      hint.textContent = t("settings.tts.hint.system");
+      hint.textContent = gt("settings.tts.hint.system");
       hint.style.color = "";
     }
   }
